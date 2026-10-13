@@ -2,6 +2,7 @@ node_modules/
 dist/
 *.db
 *.db-journal
+server/backups/
 .worktrees/
 .superpowers/
 docs/superpowers/specs/
