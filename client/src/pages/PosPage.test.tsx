@@ -157,6 +157,109 @@ describe("POS checkout flow", () => {
     expect(screen.getByText("Sale #8")).toBeDefined();
   });
 
+describe("Today panel + daily summary", () => {
+  const today = new Date().toISOString().slice(0, 10);
+
+  it("summary header renders split totals with voided flag and Void/Unvoid buttons", async () => {
+    globalThis.fetch = vi.fn(async (url: unknown) => {
+      const u = String(url);
+      if (u === "/api/categories") return ok(categories);
+      if (u === "/api/menu_items?active=1") return ok(items);
+      if (u.startsWith("/api/sales/summary"))
+        return ok({
+          date: today,
+          cash_total_cents: 16000,
+          gcash_total_cents: 9000,
+          sale_count: 1,
+          voided_count: 1,
+        });
+      if (u.startsWith("/api/sales?"))
+        return ok([
+          { id: 1, total_cents: 16000, payment: "cash", voided: 0, created_at: `${today} 06:30:00` },
+          { id: 2, total_cents: 9000, payment: "gcash", voided: 1, created_at: `${today} 07:15:00` },
+        ]);
+      throw new Error(`unexpected fetch ${u}`);
+    }) as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Today");
+
+    // Split method totals via the shared formatPeso helper. Each amount
+    // appears twice: once in the summary header, once in its sale row.
+    expect(screen.getAllByText("₱160")).toHaveLength(2);
+    expect(screen.getAllByText("₱90")).toHaveLength(2);
+
+    expect(screen.getByText("Sale #1")).toBeDefined();
+    expect(screen.getByText("Sale #2")).toBeDefined();
+    expect(screen.getByText("Voided")).toBeDefined();
+    expect(
+      screen.getByRole("button", { name: "Void sale 1" }),
+    ).toBeDefined();
+    expect(
+      screen.getByRole("button", { name: "Unvoid sale 2" }),
+    ).toBeDefined();
+  });
+
+  it("void button issues PATCH {voided} and refreshes the list + summary", async () => {
+    let rows = [
+      { id: 1, total_cents: 16000, payment: "cash", voided: 0, created_at: `${today} 06:30:00` },
+    ];
+    const patchBodies: unknown[] = [];
+    const summary = () => {
+      const live = rows.filter((row) => row.voided === 0);
+      return {
+        date: today,
+        cash_total_cents: live
+          .filter((row) => row.payment === "cash")
+          .reduce((sum, row) => sum + row.total_cents, 0),
+        gcash_total_cents: live
+          .filter((row) => row.payment === "gcash")
+          .reduce((sum, row) => sum + row.total_cents, 0),
+        sale_count: live.length,
+        voided_count: rows.filter((row) => row.voided === 1).length,
+      };
+    };
+    globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
+      const u = String(url);
+      if (u === "/api/categories") return ok(categories);
+      if (u === "/api/menu_items?active=1") return ok(items);
+      if (u === "/api/sales/1" && init?.method === "PATCH") {
+        const body = JSON.parse(String(init.body));
+        patchBodies.push(body);
+        rows = rows.map((row) =>
+          row.id === 1 ? { ...row, voided: body.voided } : row,
+        );
+        return ok({ ...rows[0], items: [] });
+      }
+      if (u.startsWith("/api/sales/summary")) return ok(summary());
+      if (u.startsWith("/api/sales?")) return ok(rows);
+      throw new Error(`unexpected fetch ${u} ${init?.method}`);
+    }) as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Sale #1");
+    // ₱160 twice: summary header + the sale row.
+    expect(screen.getAllByText("₱160")).toHaveLength(2);
+    expect(screen.queryByText("Voided")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Void sale 1" }));
+
+    // PATCH payload is exactly {voided}, and the refreshed list + summary
+    // show the void (flag, Unvoid button, header cash total back to zero
+    // while the row keeps its rung-up total).
+    await waitFor(() => {
+      expect(screen.getByText("Voided")).toBeDefined();
+    });
+    expect(patchBodies).toEqual([{ voided: 1 }]);
+    expect(
+      screen.getByRole("button", { name: "Unvoid sale 1" }),
+    ).toBeDefined();
+    await waitFor(() => {
+      expect(screen.getAllByText("₱160")).toHaveLength(1);
+    });
+  });
+});
+
   it("steppers adjust quantities and remove lines", async () => {
     globalThis.fetch = vi.fn(async (url: unknown) => {
       const u = String(url);

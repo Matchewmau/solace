@@ -309,34 +309,28 @@ export function createApp(dbPath) {
     return sale;
   }
 
-  app.post("/api/sales", (req, res) => {
-    const { payment, items } = req.body ?? {};
-    if (payment !== "cash" && payment !== "gcash") {
-      return sendError(res, 400, "payment must be 'cash' or 'gcash'");
-    }
+  // Shared by POST /api/sales and PUT /api/sales/:id/items: look up ACTIVE
+  // prices and compute the total server-side. Client-supplied totals are
+  // ignored (never read). Returns {lines} or {error}.
+  function resolveItemLines(items) {
     if (!Array.isArray(items) || items.length === 0) {
-      return sendError(res, 400, "items must be a non-empty array");
+      return { error: "items must be a non-empty array" };
     }
-    // Look up ACTIVE prices; the total is always computed server-side.
     const lines = [];
     for (const line of items) {
       const menuItemId = line?.menu_item_id;
       const qty = line?.qty;
       if (!isInt(menuItemId)) {
-        return sendError(res, 400, "menu_item_id must be an integer");
+        return { error: "menu_item_id must be an integer" };
       }
       if (!isInt(qty) || qty < 1) {
-        return sendError(res, 400, "qty must be an integer of at least 1");
+        return { error: "qty must be an integer of at least 1" };
       }
       const menuItem = db
         .prepare("SELECT id, price_cents FROM menu_items WHERE id = ? AND active = 1")
         .get(menuItemId);
       if (!menuItem) {
-        return sendError(
-          res,
-          400,
-          `unknown or inactive menu_item_id: ${menuItemId}`,
-        );
+        return { error: `unknown or inactive menu_item_id: ${menuItemId}` };
       }
       lines.push({
         menu_item_id: menuItem.id,
@@ -344,6 +338,20 @@ export function createApp(dbPath) {
         unit_price_cents: menuItem.price_cents,
       });
     }
+    return { lines };
+  }
+
+  app.post("/api/sales", (req, res) => {
+    const { payment, items } = req.body ?? {};
+    if (payment !== "cash" && payment !== "gcash") {
+      return sendError(res, 400, "payment must be 'cash' or 'gcash'");
+    }
+    // Look up ACTIVE prices; the total is always computed server-side.
+    const resolved = resolveItemLines(items);
+    if (resolved.error) {
+      return sendError(res, 400, resolved.error);
+    }
+    const lines = resolved.lines;
     const total = lines.reduce(
       (sum, line) => sum + line.unit_price_cents * line.qty,
       0,
@@ -400,11 +408,106 @@ export function createApp(dbPath) {
     res.json(rows);
   });
 
+  // --- daily summary (registered BEFORE /:id so /summary is never swallowed) ---
+  // DAY-BOUNDARY RULING (binds Task 8 + Task 13): the day is the UTC calendar
+  // date, i.e. the created_at TEXT prefix YYYY-MM-DD. created_at stamps are
+  // written in UTC ("YYYY-MM-DD HH:MM:SS" via Date.toISOString), so filtering
+  // `created_at LIKE 'date%'` selects exactly one UTC date. Valid because shop
+  // hours 2pm-10pm PHT = 06:00-14:00 UTC, always inside one UTC date; no
+  // overnight sales exist.
+  app.get("/api/sales/summary", (req, res) => {
+    const raw = req.query.date;
+    const date =
+      raw === undefined ? new Date().toISOString().slice(0, 10) : String(raw);
+    const dayStart = new Date(`${date}T00:00:00Z`);
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+      Number.isNaN(dayStart.getTime()) ||
+      dayStart.toISOString().slice(0, 10) !== date
+    ) {
+      return sendError(res, 400, "date must be YYYY-MM-DD");
+    }
+    const row = db
+      .prepare(
+        `SELECT
+           COALESCE(SUM(CASE WHEN payment = 'cash' AND voided = 0 THEN total_cents ELSE 0 END), 0) AS cash_total_cents,
+           COALESCE(SUM(CASE WHEN payment = 'gcash' AND voided = 0 THEN total_cents ELSE 0 END), 0) AS gcash_total_cents,
+           COALESCE(SUM(CASE WHEN voided = 0 THEN 1 ELSE 0 END), 0) AS sale_count,
+           COALESCE(SUM(CASE WHEN voided = 1 THEN 1 ELSE 0 END), 0) AS voided_count
+         FROM sales WHERE created_at LIKE ?`,
+      )
+      .get(`${date}%`);
+    res.json({
+      date,
+      cash_total_cents: row.cash_total_cents,
+      gcash_total_cents: row.gcash_total_cents,
+      sale_count: row.sale_count,
+      voided_count: row.voided_count,
+    });
+  });
+
   app.get("/api/sales/:id", (req, res) => {
     const id = parseId(req.params.id);
     const sale = id ? saleWithItems(id) : undefined;
     if (!sale) return sendError(res, 404, "sale not found");
     res.json(sale);
+  });
+
+  // Reversible void flag: {voided: 0|1}. Unvoid (0) restores the sale to totals.
+  app.patch("/api/sales/:id", (req, res) => {
+    const id = parseId(req.params.id);
+    const current = id
+      ? db.prepare(`SELECT ${SALE_COLS} FROM sales WHERE id = ?`).get(id)
+      : undefined;
+    if (!current) return sendError(res, 404, "sale not found");
+    const { voided } = req.body ?? {};
+    if (voided !== 0 && voided !== 1) {
+      return sendError(res, 400, "voided must be 0 or 1");
+    }
+    db.prepare("UPDATE sales SET voided = ? WHERE id = ?").run(voided, id);
+    res.json(saleWithItems(id));
+  });
+
+  // Replace a sale's items, recomputing total_cents from ACTIVE prices with
+  // the same rules as POST (client totals ignored). Refused on voided sales:
+  // unvoid first. Shop practice is void + re-ring; this endpoint exists so
+  // corrections stay server-priced without deleting history.
+  app.put("/api/sales/:id/items", (req, res) => {
+    const id = parseId(req.params.id);
+    const current = id
+      ? db.prepare(`SELECT ${SALE_COLS} FROM sales WHERE id = ?`).get(id)
+      : undefined;
+    if (!current) return sendError(res, 404, "sale not found");
+    if (current.voided === 1) {
+      return sendError(res, 400, "unvoid sale before editing items");
+    }
+    const { items } = req.body ?? {};
+    const resolved = resolveItemLines(items);
+    if (resolved.error) {
+      return sendError(res, 400, resolved.error);
+    }
+    const lines = resolved.lines;
+    const total = lines.reduce(
+      (sum, line) => sum + line.unit_price_cents * line.qty,
+      0,
+    );
+    const replace = db.transaction(() => {
+      db.prepare("DELETE FROM sale_items WHERE sale_id = ?").run(id);
+      const addLine = db.prepare(
+        "INSERT INTO sale_items (sale_id, menu_item_id, qty, unit_price_cents) VALUES (?, ?, ?, ?)",
+      );
+      for (const line of lines) {
+        addLine.run(
+          id,
+          line.menu_item_id,
+          line.qty,
+          line.unit_price_cents,
+        );
+      }
+      db.prepare("UPDATE sales SET total_cents = ? WHERE id = ?").run(total, id);
+    });
+    replace();
+    res.json(saleWithItems(id));
   });
 
   // Unknown /api routes are JSON 404s, never the SPA fallback.

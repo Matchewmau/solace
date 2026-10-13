@@ -1,7 +1,16 @@
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchActiveMenuItems, fetchCategories } from "../api/menu";
-import { postSale, type PaymentMethod, type Sale } from "../api/sales";
+import {
+  fetchSalesForDate,
+  fetchSummary,
+  patchSaleVoid,
+  postSale,
+  utcToday,
+  type PaymentMethod,
+  type Sale,
+  type SaleRow,
+} from "../api/sales";
 import { formatPeso } from "../lib/formatPeso";
 import { cartTotalCents, useCart } from "../store/cart";
 import { sortCategories } from "./MenuPage";
@@ -25,6 +34,31 @@ export default function PosPage() {
   const [status, setStatus] = useState<CheckoutStatus>("idle");
   const [sale, setSale] = useState<Sale | null>(null);
   const [error, setError] = useState("");
+  const [todayError, setTodayError] = useState("");
+
+  // UTC-date "Today" panel (Task 8): the day boundary is the UTC calendar
+  // date, matching GET /api/sales/summary. Shop hours 2pm-10pm PHT always
+  // fall inside one UTC date, so UTC prefix filtering is exact.
+  const today = useMemo(() => utcToday(), []);
+  const queryClient = useQueryClient();
+  const summaryQuery = useQuery({
+    queryKey: ["sales", "summary", today],
+    queryFn: () => fetchSummary(today),
+  });
+  const todaySalesQuery = useQuery({
+    queryKey: ["sales", "today", today],
+    queryFn: () => fetchSalesForDate(today),
+  });
+
+  async function toggleVoid(row: SaleRow) {
+    setTodayError("");
+    try {
+      await patchSaleVoid(row.id, row.voided === 1 ? 0 : 1);
+      await queryClient.invalidateQueries({ queryKey: ["sales"] });
+    } catch (err) {
+      setTodayError(err instanceof Error ? err.message : "Void failed.");
+    }
+  }
 
   const categoriesQuery = useQuery({
     queryKey: ["categories"],
@@ -62,6 +96,8 @@ export default function PosPage() {
       setSale(completed);
       setStatus("success");
       clear();
+      // A fresh sale belongs to today's panel — refresh summary + list.
+      void queryClient.invalidateQueries({ queryKey: ["sales"] });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Checkout failed.");
       setStatus("error");
@@ -106,6 +142,7 @@ export default function PosPage() {
             </button>
           </div>
         ) : (
+          <>
           <div className="grid gap-10 lg:grid-cols-[1fr_320px]">
             <section aria-label="Menu items" className="flex flex-col gap-6">
               <div className="flex flex-wrap gap-2" role="group" aria-label="Category filter">
@@ -272,6 +309,70 @@ export default function PosPage() {
               )}
             </section>
           </div>
+          <section aria-label="Today" className="flex flex-col gap-4 border border-ink p-6">
+            <h2 className="text-2xl font-semibold">Today</h2>
+            {summaryQuery.data ? (
+              <p className="text-lg">
+                Cash{" "}
+                <span className="font-semibold text-accent">
+                  {formatPeso(summaryQuery.data.cash_total_cents)}
+                </span>{" "}
+                &middot; GCash{" "}
+                <span className="font-semibold text-accent">
+                  {formatPeso(summaryQuery.data.gcash_total_cents)}
+                </span>{" "}
+                &middot; {summaryQuery.data.sale_count}{" "}
+                {summaryQuery.data.sale_count === 1 ? "sale" : "sales"}
+                {summaryQuery.data.voided_count > 0
+                  ? ` · ${summaryQuery.data.voided_count} voided`
+                  : ""}
+              </p>
+            ) : summaryQuery.isLoading ? (
+              <p className="text-muted">Loading today&apos;s summary…</p>
+            ) : (
+              <p className="text-muted">Could not load today&apos;s summary.</p>
+            )}
+            {todayError !== "" ? (
+              <p role="alert" className="text-base">
+                {todayError}
+              </p>
+            ) : null}
+            {todaySalesQuery.data ? (
+              todaySalesQuery.data.length === 0 ? (
+                <p className="text-muted">No sales yet today.</p>
+              ) : (
+                <ul className="flex flex-col gap-2">
+                  {todaySalesQuery.data.map((row) => (
+                    <li
+                      key={row.id}
+                      className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-ink/10 pb-2"
+                    >
+                      <span className="font-semibold">Sale #{row.id}</span>
+                      <span className="text-muted">{row.created_at.slice(11, 16)}</span>
+                      <span>{row.payment === "cash" ? "Cash" : "GCash"}</span>
+                      <span className="text-accent">{formatPeso(row.total_cents)}</span>
+                      {row.voided === 1 ? <span>Voided</span> : null}
+                      <button
+                        type="button"
+                        aria-label={
+                          row.voided === 1 ? `Unvoid sale ${row.id}` : `Void sale ${row.id}`
+                        }
+                        onClick={() => void toggleVoid(row)}
+                        className="ml-auto border border-ink px-3 py-1 text-sm font-semibold"
+                      >
+                        {row.voided === 1 ? "Unvoid" : "Void"}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )
+            ) : todaySalesQuery.isLoading ? (
+              <p className="text-muted">Loading today&apos;s sales…</p>
+            ) : (
+              <p className="text-muted">Could not load today&apos;s sales.</p>
+            )}
+          </section>
+          </>
         )}
       </div>
     </main>
