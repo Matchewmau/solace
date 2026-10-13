@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.db
+*.db-journal
+.worktrees/
+.superpowers/
+docs/superpowers/specs/
+docs/superpowers/plans/
