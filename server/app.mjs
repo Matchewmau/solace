@@ -1225,6 +1225,149 @@ export function createApp(dbPath) {
     );
   });
 
+  // --- dashboard (Task 13: closing-time reconciliation) ---
+  // NET RULE (binds Task 13): net_day = income_day.total - expenses_day and
+  // net_month = income_month.total - expenses_month. Net covers FLOWS only
+  // (POS income minus money-out expenses). STOCKS — unpaid_bills_cents,
+  // unpaid_payables_cents, outstanding_loans_cents — are separate memo lines
+  // and are NEVER subtracted into net. An unpaid bill is not money out yet.
+  // DAY/MONTH RULING (Task 8 binds): sales match on the created_at TEXT
+  // prefix YYYY-MM-DD / YYYY-MM; expenses match on the date TEXT prefix.
+  // DUES RULING: "today" is the resolved ?date= value (defaults to UTC
+  // today). Bills have no full date, so due is the zero-padded due_day
+  // ("05"); payables keep their due_date. upcoming_dues holds ALL unpaid
+  // bills plus unpaid payables with due_date <= date+7 days (overdues have
+  // no lower bound), sorted by due ascending.
+  app.get("/api/dashboard", (req, res) => {
+    const todayUTC = new Date().toISOString().slice(0, 10);
+    const date = req.query.date === undefined ? todayUTC : String(req.query.date);
+    const month =
+      req.query.month === undefined
+        ? todayUTC.slice(0, 7)
+        : String(req.query.month);
+    if (!isValidDateString(date)) {
+      return sendError(res, 400, "date must be YYYY-MM-DD");
+    }
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
+      return sendError(res, 400, "month must be YYYY-MM");
+    }
+
+    function income(prefix) {
+      const row = db
+        .prepare(
+          `SELECT
+             COALESCE(SUM(CASE WHEN payment = 'cash' AND voided = 0 THEN total_cents ELSE 0 END), 0) AS cash_cents,
+             COALESCE(SUM(CASE WHEN payment = 'gcash' AND voided = 0 THEN total_cents ELSE 0 END), 0) AS gcash_cents,
+             COALESCE(SUM(CASE WHEN voided = 0 THEN 1 ELSE 0 END), 0) AS count
+           FROM sales WHERE created_at LIKE ?`,
+        )
+        .get(`${prefix}%`);
+      return {
+        cash_cents: row.cash_cents,
+        gcash_cents: row.gcash_cents,
+        total_cents: row.cash_cents + row.gcash_cents,
+        count: row.count,
+      };
+    }
+
+    function expenses(prefix) {
+      return db
+        .prepare(
+          "SELECT COALESCE(SUM(amount_cents), 0) AS v FROM expenses WHERE date LIKE ?",
+        )
+        .get(`${prefix}%`).v;
+    }
+
+    const incomeDay = income(date);
+    const incomeMonth = income(month);
+    const expensesDay = expenses(date);
+    const expensesMonth = expenses(month);
+
+    const unpaidBills = db
+      .prepare(
+        "SELECT COALESCE(SUM(amount_cents), 0) AS v FROM bills WHERE paid = 0",
+      )
+      .get().v;
+    const unpaidPayables = db
+      .prepare(
+        "SELECT COALESCE(SUM(amount_cents), 0) AS v FROM payables WHERE paid = 0",
+      )
+      .get().v;
+
+    const cutoff = new Date(
+      new Date(`${date}T00:00:00Z`).getTime() + 7 * 86400000,
+    )
+      .toISOString()
+      .slice(0, 10);
+    const upcomingDues = [
+      ...db
+        .prepare("SELECT name, amount_cents, due_day FROM bills WHERE paid = 0")
+        .all()
+        .map((bill) => ({
+          kind: "bill",
+          label: bill.name,
+          amount_cents: bill.amount_cents,
+          due: String(bill.due_day).padStart(2, "0"),
+        })),
+      ...db
+        .prepare(
+          "SELECT label, amount_cents, due_date FROM payables WHERE paid = 0 AND due_date <= ?",
+        )
+        .all(cutoff)
+        .map((payable) => ({
+          kind: "payable",
+          label: payable.label,
+          amount_cents: payable.amount_cents,
+          due: payable.due_date,
+        })),
+    ].sort((a, b) => {
+      if (a.due !== b.due) return a.due < b.due ? -1 : 1;
+      return a.label.localeCompare(b.label);
+    });
+
+    const loanRows = db
+      .prepare(
+        "SELECT id, lender, balance_cents FROM loans WHERE balance_cents > 0 ORDER BY id",
+      )
+      .all();
+    const outstandingLoans = loanRows.reduce(
+      (sum, row) => sum + row.balance_cents,
+      0,
+    );
+
+    const bestSellers = db
+      .prepare(
+        `SELECT si.menu_item_id AS menu_item_id, m.name AS name,
+           SUM(si.qty) AS qty,
+           SUM(si.qty * si.unit_price_cents) AS revenue_cents
+         FROM sale_items si
+         JOIN sales s ON s.id = si.sale_id
+         JOIN menu_items m ON m.id = si.menu_item_id
+         WHERE s.created_at LIKE ? AND s.voided = 0
+         GROUP BY si.menu_item_id
+         ORDER BY qty DESC, revenue_cents DESC
+         LIMIT 5`,
+      )
+      .all(`${month}%`);
+
+    res.json({
+      date,
+      month,
+      income_day: incomeDay,
+      income_month: incomeMonth,
+      expenses_day_cents: expensesDay,
+      expenses_month_cents: expensesMonth,
+      net_day_cents: incomeDay.total_cents - expensesDay,
+      net_month_cents: incomeMonth.total_cents - expensesMonth,
+      unpaid_bills_cents: unpaidBills,
+      unpaid_payables_cents: unpaidPayables,
+      upcoming_dues: upcomingDues,
+      outstanding_loans_cents: outstandingLoans,
+      loans: loanRows,
+      best_sellers: bestSellers,
+    });
+  });
+
   // Unknown /api routes are JSON 404s, never the SPA fallback.
   app.use("/api", (req, res) => sendError(res, 404, "not found"));
 
