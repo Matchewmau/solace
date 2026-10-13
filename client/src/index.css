@@ -1,0 +1,36 @@
+@import "tailwindcss";
+
+:root {
+  --color-ink: #141210;
+  --color-paper: #faf8f4;
+  --color-accent: #8a5a2b;
+  --color-muted: #6f6a61;
+}
+
+@theme inline {
+  --color-ink: var(--color-ink);
+  --color-paper: var(--color-paper);
+  --color-accent: var(--color-accent);
+  --color-muted: var(--color-muted);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif,
+    "Apple Color Emoji", "Segoe UI Emoji";
+}
+
+body {
+  background-color: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+h1,
+h2,
+h3 {
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.label {
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}

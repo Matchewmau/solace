@@ -1,0 +1,1 @@
+{"name":"solace","private":true,"type":"module","workspaces":["client","server"],"scripts":{"build":"npm run build -w client","test":"npm run test --workspaces --if-present"}}
