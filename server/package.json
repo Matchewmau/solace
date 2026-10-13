@@ -1,1 +1,1 @@
-{"name":"server","private":true,"type":"module","version":"0.0.0","scripts":{"test":"vitest run"},"description":"Solace Cafe LAN server placeholder (full server lands in Task 3).","dependencies":{"better-sqlite3":"^12.4.1"},"devDependencies":{"vitest":"^3.2.4"}}
+{"name":"server","private":true,"type":"module","version":"0.0.0","scripts":{"test":"vitest run"},"description":"Solace Cafe LAN server placeholder (full server lands in Task 3).","dependencies":{"better-sqlite3":"^12.4.1","express":"4.21.2"},"devDependencies":{"supertest":"^7.3.1","vitest":"^3.2.4"}}
