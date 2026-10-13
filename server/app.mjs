@@ -731,6 +731,319 @@ export function createApp(dbPath) {
     );
   });
 
+  // --- bills / expenses / payables (Task 11: finance shell) ---
+  // OVERDUE RULING (Task 8 UTC ruling binds here): "today" is the UTC
+  // calendar date, i.e. new Date().toISOString().slice(0, 10). A payable is
+  // overdue when paid = 0 AND due_date < today-UTC. Plain string comparison
+  // is valid because due_date is stored zero-padded as YYYY-MM-DD. Same
+  // reasoning as the /api/sales/summary day-boundary ruling above: shop
+  // hours 2pm-10pm PHT always fall inside one UTC date.
+  function utcToday() {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  function isValidDateString(value) {
+    if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      return false;
+    }
+    const day = new Date(`${value}T00:00:00Z`);
+    return (
+      !Number.isNaN(day.getTime()) && day.toISOString().slice(0, 10) === value
+    );
+  }
+
+  // Shared ?paid=0|1 filter used by the bills and payables collections.
+  // Returns {clause, param} or sends a 400 and returns null.
+  function paidFilter(query, res) {
+    if (query.paid === undefined) return null;
+    if (query.paid !== "0" && query.paid !== "1") {
+      sendError(res, 400, "paid must be 0 or 1");
+      return undefined;
+    }
+    return { clause: "paid = ?", param: Number(query.paid) };
+  }
+
+  function validateMoney(amount_cents) {
+    return isInt(amount_cents) && amount_cents >= 0;
+  }
+
+  const BILL_COLS = "id, name, amount_cents, due_day, paid";
+
+  function billRow(id) {
+    return db.prepare(`SELECT ${BILL_COLS} FROM bills WHERE id = ?`).get(id);
+  }
+
+  function validateBillFields({ name, amount_cents, due_day, paid }) {
+    if (typeof name !== "string" || name.trim() === "") {
+      return "name is required";
+    }
+    if (!validateMoney(amount_cents)) {
+      return "amount_cents must be a non-negative integer";
+    }
+    if (!isInt(due_day) || due_day < 1 || due_day > 31) {
+      return "due_day must be an integer from 1 to 31";
+    }
+    if (paid !== 0 && paid !== 1) {
+      return "paid must be 0 or 1";
+    }
+    return null;
+  }
+
+  app.get("/api/bills", (req, res) => {
+    const where = [];
+    const params = [];
+    const paid = paidFilter(req.query, res);
+    if (paid === undefined) return;
+    if (paid) {
+      where.push(paid.clause);
+      params.push(paid.param);
+    }
+    if (req.query.due_day !== undefined) {
+      const dueDay = Number(req.query.due_day);
+      if (!isInt(dueDay) || dueDay < 1 || dueDay > 31) {
+        return sendError(res, 400, "due_day must be an integer from 1 to 31");
+      }
+      where.push("due_day = ?");
+      params.push(dueDay);
+    }
+    const rows = db
+      .prepare(
+        `SELECT ${BILL_COLS} FROM bills${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY id`,
+      )
+      .all(...params);
+    res.json(rows);
+  });
+
+  app.post("/api/bills", (req, res) => {
+    const { name, amount_cents, due_day, paid = 0 } = req.body ?? {};
+    const error = validateBillFields({ name, amount_cents, due_day, paid });
+    if (error) return sendError(res, 400, error);
+    const info = db
+      .prepare(
+        "INSERT INTO bills (name, amount_cents, due_day, paid) VALUES (?, ?, ?, ?)",
+      )
+      .run(name.trim(), amount_cents, due_day, paid);
+    res.status(201).json(billRow(info.lastInsertRowid));
+  });
+
+  app.get("/api/bills/:id", (req, res) => {
+    const id = parseId(req.params.id);
+    const row = id ? billRow(id) : undefined;
+    if (!row) return sendError(res, 404, "bill not found");
+    res.json(row);
+  });
+
+  app.patch("/api/bills/:id", (req, res) => {
+    const id = parseId(req.params.id);
+    const current = id ? billRow(id) : undefined;
+    if (!current) return sendError(res, 404, "bill not found");
+    const {
+      name = current.name,
+      amount_cents = current.amount_cents,
+      due_day = current.due_day,
+      paid = current.paid,
+    } = req.body ?? {};
+    const error = validateBillFields({ name, amount_cents, due_day, paid });
+    if (error) return sendError(res, 400, error);
+    db.prepare(
+      "UPDATE bills SET name = ?, amount_cents = ?, due_day = ?, paid = ? WHERE id = ?",
+    ).run(name.trim(), amount_cents, due_day, paid, id);
+    res.json(billRow(id));
+  });
+
+  app.delete("/api/bills/:id", (req, res) => {
+    const id = parseId(req.params.id);
+    if (!id) return sendError(res, 404, "bill not found");
+    const info = db.prepare("DELETE FROM bills WHERE id = ?").run(id);
+    if (info.changes === 0) return sendError(res, 404, "bill not found");
+    res.status(204).end();
+  });
+
+  // --- expenses ---
+  // No paid flag on this table (money-out records, not to-pay items), so no
+  // ?paid filter here; unknown query params are ignored per convention.
+  const EXPENSE_COLS = "id, date, category, amount_cents, note";
+
+  function expenseRow(id) {
+    return db
+      .prepare(`SELECT ${EXPENSE_COLS} FROM expenses WHERE id = ?`)
+      .get(id);
+  }
+
+  function validateExpenseFields({ date, category, amount_cents, note }) {
+    if (!isValidDateString(date)) {
+      return "date must be YYYY-MM-DD";
+    }
+    if (typeof category !== "string" || category.trim() === "") {
+      return "category is required";
+    }
+    if (!validateMoney(amount_cents)) {
+      return "amount_cents must be a non-negative integer";
+    }
+    if (typeof note !== "string") {
+      return "note must be a string";
+    }
+    return null;
+  }
+
+  app.get("/api/expenses", (req, res) => {
+    res.json(
+      db.prepare(`SELECT ${EXPENSE_COLS} FROM expenses ORDER BY id`).all(),
+    );
+  });
+
+  app.post("/api/expenses", (req, res) => {
+    const { date, category, amount_cents, note = "" } = req.body ?? {};
+    const error = validateExpenseFields({ date, category, amount_cents, note });
+    if (error) return sendError(res, 400, error);
+    const info = db
+      .prepare(
+        "INSERT INTO expenses (date, category, amount_cents, note) VALUES (?, ?, ?, ?)",
+      )
+      .run(date, category.trim(), amount_cents, note);
+    res.status(201).json(expenseRow(info.lastInsertRowid));
+  });
+
+  app.get("/api/expenses/:id", (req, res) => {
+    const id = parseId(req.params.id);
+    const row = id ? expenseRow(id) : undefined;
+    if (!row) return sendError(res, 404, "expense not found");
+    res.json(row);
+  });
+
+  app.patch("/api/expenses/:id", (req, res) => {
+    const id = parseId(req.params.id);
+    const current = id ? expenseRow(id) : undefined;
+    if (!current) return sendError(res, 404, "expense not found");
+    const {
+      date = current.date,
+      category = current.category,
+      amount_cents = current.amount_cents,
+      note = current.note,
+    } = req.body ?? {};
+    const error = validateExpenseFields({ date, category, amount_cents, note });
+    if (error) return sendError(res, 400, error);
+    db.prepare(
+      "UPDATE expenses SET date = ?, category = ?, amount_cents = ?, note = ? WHERE id = ?",
+    ).run(date, category.trim(), amount_cents, note, id);
+    res.json(expenseRow(id));
+  });
+
+  app.delete("/api/expenses/:id", (req, res) => {
+    const id = parseId(req.params.id);
+    if (!id) return sendError(res, 404, "expense not found");
+    const info = db.prepare("DELETE FROM expenses WHERE id = ?").run(id);
+    if (info.changes === 0) return sendError(res, 404, "expense not found");
+    res.status(204).end();
+  });
+
+  // --- payables (to-pay list with due dates; Task 13 consumes ?overdue=1) ---
+  const PAYABLE_COLS = "id, label, amount_cents, due_date, paid";
+
+  function payableRow(id) {
+    return db
+      .prepare(`SELECT ${PAYABLE_COLS} FROM payables WHERE id = ?`)
+      .get(id);
+  }
+
+  function validatePayableFields({ label, amount_cents, due_date, paid }) {
+    if (typeof label !== "string" || label.trim() === "") {
+      return "label is required";
+    }
+    if (!validateMoney(amount_cents)) {
+      return "amount_cents must be a non-negative integer";
+    }
+    if (!isValidDateString(due_date)) {
+      return "due_date must be YYYY-MM-DD";
+    }
+    if (paid !== 0 && paid !== 1) {
+      return "paid must be 0 or 1";
+    }
+    return null;
+  }
+
+  app.get("/api/payables", (req, res) => {
+    const where = [];
+    const params = [];
+    const paid = paidFilter(req.query, res);
+    if (paid === undefined) return;
+    if (paid) {
+      where.push(paid.clause);
+      params.push(paid.param);
+    }
+    if (req.query.overdue !== undefined) {
+      if (req.query.overdue !== "1") {
+        return sendError(res, 400, "overdue must be 1");
+      }
+      where.push("paid = 0 AND due_date < ?");
+      params.push(utcToday());
+    }
+    if (req.query.due_before !== undefined) {
+      const cutoff = String(req.query.due_before);
+      if (!isValidDateString(cutoff)) {
+        return sendError(res, 400, "due_before must be YYYY-MM-DD");
+      }
+      where.push("due_date <= ?");
+      params.push(cutoff);
+    }
+    const rows = db
+      .prepare(
+        `SELECT ${PAYABLE_COLS} FROM payables${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY id`,
+      )
+      .all(...params);
+    res.json(rows);
+  });
+
+  app.post("/api/payables", (req, res) => {
+    const { label, amount_cents, due_date, paid = 0 } = req.body ?? {};
+    const error = validatePayableFields({ label, amount_cents, due_date, paid });
+    if (error) return sendError(res, 400, error);
+    const info = db
+      .prepare(
+        "INSERT INTO payables (label, amount_cents, due_date, paid) VALUES (?, ?, ?, ?)",
+      )
+      .run(label.trim(), amount_cents, due_date, paid);
+    res.status(201).json(payableRow(info.lastInsertRowid));
+  });
+
+  app.get("/api/payables/:id", (req, res) => {
+    const id = parseId(req.params.id);
+    const row = id ? payableRow(id) : undefined;
+    if (!row) return sendError(res, 404, "payable not found");
+    res.json(row);
+  });
+
+  app.patch("/api/payables/:id", (req, res) => {
+    const id = parseId(req.params.id);
+    const current = id ? payableRow(id) : undefined;
+    if (!current) return sendError(res, 404, "payable not found");
+    const {
+      label = current.label,
+      amount_cents = current.amount_cents,
+      due_date = current.due_date,
+      paid = current.paid,
+    } = req.body ?? {};
+    const error = validatePayableFields({
+      label,
+      amount_cents,
+      due_date,
+      paid,
+    });
+    if (error) return sendError(res, 400, error);
+    db.prepare(
+      "UPDATE payables SET label = ?, amount_cents = ?, due_date = ?, paid = ? WHERE id = ?",
+    ).run(label.trim(), amount_cents, due_date, paid, id);
+    res.json(payableRow(id));
+  });
+
+  app.delete("/api/payables/:id", (req, res) => {
+    const id = parseId(req.params.id);
+    if (!id) return sendError(res, 404, "payable not found");
+    const info = db.prepare("DELETE FROM payables WHERE id = ?").run(id);
+    if (info.changes === 0) return sendError(res, 404, "payable not found");
+    res.status(204).end();
+  });
+
   // Unknown /api routes are JSON 404s, never the SPA fallback.
   app.use("/api", (req, res) => sendError(res, 404, "not found"));
 
