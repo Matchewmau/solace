@@ -5,6 +5,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import request from "supertest";
 import { createApp } from "../app.mjs";
 import { MENU } from "./menu-data.mjs";
+import { seedDb } from "./seed.mjs";
 import { seedMenu } from "./seed-menu.mjs";
 
 // Binding source of truth: the exact 20 ACTIVE names + prices (cents).
@@ -92,9 +93,40 @@ describe("menu seed data", () => {
     expect(dark).toBeDefined();
     expect(dark.active).toBe(0);
   });
+
+  it("seed.mjs smoke chain: 20 MENU names+prices exact, foreign row preserved, Dark Mocha inactive", async () => {
+    // Controller ruling: seed.mjs smoke fixtures are dev-only scaffolding,
+    // excluded from the "20 items" acceptance; seed-menu must preserve them.
+    const chainDbPath = join(dir, "menu-chain-test.db");
+    seedDb(chainDbPath).close();
+    const result = seedMenu(chainDbPath);
+    expect(result.totalActive).toBe(21); // 20 MENU + preserved Smoke Drink
+    const chainApp = createApp(chainDbPath);
+    try {
+      const res = await request(chainApp)
+        .get("/api/menu_items?active=1")
+        .expect(200);
+      const got = new Map(res.body.map((r) => [r.name, r.price_cents]));
+      for (const [name, price] of EXPECTED) {
+        expect(got.get(name), `price for ${name}`).toBe(price);
+      }
+      const smoke = res.body.find((r) => r.name === "Smoke Drink");
+      expect(smoke, "smoke fixture preserved").toBeDefined();
+      expect(smoke.active).toBe(1);
+      const inactive = await request(chainApp)
+        .get("/api/menu_items?active=0")
+        .expect(200);
+      const dark = inactive.body.find((r) => r.name === "Dark Mocha");
+      expect(dark).toBeDefined();
+      expect(dark.active).toBe(0);
+    } finally {
+      chainApp.locals.db.close();
+    }
+  });
 });
 
-describe("admin CRUD proof on real menu data", () => {  it("POST seasonal -> PATCH price -> PATCH active toggle -> DELETE", async () => {
+describe("admin CRUD proof on real menu data", () => {
+  it("POST seasonal -> PATCH price -> PATCH active toggle -> DELETE", async () => {
     const cats = await request(app).get("/api/categories").expect(200);
     const coffee = cats.body.find((c) => c.name === "Coffee");
     expect(coffee).toBeDefined();
