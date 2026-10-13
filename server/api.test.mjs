@@ -138,6 +138,40 @@ describe("sales validation", () => {
   });
 });
 
+describe("menu item constraint mapping", () => {
+  it("duplicate POST / PATCH -> 400 {error}, never 500", async () => {
+    // Schema ships no UNIQUE on menu_items; create one on this temp DB so
+    // the SQLITE_CONSTRAINT->400 mapping in the handlers is exercised.
+    app.locals.db.exec(
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_api_test_menu_items_unique_name ON menu_items (category_id, name)",
+    );
+    const cat = await request(app)
+      .post("/api/categories")
+      .send({ name: "Dupes" })
+      .expect(201);
+    await request(app)
+      .post("/api/menu_items")
+      .send({ category_id: cat.body.id, name: "Dupe Drink", price_cents: 5000 })
+      .expect(201);
+
+    const dup = await request(app)
+      .post("/api/menu_items")
+      .send({ category_id: cat.body.id, name: "Dupe Drink", price_cents: 6000 })
+      .expect(400);
+    expect(dup.body.error).toEqual(expect.any(String));
+
+    const other = await request(app)
+      .post("/api/menu_items")
+      .send({ category_id: cat.body.id, name: "Other Drink", price_cents: 5000 })
+      .expect(201);
+    const clash = await request(app)
+      .patch(`/api/menu_items/${other.body.id}`)
+      .send({ name: "Dupe Drink" })
+      .expect(400);
+    expect(clash.body.error).toEqual(expect.any(String));
+  });
+});
+
 describe("static frontend", () => {
   it("GET / returns HTML (or 503 JSON when dist is missing), never crashes", async () => {
     const res = await request(app).get("/");

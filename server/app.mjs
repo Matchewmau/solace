@@ -194,18 +194,25 @@ export function createApp(dbPath) {
     if (active !== 0 && active !== 1) {
       return sendError(res, 400, "active must be 0 or 1");
     }
-    const info = db
-      .prepare(
-        "INSERT INTO menu_items (category_id, name, price_cents, cost_cents, active) VALUES (?, ?, ?, ?, ?)",
-      )
-      .run(category_id, name.trim(), price_cents, cost_cents, active);
-    res
-      .status(201)
-      .json(
-        db
-          .prepare(`SELECT ${MENU_COLS} FROM menu_items WHERE id = ?`)
-          .get(info.lastInsertRowid),
-      );
+    try {
+      const info = db
+        .prepare(
+          "INSERT INTO menu_items (category_id, name, price_cents, cost_cents, active) VALUES (?, ?, ?, ?, ?)",
+        )
+        .run(category_id, name.trim(), price_cents, cost_cents, active);
+      res
+        .status(201)
+        .json(
+          db
+            .prepare(`SELECT ${MENU_COLS} FROM menu_items WHERE id = ?`)
+            .get(info.lastInsertRowid),
+        );
+    } catch (err) {
+      if (String(err?.code).startsWith("SQLITE_CONSTRAINT")) {
+        return sendError(res, 400, "menu item already exists");
+      }
+      throw err;
+    }
   });
 
   app.get("/api/menu_items/:id", (req, res) => {
@@ -256,9 +263,16 @@ export function createApp(dbPath) {
     if (active !== 0 && active !== 1) {
       return sendError(res, 400, "active must be 0 or 1");
     }
-    db.prepare(
-      "UPDATE menu_items SET category_id = ?, name = ?, price_cents = ?, cost_cents = ?, active = ? WHERE id = ?",
-    ).run(category_id, name.trim(), price_cents, cost_cents, active, id);
+    try {
+      db.prepare(
+        "UPDATE menu_items SET category_id = ?, name = ?, price_cents = ?, cost_cents = ?, active = ? WHERE id = ?",
+      ).run(category_id, name.trim(), price_cents, cost_cents, active, id);
+    } catch (err) {
+      if (String(err?.code).startsWith("SQLITE_CONSTRAINT")) {
+        return sendError(res, 400, "menu item already exists");
+      }
+      throw err;
+    }
     res.json(
       db.prepare(`SELECT ${MENU_COLS} FROM menu_items WHERE id = ?`).get(id),
     );
