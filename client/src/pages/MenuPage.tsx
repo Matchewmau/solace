@@ -15,9 +15,6 @@ import {
   StaggerSection,
 } from "../components/motion";
 
-/** Re-exported for backwards compatibility; POS imports from lib/ directly. */
-export { sortCategories };
-
 interface ShowcaseProps {
   categories: Category[];
   items: MenuItem[];
