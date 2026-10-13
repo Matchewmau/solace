@@ -554,6 +554,183 @@ export function createApp(dbPath) {
     res.json({ ...row, lines: recipeLines(id) });
   });
 
+  // --- stock_items + stock_movements (Task 10: inventory ledger) ---
+  // LEDGER RULING (binds Task 10): stock_movements is the ledger and
+  // stock_items.qty is the cached balance. POST /api/stock_movements inserts
+  // the movement row AND applies its delta to the item qty in the SAME
+  // better-sqlite3 transaction, so the two can never diverge. The client
+  // never writes qty directly for corrections: "set count" POSTs an
+  // adjustment movement with delta = newCount - currentQty (direct PATCH of
+  // qty stays allowed by the API, but the client uses movements for every
+  // qty change so the audit trail is complete). Recipe auto-deduction on
+  // sale is explicitly NOT built (spec non-goal).
+  const STOCK_COLS = "id, name, unit, qty, low_threshold";
+  const MOVEMENT_COLS = "id, stock_item_id, delta, reason, created_at";
+  const MOVEMENT_REASONS = new Set(["delivery", "adjustment", "waste"]);
+
+  function isNonNegNumber(value) {
+    return typeof value === "number" && Number.isFinite(value) && value >= 0;
+  }
+
+  function stockRow(id) {
+    return db
+      .prepare(`SELECT ${STOCK_COLS} FROM stock_items WHERE id = ?`)
+      .get(id);
+  }
+
+  app.get("/api/stock_items", (req, res) => {
+    if (req.query.low === "1") {
+      return res.json(
+        db
+          .prepare(
+            `SELECT ${STOCK_COLS} FROM stock_items WHERE qty <= low_threshold ORDER BY id`,
+          )
+          .all(),
+      );
+    }
+    res.json(
+      db.prepare(`SELECT ${STOCK_COLS} FROM stock_items ORDER BY id`).all(),
+    );
+  });
+
+  app.post("/api/stock_items", (req, res) => {
+    const { name, unit, qty = 0, low_threshold = 0 } = req.body ?? {};
+    if (typeof name !== "string" || name.trim() === "") {
+      return sendError(res, 400, "name is required");
+    }
+    if (typeof unit !== "string") {
+      return sendError(res, 400, "unit is required");
+    }
+    if (!isNonNegNumber(qty)) {
+      return sendError(res, 400, "qty must be a non-negative number");
+    }
+    if (!isNonNegNumber(low_threshold)) {
+      return sendError(res, 400, "low_threshold must be a non-negative number");
+    }
+    const info = db
+      .prepare(
+        "INSERT INTO stock_items (name, unit, qty, low_threshold) VALUES (?, ?, ?, ?)",
+      )
+      .run(name.trim(), unit, qty, low_threshold);
+    res.status(201).json(stockRow(info.lastInsertRowid));
+  });
+
+  app.get("/api/stock_items/:id", (req, res) => {
+    const id = parseId(req.params.id);
+    const row = id ? stockRow(id) : undefined;
+    if (!row) return sendError(res, 404, "stock item not found");
+    res.json(row);
+  });
+
+  app.patch("/api/stock_items/:id", (req, res) => {
+    const id = parseId(req.params.id);
+    const current = id ? stockRow(id) : undefined;
+    if (!current) return sendError(res, 404, "stock item not found");
+    const {
+      name = current.name,
+      unit = current.unit,
+      qty = current.qty,
+      low_threshold = current.low_threshold,
+    } = req.body ?? {};
+    if (typeof name !== "string" || name.trim() === "") {
+      return sendError(res, 400, "name is required");
+    }
+    if (typeof unit !== "string") {
+      return sendError(res, 400, "unit is required");
+    }
+    if (!isNonNegNumber(qty)) {
+      return sendError(res, 400, "qty must be a non-negative number");
+    }
+    if (!isNonNegNumber(low_threshold)) {
+      return sendError(res, 400, "low_threshold must be a non-negative number");
+    }
+    db.prepare(
+      "UPDATE stock_items SET name = ?, unit = ?, qty = ?, low_threshold = ? WHERE id = ?",
+    ).run(name.trim(), unit, qty, low_threshold, id);
+    res.json(stockRow(id));
+  });
+
+  app.delete("/api/stock_items/:id", (req, res) => {
+    const id = parseId(req.params.id);
+    if (!id) return sendError(res, 404, "stock item not found");
+    try {
+      const info = db.prepare("DELETE FROM stock_items WHERE id = ?").run(id);
+      if (info.changes === 0)
+        return sendError(res, 404, "stock item not found");
+    } catch (err) {
+      if (String(err?.code).startsWith("SQLITE_CONSTRAINT")) {
+        return sendError(res, 400, "stock item has movements");
+      }
+      throw err;
+    }
+    res.status(204).end();
+  });
+
+  app.post("/api/stock_movements", (req, res) => {
+    const { stock_item_id, delta, reason } = req.body ?? {};
+    if (!MOVEMENT_REASONS.has(reason)) {
+      return sendError(
+        res,
+        400,
+        "reason must be delivery, adjustment, or waste",
+      );
+    }
+    if (typeof delta !== "number" || !Number.isFinite(delta) || delta === 0) {
+      return sendError(res, 400, "delta must be a non-zero number");
+    }
+    if (!isInt(stock_item_id)) {
+      return sendError(res, 400, "stock_item_id must be an integer");
+    }
+    const item = stockRow(stock_item_id);
+    if (!item) return sendError(res, 404, "stock item not found");
+    const nextQty = item.qty + delta;
+    if (nextQty < 0) {
+      return sendError(res, 400, "movement would make qty negative");
+    }
+    const apply = db.transaction(() => {
+      const info = db
+        .prepare(
+          "INSERT INTO stock_movements (stock_item_id, delta, reason, created_at) VALUES (?, ?, ?, ?)",
+        )
+        .run(stock_item_id, delta, reason, nowStamp());
+      db.prepare("UPDATE stock_items SET qty = ? WHERE id = ?").run(
+        nextQty,
+        stock_item_id,
+      );
+      return info.lastInsertRowid;
+    });
+    res
+      .status(201)
+      .json(
+        db
+          .prepare(
+            `SELECT ${MOVEMENT_COLS} FROM stock_movements WHERE id = ?`,
+          )
+          .get(apply()),
+      );
+  });
+
+  app.get("/api/stock_movements", (req, res) => {
+    if (req.query.stock_item_id !== undefined) {
+      const stockItemId = Number(req.query.stock_item_id);
+      if (!isInt(stockItemId)) {
+        return sendError(res, 400, "stock_item_id must be an integer");
+      }
+      return res.json(
+        db
+          .prepare(
+            `SELECT ${MOVEMENT_COLS} FROM stock_movements WHERE stock_item_id = ? ORDER BY id DESC`,
+          )
+          .all(stockItemId),
+      );
+    }
+    res.json(
+      db
+        .prepare(`SELECT ${MOVEMENT_COLS} FROM stock_movements ORDER BY id DESC`)
+        .all(),
+    );
+  });
+
   // Unknown /api routes are JSON 404s, never the SPA fallback.
   app.use("/api", (req, res) => sendError(res, 404, "not found"));
 
