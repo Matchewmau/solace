@@ -6,13 +6,17 @@ import {
   type MenuItem,
 } from "../api/menu";
 import { formatPeso } from "../lib/formatPeso";
+import { sortCategories } from "../lib/sortCategories";
+import {
+  Reveal,
+  StaggerGroup,
+  StaggerItem,
+  StaggerList,
+  StaggerSection,
+} from "../components/motion";
 
-/** Categories in display order: `sort`, then name. */
-export function sortCategories(categories: Category[]): Category[] {
-  return [...categories].sort(
-    (a, b) => a.sort - b.sort || a.name.localeCompare(b.name),
-  );
-}
+/** Re-exported for backwards compatibility; POS imports from lib/ directly. */
+export { sortCategories };
 
 interface ShowcaseProps {
   categories: Category[];
@@ -36,24 +40,29 @@ export function MenuShowcase({ categories, items }: ShowcaseProps) {
     byCategory.set(item.category_id, list);
   }
   return (
-    <div className="flex flex-col gap-12">
+    <StaggerGroup className="flex flex-col gap-12">
       {sortCategories(categories).map((category) => (
-        <section key={category.id} aria-label={category.name}>
+        <StaggerSection key={category.id} ariaLabel={category.name}>
           <p className="label text-xs text-muted">Solace &middot; Menu</p>
           <h2 className="mt-2 text-2xl font-semibold">{category.name}</h2>
-          <ul className="mt-6 flex flex-col gap-5">
+          <StaggerList
+            className="mt-6 flex flex-col gap-5"
+          >
             {(byCategory.get(category.id) ?? []).map((item) => (
-              <li key={item.id} className="flex items-baseline justify-between gap-6">
+              <StaggerItem
+                key={item.id}
+                className="flex items-baseline justify-between gap-6"
+              >
                 <span className="text-lg">{item.name}</span>
                 <span className="text-lg font-semibold text-accent">
                   {formatPeso(item.price_cents)}
                 </span>
-              </li>
+              </StaggerItem>
             ))}
-          </ul>
-        </section>
+          </StaggerList>
+        </StaggerSection>
       ))}
-    </div>
+    </StaggerGroup>
   );
 }
 
@@ -89,11 +98,11 @@ export default function MenuPage() {
   return (
     <main className="min-h-screen bg-paper text-ink">
       <div className="mx-auto flex max-w-3xl flex-col gap-10 px-6 py-12">
-        <header className="flex flex-col gap-3">
+        <Reveal className="flex flex-col gap-3">
           <p className="label text-xs text-muted">Cafe &middot; LAN</p>
           <h1 className="text-4xl font-semibold">Solace</h1>
           <p className="text-sm text-muted">Warm espresso, quiet room.</p>
-        </header>
+        </Reveal>
         {isLoading ? (
           <LoadingSkeleton />
         ) : isError ? (

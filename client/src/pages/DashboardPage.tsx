@@ -2,6 +2,13 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { fetchDashboard } from "../api/dashboard";
 import { formatPeso } from "../lib/formatPeso";
+import {
+  Reveal,
+  StaggerGroup,
+  StaggerItem,
+  StaggerList,
+  StaggerSection,
+} from "../components/motion";
 
 function LoadingSkeleton() {
   return (
@@ -49,7 +56,7 @@ export default function DashboardPage() {
   return (
     <main className="min-h-screen bg-paper text-ink">
       <div className="mx-auto flex max-w-4xl flex-col gap-10 px-6 py-12">
-        <header className="flex flex-col gap-3">
+        <Reveal className="flex flex-col gap-3">
           <p className="label text-xs text-muted">Cafe &middot; LAN</p>
           <h1 className="text-4xl font-semibold">Dashboard</h1>
           <p className="text-sm text-muted">
@@ -57,7 +64,7 @@ export default function DashboardPage() {
             are separate lines, never subtracted into net.
           </p>
           <DashboardNav />
-        </header>
+        </Reveal>
         {dashboardQuery.isLoading ? (
           <LoadingSkeleton />
         ) : dashboardQuery.isError || !dashboardQuery.data ? (
@@ -76,8 +83,8 @@ export default function DashboardPage() {
             </button>
           </div>
         ) : (
-          <div className="flex flex-col gap-10">
-            <section aria-label="Net">
+          <StaggerGroup className="flex flex-col gap-10">
+            <StaggerSection ariaLabel="Net">
               <p className="label text-xs text-muted">
                 Solace &middot; Net for {dashboardQuery.data.date} /{" "}
                 {dashboardQuery.data.month}
@@ -89,19 +96,19 @@ export default function DashboardPage() {
               <p className="mt-2 text-3xl font-semibold">
                 Month net {formatPeso(dashboardQuery.data.net_month_cents)}
               </p>
-            </section>
-            <section aria-label="Income">
+            </StaggerSection>
+            <StaggerSection ariaLabel="Income">
               <p className="label text-xs text-muted">Solace &middot; Income</p>
               <h2 className="mt-2 text-2xl font-semibold">Income</h2>
-              <ul className="mt-4 flex flex-col gap-2">
-                <li className="text-base">
+              <StaggerList className="mt-4 flex flex-col gap-2">
+                <StaggerItem className="text-base">
                   Day cash {formatPeso(dashboardQuery.data.income_day.cash_cents)}{" "}
                   &middot; Day GCash{" "}
                   {formatPeso(dashboardQuery.data.income_day.gcash_cents)} &middot;
                   Day total {formatPeso(dashboardQuery.data.income_day.total_cents)}{" "}
                   ({dashboardQuery.data.income_day.count} sales)
-                </li>
-                <li className="text-base">
+                </StaggerItem>
+                <StaggerItem className="text-base">
                   Month cash{" "}
                   {formatPeso(dashboardQuery.data.income_month.cash_cents)} &middot;
                   Month GCash{" "}
@@ -109,22 +116,22 @@ export default function DashboardPage() {
                   &middot; Month total{" "}
                   {formatPeso(dashboardQuery.data.income_month.total_cents)} (
                   {dashboardQuery.data.income_month.count} sales)
-                </li>
-              </ul>
-            </section>
-            <section aria-label="Expenses">
+                </StaggerItem>
+              </StaggerList>
+            </StaggerSection>
+            <StaggerSection ariaLabel="Expenses">
               <p className="label text-xs text-muted">Solace &middot; Expenses</p>
               <h2 className="mt-2 text-2xl font-semibold">Expenses</h2>
-              <ul className="mt-4 flex flex-col gap-2">
-                <li className="text-base">
+              <StaggerList className="mt-4 flex flex-col gap-2">
+                <StaggerItem className="text-base">
                   Day {formatPeso(dashboardQuery.data.expenses_day_cents)}
-                </li>
-                <li className="text-base">
+                </StaggerItem>
+                <StaggerItem className="text-base">
                   Month {formatPeso(dashboardQuery.data.expenses_month_cents)}
-                </li>
-              </ul>
-            </section>
-            <section aria-label="Upcoming dues">
+                </StaggerItem>
+              </StaggerList>
+            </StaggerSection>
+            <StaggerSection ariaLabel="Upcoming dues">
               <p className="label text-xs text-muted">
                 Solace &middot; Upcoming dues
               </p>
@@ -137,20 +144,20 @@ export default function DashboardPage() {
               {dashboardQuery.data.upcoming_dues.length === 0 ? (
                 <p className="mt-4 text-muted">Nothing due right now.</p>
               ) : (
-                <ul className="mt-4 flex flex-col gap-2">
+                <StaggerList className="mt-4 flex flex-col gap-2">
                   {dashboardQuery.data.upcoming_dues.map((due, index) => (
-                    <li
+                    <StaggerItem
                       key={`${due.kind}-${due.label}-${due.due}-${index}`}
                       className="text-base"
                     >
                       {due.kind} — {due.label} — {formatPeso(due.amount_cents)} —
                       due {due.due}
-                    </li>
+                    </StaggerItem>
                   ))}
-                </ul>
+                </StaggerList>
               )}
-            </section>
-            <section aria-label="Outstanding loans">
+            </StaggerSection>
+            <StaggerSection ariaLabel="Outstanding loans">
               <p className="label text-xs text-muted">
                 Solace &middot; Outstanding loans
               </p>
@@ -161,16 +168,16 @@ export default function DashboardPage() {
               {dashboardQuery.data.loans.length === 0 ? (
                 <p className="mt-4 text-muted">No outstanding loans.</p>
               ) : (
-                <ul className="mt-4 flex flex-col gap-2">
+                <StaggerList className="mt-4 flex flex-col gap-2">
                   {dashboardQuery.data.loans.map((loan) => (
-                    <li key={loan.id} className="text-base">
+                    <StaggerItem key={loan.id} className="text-base">
                       {loan.lender} — balance {formatPeso(loan.balance_cents)}
-                    </li>
+                    </StaggerItem>
                   ))}
-                </ul>
+                </StaggerList>
               )}
-            </section>
-            <section aria-label="Best sellers">
+            </StaggerSection>
+            <StaggerSection ariaLabel="Best sellers">
               <p className="label text-xs text-muted">
                 Solace &middot; Best sellers
               </p>
@@ -178,17 +185,17 @@ export default function DashboardPage() {
               {dashboardQuery.data.best_sellers.length === 0 ? (
                 <p className="mt-4 text-muted">No sales this month.</p>
               ) : (
-                <ul className="mt-4 flex flex-col gap-2">
+                <StaggerList className="mt-4 flex flex-col gap-2">
                   {dashboardQuery.data.best_sellers.map((item) => (
-                    <li key={item.menu_item_id} className="text-base">
+                    <StaggerItem key={item.menu_item_id} className="text-base">
                       {item.name} — {item.qty} sold —{" "}
                       {formatPeso(item.revenue_cents)}
-                    </li>
+                    </StaggerItem>
                   ))}
-                </ul>
+                </StaggerList>
               )}
-            </section>
-          </div>
+            </StaggerSection>
+          </StaggerGroup>
         )}
       </div>
     </main>

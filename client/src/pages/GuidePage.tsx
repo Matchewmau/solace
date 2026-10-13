@@ -6,6 +6,7 @@ import {
   type Recipe,
   type RecipeLine,
 } from "../api/recipes";
+import { Reveal, StaggerItem, StaggerList } from "../components/motion";
 
 /** Case-insensitive substring match on the drink name. */
 export function filterRecipes(recipes: Recipe[], query: string): Recipe[] {
@@ -69,9 +70,9 @@ export function GuideBrowser({
       {filtered.length === 0 ? (
         <p className="py-8 text-center text-muted">No drinks found</p>
       ) : (
-        <ul className="flex flex-col gap-2" aria-label="Drinks">
+        <StaggerList className="flex flex-col gap-2" ariaLabel="Drinks">
           {filtered.map((recipe) => (
-            <li key={recipe.id}>
+            <StaggerItem key={recipe.id}>
               <button
                 type="button"
                 onClick={() => onSelect(recipe.id)}
@@ -84,9 +85,9 @@ export function GuideBrowser({
               >
                 {recipe.menu_item_name}
               </button>
-            </li>
+            </StaggerItem>
           ))}
-        </ul>
+        </StaggerList>
       )}
     </div>
   );
@@ -113,11 +114,11 @@ export default function GuidePage() {
   return (
     <main className="min-h-screen bg-paper text-ink">
       <div className="mx-auto flex max-w-3xl flex-col gap-10 px-6 py-12">
-        <header className="flex flex-col gap-3">
+        <Reveal className="flex flex-col gap-3">
           <p className="label text-xs text-muted">Cafe &middot; LAN</p>
           <h1 className="text-4xl font-semibold">Barista Guide</h1>
           <p className="text-sm text-muted">Brew steps for every drink.</p>
-        </header>
+        </Reveal>
         {isLoading ? (
           <LoadingSkeleton />
         ) : isError ? (

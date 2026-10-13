@@ -13,7 +13,7 @@ import {
 } from "../api/sales";
 import { formatPeso } from "../lib/formatPeso";
 import { cartTotalCents, useCart } from "../store/cart";
-import { sortCategories } from "./MenuPage";
+import { sortCategories } from "../lib/sortCategories";
 
 type CheckoutStatus = "idle" | "pending" | "success" | "error";
 

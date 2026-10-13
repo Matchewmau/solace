@@ -18,6 +18,7 @@ import {
   type Payable,
 } from "../api/finance";
 import { formatPeso } from "../lib/formatPeso";
+import { Reveal, StaggerItem, StaggerList } from "../components/motion";
 
 function LoadingSkeleton() {
   return (
@@ -74,9 +75,9 @@ function BillsSection({
       {bills.length === 0 ? (
         <p className="mt-4 text-muted">No bills recorded.</p>
       ) : (
-        <ul className="mt-4 flex flex-col gap-4">
+        <StaggerList className="mt-4 flex flex-col gap-4">
           {bills.map((bill) => (
-            <li
+            <StaggerItem
               key={bill.id}
               className="flex flex-col gap-1 border-b border-ink/10 pb-4"
             >
@@ -95,9 +96,9 @@ function BillsSection({
                   />
                 </span>
               </div>
-            </li>
+            </StaggerItem>
           ))}
-        </ul>
+        </StaggerList>
       )}
     </section>
   );
@@ -188,15 +189,15 @@ function ExpensesSection({
       {expenses.length === 0 ? (
         <p className="mt-4 text-muted">No expenses recorded.</p>
       ) : (
-        <ul className="mt-4 flex flex-col gap-2">
+        <StaggerList className="mt-4 flex flex-col gap-2">
           {expenses.map((expense) => (
-            <li key={expense.id} className="text-base">
+            <StaggerItem key={expense.id} className="text-base">
               {expense.date} — {expense.category} —{" "}
               {formatPeso(expense.amount_cents)}
               {expense.note ? ` — ${expense.note}` : null}
-            </li>
+            </StaggerItem>
           ))}
-        </ul>
+        </StaggerList>
       )}
     </section>
   );
@@ -218,9 +219,9 @@ function PayablesSection({
       {payables.length === 0 ? (
         <p className="mt-4 text-muted">Nothing to pay right now.</p>
       ) : (
-        <ul className="mt-4 flex flex-col gap-4">
+        <StaggerList className="mt-4 flex flex-col gap-4">
           {payables.map((payable) => (
-            <li
+            <StaggerItem
               key={payable.id}
               className="flex flex-col gap-1 border-b border-ink/10 pb-4"
             >
@@ -246,9 +247,9 @@ function PayablesSection({
                   />
                 </span>
               </div>
-            </li>
+            </StaggerItem>
           ))}
-        </ul>
+        </StaggerList>
       )}
     </section>
   );
@@ -281,9 +282,9 @@ function LoansSection({
       {loans.length === 0 ? (
         <p className="mt-4 text-muted">No loans recorded.</p>
       ) : (
-        <ul className="mt-4 flex flex-col gap-4">
+        <StaggerList className="mt-4 flex flex-col gap-4">
           {loans.map((loan) => (
-            <li
+            <StaggerItem
               key={loan.id}
               className="flex flex-col gap-1 border-b border-ink/10 pb-4"
             >
@@ -320,9 +321,9 @@ function LoansSection({
                   </button>
                 </span>
               </div>
-            </li>
+            </StaggerItem>
           ))}
-        </ul>
+        </StaggerList>
       )}
       {selected ? (
         <div className="mt-4 flex flex-col gap-4">
@@ -370,16 +371,16 @@ function LoansSection({
             ) : !payments || payments.length === 0 ? (
               <p className="mt-2 text-muted">No payments yet.</p>
             ) : (
-              <ul
-                aria-label="Payment history"
+              <StaggerList
+                ariaLabel="Payment history"
                 className="mt-2 flex flex-col gap-2"
               >
                 {payments.map((payment) => (
-                  <li key={payment.id} className="text-base">
+                  <StaggerItem key={payment.id} className="text-base">
                     {formatPeso(payment.amount_cents)} — {payment.paid_at}
-                  </li>
+                  </StaggerItem>
                 ))}
-              </ul>
+              </StaggerList>
             )}
           </div>
         </div>
@@ -479,11 +480,11 @@ export default function FinancePage() {
   return (
     <main className="min-h-screen bg-paper text-ink">
       <div className="mx-auto flex max-w-4xl flex-col gap-10 px-6 py-12">
-        <header className="flex flex-col gap-3">
+        <Reveal className="flex flex-col gap-3">
           <p className="label text-xs text-muted">Cafe &middot; LAN</p>
           <h1 className="text-4xl font-semibold">Finance</h1>
           <p className="text-sm text-muted">Bills, expenses, and payables.</p>
-        </header>
+        </Reveal>
         {isLoading ? (
           <LoadingSkeleton />
         ) : isError ? (
