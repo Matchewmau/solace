@@ -3,13 +3,18 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   fetchBills,
   fetchExpenses,
+  fetchLoanPayments,
+  fetchLoans,
   fetchPayables,
   isOverdue,
   patchBillPaid,
   patchPayablePaid,
   postExpense,
+  postLoanPayment,
   type Bill,
   type Expense,
+  type Loan,
+  type LoanPayment,
   type Payable,
 } from "../api/finance";
 import { formatPeso } from "../lib/formatPeso";
@@ -249,9 +254,145 @@ function PayablesSection({
   );
 }
 
+function LoansSection({
+  loans,
+  selectedId,
+  payments,
+  historyLoading,
+  payPending,
+  payError,
+  onSelect,
+  onPay,
+}: {
+  loans: Loan[];
+  selectedId: number | null;
+  payments: LoanPayment[] | undefined;
+  historyLoading: boolean;
+  payPending: boolean;
+  payError: string | null;
+  onSelect: (id: number) => void;
+  onPay: (loan: Loan, amount_cents: number) => void;
+}) {
+  const selected = loans.find((loan) => loan.id === selectedId) ?? null;
+  return (
+    <section aria-label="Loans">
+      <p className="label text-xs text-muted">Solace &middot; Loans</p>
+      <h2 className="mt-2 text-2xl font-semibold">Loans</h2>
+      {loans.length === 0 ? (
+        <p className="mt-4 text-muted">No loans recorded.</p>
+      ) : (
+        <ul className="mt-4 flex flex-col gap-4">
+          {loans.map((loan) => (
+            <li
+              key={loan.id}
+              className="flex flex-col gap-1 border-b border-ink/10 pb-4"
+            >
+              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <span className="text-lg font-semibold">{loan.lender}</span>
+                <span className="text-base">
+                  principal {formatPeso(loan.principal_cents)}
+                </span>
+                <span className="text-base">
+                  balance {formatPeso(loan.balance_cents)}
+                </span>
+                <span className="text-sm text-muted">
+                  installment {formatPeso(loan.installment_cents)} &middot; due
+                  day {loan.due_day}
+                </span>
+                {loan.balance_cents > 0 ? (
+                  <span className="border border-accent px-2 py-0.5 text-xs font-semibold text-accent">
+                    OUTSTANDING
+                  </span>
+                ) : (
+                  <span className="border border-ink/20 px-2 py-0.5 text-xs font-semibold">
+                    PAID
+                  </span>
+                )}
+                <span className="ml-auto">
+                  <button
+                    type="button"
+                    aria-label={`View payments for ${loan.lender}`}
+                    aria-pressed={selectedId === loan.id}
+                    onClick={() => onSelect(loan.id)}
+                    className="border border-ink/20 px-3 py-1 text-sm"
+                  >
+                    {selectedId === loan.id ? "Selected" : "Pay / history"}
+                  </button>
+                </span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      {selected ? (
+        <div className="mt-4 flex flex-col gap-4">
+          <form
+            key={selected.id}
+            aria-label="Pay loan"
+            className="flex flex-wrap gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const data = new FormData(event.currentTarget);
+              const amount_cents = Math.round(
+                Number(String(data.get("amount") ?? "")) * 100,
+              );
+              if (!Number.isInteger(amount_cents) || amount_cents <= 0) return;
+              onPay(selected, amount_cents);
+            }}
+          >
+            <input
+              name="amount"
+              type="number"
+              min="0"
+              step="0.01"
+              required
+              defaultValue={selected.installment_cents / 100}
+              aria-label="Payment amount in pesos"
+              className="w-28 border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+            />
+            <button
+              type="submit"
+              disabled={payPending}
+              className="border border-ink px-3 py-1 text-sm font-semibold"
+            >
+              Pay {selected.lender}
+            </button>
+          </form>
+          {payError ? (
+            <p role="alert" className="mt-2 text-sm text-accent">
+              {payError}
+            </p>
+          ) : null}
+          <div>
+            <h3 className="text-lg font-semibold">Payment history</h3>
+            {historyLoading ? (
+              <p className="mt-2 text-sm text-muted">Loading history…</p>
+            ) : !payments || payments.length === 0 ? (
+              <p className="mt-2 text-muted">No payments yet.</p>
+            ) : (
+              <ul
+                aria-label="Payment history"
+                className="mt-2 flex flex-col gap-2"
+              >
+                {payments.map((payment) => (
+                  <li key={payment.id} className="text-base">
+                    {formatPeso(payment.amount_cents)} — {payment.paid_at}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 export default function FinancePage() {
   const queryClient = useQueryClient();
   const [expenseError, setExpenseError] = useState<string | null>(null);
+  const [selectedLoanId, setSelectedLoanId] = useState<number | null>(null);
+  const [payError, setPayError] = useState<string | null>(null);
 
   const billsQuery = useQuery({ queryKey: ["bills"], queryFn: fetchBills });
   const expensesQuery = useQuery({
@@ -261,6 +402,15 @@ export default function FinancePage() {
   const payablesQuery = useQuery({
     queryKey: ["payables"],
     queryFn: fetchPayables,
+  });
+  const loansQuery = useQuery({
+    queryKey: ["loans"],
+    queryFn: () => fetchLoans(),
+  });
+  const paymentsQuery = useQuery({
+    queryKey: ["loan-payments", selectedLoanId],
+    queryFn: () => fetchLoanPayments(selectedLoanId as number),
+    enabled: selectedLoanId !== null,
   });
 
   const billMutation = useMutation({
@@ -295,10 +445,36 @@ export default function FinancePage() {
     },
   });
 
+  const payMutation = useMutation({
+    mutationFn: ({
+      loanId,
+      amount_cents,
+    }: {
+      loanId: number;
+      amount_cents: number;
+    }) => postLoanPayment(loanId, amount_cents),
+    onSuccess: (_data, variables) => {
+      setPayError(null);
+      void queryClient.invalidateQueries({ queryKey: ["loans"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["loan-payments", variables.loanId],
+      });
+    },
+    onError: () => {
+      setPayError("Could not record that payment.");
+    },
+  });
+
   const isLoading =
-    billsQuery.isLoading || expensesQuery.isLoading || payablesQuery.isLoading;
+    billsQuery.isLoading ||
+    expensesQuery.isLoading ||
+    payablesQuery.isLoading ||
+    loansQuery.isLoading;
   const isError =
-    billsQuery.isError || expensesQuery.isError || payablesQuery.isError;
+    billsQuery.isError ||
+    expensesQuery.isError ||
+    payablesQuery.isError ||
+    loansQuery.isError;
 
   return (
     <main className="min-h-screen bg-paper text-ink">
@@ -322,6 +498,7 @@ export default function FinancePage() {
                 void billsQuery.refetch();
                 void expensesQuery.refetch();
                 void payablesQuery.refetch();
+                void loansQuery.refetch();
               }}
             >
               Retry
@@ -349,7 +526,21 @@ export default function FinancePage() {
                 payableMutation.mutate({ payable, next })
               }
             />
-            {/* Task 12 insertion point: Loans section goes here. */}
+            <LoansSection
+              loans={loansQuery.data ?? []}
+              selectedId={selectedLoanId}
+              payments={paymentsQuery.data}
+              historyLoading={paymentsQuery.isLoading}
+              payPending={payMutation.isPending}
+              payError={payError}
+              onSelect={(id) => {
+                setPayError(null);
+                setSelectedLoanId(id);
+              }}
+              onPay={(loan, amount_cents) =>
+                payMutation.mutate({ loanId: loan.id, amount_cents })
+              }
+            />
           </div>
         )}
       </div>

@@ -1044,6 +1044,187 @@ export function createApp(dbPath) {
     res.status(204).end();
   });
 
+  // --- loans (Task 12: money YOU owe; no interest or amortization) ---
+  const LOAN_COLS =
+    "id, lender, principal_cents, balance_cents, installment_cents, due_day";
+  const LOAN_PAYMENT_COLS = "id, loan_id, amount_cents, paid_at";
+
+  function loanRow(id) {
+    return db.prepare(`SELECT ${LOAN_COLS} FROM loans WHERE id = ?`).get(id);
+  }
+
+  function validateLoanFields({
+    lender,
+    principal_cents,
+    balance_cents,
+    installment_cents,
+    due_day,
+  }) {
+    if (typeof lender !== "string" || lender.trim() === "") {
+      return "lender is required";
+    }
+    if (!isInt(principal_cents) || principal_cents < 0) {
+      return "principal_cents must be a non-negative integer";
+    }
+    if (!isInt(balance_cents) || balance_cents < 0) {
+      return "balance_cents must be a non-negative integer";
+    }
+    if (!isInt(installment_cents) || installment_cents <= 0) {
+      return "installment_cents must be a positive integer";
+    }
+    if (!isInt(due_day) || due_day < 1 || due_day > 31) {
+      return "due_day must be an integer from 1 to 31";
+    }
+    return null;
+  }
+
+  app.get("/api/loans", (req, res) => {
+    if (req.query.outstanding !== undefined) {
+      if (req.query.outstanding !== "1") {
+        return sendError(res, 400, "outstanding must be 1");
+      }
+      return res.json(
+        db
+          .prepare(`SELECT ${LOAN_COLS} FROM loans WHERE balance_cents > 0 ORDER BY id`)
+          .all(),
+      );
+    }
+    res.json(db.prepare(`SELECT ${LOAN_COLS} FROM loans ORDER BY id`).all());
+  });
+
+  app.post("/api/loans", (req, res) => {
+    const { lender, principal_cents, balance_cents, installment_cents, due_day } =
+      req.body ?? {};
+    const error = validateLoanFields({
+      lender,
+      principal_cents,
+      balance_cents,
+      installment_cents,
+      due_day,
+    });
+    if (error) return sendError(res, 400, error);
+    const info = db
+      .prepare(
+        "INSERT INTO loans (lender, principal_cents, balance_cents, installment_cents, due_day) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run(
+        lender.trim(),
+        principal_cents,
+        balance_cents,
+        installment_cents,
+        due_day,
+      );
+    res.status(201).json(loanRow(info.lastInsertRowid));
+  });
+
+  app.get("/api/loans/:id", (req, res) => {
+    const id = parseId(req.params.id);
+    const row = id ? loanRow(id) : undefined;
+    if (!row) return sendError(res, 404, "loan not found");
+    res.json(row);
+  });
+
+  app.patch("/api/loans/:id", (req, res) => {
+    const id = parseId(req.params.id);
+    const current = id ? loanRow(id) : undefined;
+    if (!current) return sendError(res, 404, "loan not found");
+    const {
+      lender = current.lender,
+      principal_cents = current.principal_cents,
+      balance_cents = current.balance_cents,
+      installment_cents = current.installment_cents,
+      due_day = current.due_day,
+    } = req.body ?? {};
+    const error = validateLoanFields({
+      lender,
+      principal_cents,
+      balance_cents,
+      installment_cents,
+      due_day,
+    });
+    if (error) return sendError(res, 400, error);
+    db.prepare(
+      "UPDATE loans SET lender = ?, principal_cents = ?, balance_cents = ?, installment_cents = ?, due_day = ? WHERE id = ?",
+    ).run(
+      lender.trim(),
+      principal_cents,
+      balance_cents,
+      installment_cents,
+      due_day,
+      id,
+    );
+    res.json(loanRow(id));
+  });
+
+  // DELETE RULE (Task 12, verbatim): a loan may be deleted ONLY when
+  // balance_cents == 0; otherwise 400. Fully-paid loans carry no further
+  // obligation, so the delete also removes their loan_payments history rows
+  // (in the same transaction as the loan row) to leave no orphans.
+  app.delete("/api/loans/:id", (req, res) => {
+    const id = parseId(req.params.id);
+    const current = id ? loanRow(id) : undefined;
+    if (!current) return sendError(res, 404, "loan not found");
+    if (current.balance_cents !== 0) {
+      return sendError(res, 400, "loan has an outstanding balance");
+    }
+    const remove = db.transaction(() => {
+      db.prepare("DELETE FROM loan_payments WHERE loan_id = ?").run(id);
+      db.prepare("DELETE FROM loans WHERE id = ?").run(id);
+    });
+    remove();
+    res.status(204).end();
+  });
+
+  // A payment inserts the loan_payments row AND decrements the loan balance
+  // in ONE transaction so the ledger and the cached balance never diverge
+  // (same ruling shape as the Task 10 stock ledger).
+  app.post("/api/loans/:id/payments", (req, res) => {
+    const id = parseId(req.params.id);
+    const current = id ? loanRow(id) : undefined;
+    if (!current) return sendError(res, 404, "loan not found");
+    const { amount_cents } = req.body ?? {};
+    if (!isInt(amount_cents) || amount_cents <= 0) {
+      return sendError(res, 400, "amount_cents must be a positive integer");
+    }
+    if (amount_cents > current.balance_cents) {
+      return sendError(res, 400, "payment exceeds outstanding balance");
+    }
+    const apply = db.transaction(() => {
+      const info = db
+        .prepare(
+          "INSERT INTO loan_payments (loan_id, amount_cents, paid_at) VALUES (?, ?, ?)",
+        )
+        .run(id, amount_cents, nowStamp());
+      db.prepare("UPDATE loans SET balance_cents = ? WHERE id = ?").run(
+        current.balance_cents - amount_cents,
+        id,
+      );
+      return info.lastInsertRowid;
+    });
+    const paymentId = apply();
+    res
+      .status(201)
+      .json({
+        payment: db
+          .prepare(`SELECT ${LOAN_PAYMENT_COLS} FROM loan_payments WHERE id = ?`)
+          .get(paymentId),
+        balance_cents: current.balance_cents - amount_cents,
+      });
+  });
+
+  app.get("/api/loans/:id/payments", (req, res) => {
+    const id = parseId(req.params.id);
+    const current = id ? loanRow(id) : undefined;
+    if (!current) return sendError(res, 404, "loan not found");
+    res.json(
+      db
+        .prepare(
+          `SELECT ${LOAN_PAYMENT_COLS} FROM loan_payments WHERE loan_id = ? ORDER BY paid_at DESC, id DESC`,
+        )
+        .all(id),
+    );
+  });
+
   // Unknown /api routes are JSON 404s, never the SPA fallback.
   app.use("/api", (req, res) => sendError(res, 404, "not found"));
 

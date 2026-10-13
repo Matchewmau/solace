@@ -27,6 +27,22 @@ export interface Payable {
   paid: number;
 }
 
+export interface Loan {
+  id: number;
+  lender: string;
+  principal_cents: number;
+  balance_cents: number;
+  installment_cents: number;
+  due_day: number;
+}
+
+export interface LoanPayment {
+  id: number;
+  loan_id: number;
+  amount_cents: number;
+  paid_at: string;
+}
+
 /** Today's UTC date (YYYY-MM-DD), matching the server's overdue ruling. */
 export function utcToday(): string {
   return new Date().toISOString().slice(0, 10);
@@ -103,4 +119,24 @@ export function fetchPayables(): Promise<Payable[]> {
 
 export function patchPayablePaid(id: number, paid: 0 | 1): Promise<Payable> {
   return patchJson<Payable>(`/api/payables/${id}`, { paid });
+}
+
+export function fetchLoans(outstandingOnly = false): Promise<Loan[]> {
+  return requestJson<Loan[]>(
+    outstandingOnly ? "/api/loans?outstanding=1" : "/api/loans",
+  );
+}
+
+export function fetchLoanPayments(loanId: number): Promise<LoanPayment[]> {
+  return requestJson<LoanPayment[]>(`/api/loans/${loanId}/payments`);
+}
+
+export function postLoanPayment(
+  loanId: number,
+  amount_cents: number,
+): Promise<{ payment: LoanPayment; balance_cents: number }> {
+  return postJson<{ payment: LoanPayment; balance_cents: number }>(
+    `/api/loans/${loanId}/payments`,
+    { amount_cents },
+  );
 }

@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import FinancePage from "./FinancePage";
 import { isOverdue } from "../api/finance";
-import type { Bill, Expense, Payable } from "../api/finance";
+import type { Bill, Expense, Loan, LoanPayment, Payable } from "../api/finance";
 
 afterEach(() => {
   cleanup();
@@ -50,6 +50,30 @@ const payables: Payable[] = [
 
 const posted: Array<{ url: string; body: unknown }> = [];
 const patched: Array<{ url: string; body: unknown }> = [];
+const loanPaymentsPosted: Array<{ url: string; body: unknown }> = [];
+
+const loans: Loan[] = [
+  {
+    id: 1,
+    lender: "BDO",
+    principal_cents: 100000,
+    balance_cents: 90000,
+    installment_cents: 10000,
+    due_day: 15,
+  },
+  {
+    id: 2,
+    lender: "Settled Lender",
+    principal_cents: 50000,
+    balance_cents: 0,
+    installment_cents: 5000,
+    due_day: 5,
+  },
+];
+
+const loanPayments: LoanPayment[] = [
+  { id: 1, loan_id: 1, amount_cents: 10000, paid_at: "2026-10-12 10:00:00" },
+];
 
 function ok(data: unknown, status = 200): Response {
   return {
@@ -62,6 +86,23 @@ function ok(data: unknown, status = 200): Response {
 function stubFetch() {
   posted.length = 0;
   patched.length = 0;
+  loanPaymentsPosted.length = 0;
+  // Reset shared loan fixtures between tests.
+  loans[0] = {
+    id: 1,
+    lender: "BDO",
+    principal_cents: 100000,
+    balance_cents: 90000,
+    installment_cents: 10000,
+    due_day: 15,
+  };
+  loanPayments.length = 0;
+  loanPayments.push({
+    id: 1,
+    loan_id: 1,
+    amount_cents: 10000,
+    paid_at: "2026-10-12 10:00:00",
+  });
   globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
     const u = String(url);
     if (u === "/api/bills" && (!init || init.method === undefined)) {
@@ -72,6 +113,41 @@ function stubFetch() {
     }
     if (u === "/api/payables" && (!init || init.method === undefined)) {
       return ok(payables);
+    }
+    if (u === "/api/loans" && (!init || init.method === undefined)) {
+      return ok(loans.map((loan) => ({ ...loan })));
+    }
+    const historyMatch = u.match(/^\/api\/loans\/(\d+)\/payments$/);
+    if (historyMatch && (!init || init.method === undefined)) {
+      const loanId = Number(historyMatch[1]);
+      return ok(
+        loanPayments
+          .filter((payment) => payment.loan_id === loanId)
+          .map((payment) => ({ ...payment })),
+      );
+    }
+    if (historyMatch && init?.method === "POST") {
+      const loanId = Number(historyMatch[1]);
+      const body = JSON.parse(String(init.body)) as {
+        amount_cents: number;
+      };
+      loanPaymentsPosted.push({ url: u, body });
+      const loan = loans.find((candidate) => candidate.id === loanId);
+      if (!loan) {
+        return ok({ error: "loan not found" }, 404);
+      }
+      loan.balance_cents -= body.amount_cents;
+      const payment = {
+        id: Math.max(...loanPayments.map((p) => p.id)) + 1,
+        loan_id: loanId,
+        amount_cents: body.amount_cents,
+        paid_at: "2026-10-13 10:00:00",
+      };
+      loanPayments.unshift(payment);
+      return ok(
+        { payment: { ...payment }, balance_cents: loan.balance_cents },
+        201,
+      );
     }
     if (u === "/api/expenses" && init?.method === "POST") {
       const body = JSON.parse(String(init.body)) as Record<string, unknown>;
@@ -206,5 +282,65 @@ describe("FinancePage with mocked data", () => {
         note: "Arla 6L",
       },
     });
+  });
+});
+
+describe("FinancePage loans (Task 12)", () => {
+  it("shows OUTSTANDING/PAID badges per loan balance", async () => {
+    stubFetch();
+    renderFinance();
+    await screen.findByText("BDO");
+
+    const owingRow = screen.getByText("BDO").closest("li") as HTMLElement;
+    expect(owingRow.textContent).toContain("OUTSTANDING");
+    expect(owingRow.textContent).not.toContain("PAID");
+
+    const settledRow = screen
+      .getByText("Settled Lender")
+      .closest("li") as HTMLElement;
+    expect(settledRow.textContent).toContain("PAID");
+  });
+
+  it("pay form POSTs amount_cents and the PAID badge appears at zero balance", async () => {
+    stubFetch();
+    renderFinance();
+    await screen.findByText("BDO");
+
+    fireEvent.click(screen.getByLabelText("View payments for BDO"));
+    const form = screen.getByLabelText("Pay loan").closest(
+      "form",
+    ) as HTMLFormElement;
+    const amount = form.querySelector(
+      'input[name="amount"]',
+    ) as HTMLInputElement;
+    // Amount defaults to the installment (₱100 = 10000 cents).
+    expect(amount.value).toBe("100");
+
+    fireEvent.change(amount, { target: { value: "900" } });
+    fireEvent.submit(form);
+
+    await vi.waitFor(() => {
+      expect(loanPaymentsPosted).toHaveLength(1);
+    });
+    expect(loanPaymentsPosted[0]).toEqual({
+      url: "/api/loans/1/payments",
+      body: { amount_cents: 90000 },
+    });
+
+    // Balance refreshes from the refetched loans list: 90000 - 90000 = 0.
+    const owingRow = screen.getByText("BDO").closest("li") as HTMLElement;
+    await vi.waitFor(() => {
+      expect(owingRow.textContent).toContain("PAID");
+    });
+  });
+
+  it("shows payment history for the selected loan", async () => {
+    stubFetch();
+    renderFinance();
+    await screen.findByText("BDO");
+
+    fireEvent.click(screen.getByLabelText("View payments for BDO"));
+    const history = await screen.findByLabelText("Payment history");
+    expect(history.textContent).toContain("2026-10-12 10:00:00");
   });
 });
