@@ -510,6 +510,50 @@ export function createApp(dbPath) {
     res.json(saleWithItems(id));
   });
 
+  // --- recipes (read-only barista guide; seeded from the brew PDF) ---
+  const RECIPE_COLS =
+    "r.id, r.menu_item_id, m.name AS menu_item_name, r.steps";
+
+  function recipeLines(recipeId) {
+    return db
+      .prepare(
+        "SELECT id, ingredient, qty, unit FROM recipe_lines WHERE recipe_id = ? ORDER BY id",
+      )
+      .all(recipeId);
+  }
+
+  app.get("/api/recipes", (req, res) => {
+    const where = [];
+    const params = [];
+    if (req.query.menu_item_id !== undefined) {
+      const menuItemId = Number(req.query.menu_item_id);
+      if (!isInt(menuItemId)) {
+        return sendError(res, 400, "menu_item_id must be an integer");
+      }
+      where.push("r.menu_item_id = ?");
+      params.push(menuItemId);
+    }
+    const rows = db
+      .prepare(
+        `SELECT ${RECIPE_COLS} FROM recipes r JOIN menu_items m ON m.id = r.menu_item_id${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY r.id`,
+      )
+      .all(...params);
+    res.json(rows);
+  });
+
+  app.get("/api/recipes/:id", (req, res) => {
+    const id = parseId(req.params.id);
+    const row = id
+      ? db
+          .prepare(
+            `SELECT ${RECIPE_COLS} FROM recipes r JOIN menu_items m ON m.id = r.menu_item_id WHERE r.id = ?`,
+          )
+          .get(id)
+      : undefined;
+    if (!row) return sendError(res, 404, "recipe not found");
+    res.json({ ...row, lines: recipeLines(id) });
+  });
+
   // Unknown /api routes are JSON 404s, never the SPA fallback.
   app.use("/api", (req, res) => sendError(res, 404, "not found"));
 
