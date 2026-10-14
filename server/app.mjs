@@ -34,6 +34,17 @@ function parseId(raw) {
   return isInt(id) && id > 0 ? id : null;
 }
 
+// PIN parsing (Task 15 fix round 1): empty/missing means "no lock".
+// A non-empty value that fails the 4-8 digit rule is NOT a lock either
+// (fail-open, brief-consistent: unset = no lock, LAN-only) — but it is
+// almost certainly an operator typo, so callers must warn.
+export function parsePin(raw) {
+  const value = String(raw ?? "");
+  if (value === "") return { pin: "", invalid: false };
+  if (/^\d{4,8}$/.test(value)) return { pin: value, invalid: false };
+  return { pin: "", invalid: true };
+}
+
 export function createApp(dbPath, opts = {}) {
   const db = openDb(dbPath);
   const app = express();
@@ -49,7 +60,11 @@ export function createApp(dbPath, opts = {}) {
   // lock against curious taps, not a security boundary — hence plaintext env
   // compare and no brute-force machinery (documented, YAGNI).
   const rawPin = opts.pin ?? process.env.SOLACE_PIN ?? "";
-  const serverPin = /^\d{4,8}$/.test(String(rawPin)) ? String(rawPin) : "";
+  const parsedPin = parsePin(rawPin);
+  const serverPin = parsedPin.pin;
+  if (parsedPin.invalid) {
+    console.warn("invalid SOLACE_PIN ignored — running unlocked");
+  }
   app.locals.pinConfigured = serverPin !== "";
 
   // Constant-time string compare (length-mismatch short-circuits false

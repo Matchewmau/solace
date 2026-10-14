@@ -1,9 +1,9 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import request from "supertest";
-import { createApp } from "./app.mjs";
+import { createApp, parsePin } from "./app.mjs";
 
 // Unset-PIN app: everything behaves as today (no lock, no 401s).
 const dirOpen = mkdtempSync(join(tmpdir(), "solace-pin-open-"));
@@ -39,6 +39,53 @@ describe("PIN unset: no lock, no 401s (regression)", () => {
       .send({ pin: "anything" })
       .expect(200);
     expect(verify.body).toEqual({ ok: true });
+  });
+});
+
+describe("PIN malformed: warn once, stay fail-open (fix round 1)", () => {
+  it("parsePin flags non-empty non-4-8-digit values, accepts the rest", () => {
+    expect(parsePin("")).toEqual({ pin: "", invalid: false });
+    expect(parsePin("1234")).toEqual({ pin: "1234", invalid: false });
+    expect(parsePin("12345678")).toEqual({ pin: "12345678", invalid: false });
+    expect(parsePin("12ab")).toEqual({ pin: "", invalid: true });
+    expect(parsePin("123")).toEqual({ pin: "", invalid: true });
+    expect(parsePin("123456789")).toEqual({ pin: "", invalid: true });
+  });
+
+  it("malformed PIN warns on boot but mutations stay headerless", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const dirBad = mkdtempSync(join(tmpdir(), "solace-pin-bad-"));
+    const badApp = createApp(join(dirBad, "bad.db"), { pin: "12ab" });
+    try {
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringMatching(/invalid SOLACE_PIN/i),
+      );
+      expect(badApp.locals.pinConfigured).toBe(false);
+      await request(badApp)
+        .post("/api/categories")
+        .send({ name: "FailOpen" })
+        .expect(201);
+    } finally {
+      badApp.locals.db.close();
+      rmSync(dirBad, { recursive: true, force: true });
+      warn.mockRestore();
+    }
+  });
+
+  it("unset and valid PINs stay silent", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const dirQuiet = mkdtempSync(join(tmpdir(), "solace-pin-quiet-"));
+    const quietApps = [
+      createApp(join(dirQuiet, "a.db"), { pin: "" }),
+      createApp(join(dirQuiet, "b.db"), { pin: "1234" }),
+    ];
+    try {
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      for (const app of quietApps) app.locals.db.close();
+      rmSync(dirQuiet, { recursive: true, force: true });
+      warn.mockRestore();
+    }
   });
 });
 
