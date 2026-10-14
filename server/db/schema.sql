@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS sales (
   total_cents INTEGER NOT NULL,
   payment TEXT NOT NULL CHECK (payment IN ('cash', 'gcash')),
   voided INTEGER NOT NULL DEFAULT 0,
+  paid INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL
 );
 

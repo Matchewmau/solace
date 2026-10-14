@@ -36,6 +36,13 @@ function openDb(dbPath) {
       "ALTER TABLE stock_items ADD COLUMN price_cents INTEGER NOT NULL DEFAULT 0",
     );
   }
+  const salesCols = db
+    .prepare("PRAGMA table_info(sales)")
+    .all()
+    .map((col) => col.name);
+  if (!salesCols.includes("paid")) {
+    db.exec("ALTER TABLE sales ADD COLUMN paid INTEGER NOT NULL DEFAULT 0");
+  }
   return db;
 }
 
@@ -374,7 +381,7 @@ export function createApp(dbPath, opts = {}) {
   });
 
   // --- sales ---
-  const SALE_COLS = "id, total_cents, payment, voided, created_at";
+  const SALE_COLS = "id, total_cents, payment, voided, paid, created_at";
 
   function saleWithItems(saleId) {
     const sale = db
@@ -422,9 +429,12 @@ export function createApp(dbPath, opts = {}) {
   }
 
   app.post("/api/sales", (req, res) => {
-    const { payment, items } = req.body ?? {};
+    const { payment, items, paid = 0 } = req.body ?? {};
     if (payment !== "cash" && payment !== "gcash") {
       return sendError(res, 400, "payment must be 'cash' or 'gcash'");
+    }
+    if (paid !== 0 && paid !== 1) {
+      return sendError(res, 400, "paid must be 0 or 1");
     }
     // Look up ACTIVE prices; the total is always computed server-side.
     const resolved = resolveItemLines(items);
@@ -439,9 +449,9 @@ export function createApp(dbPath, opts = {}) {
     const insert = db.transaction(() => {
       const saleId = db
         .prepare(
-          "INSERT INTO sales (total_cents, payment, created_at) VALUES (?, ?, ?)",
+          "INSERT INTO sales (total_cents, payment, paid, created_at) VALUES (?, ?, ?, ?)",
         )
-        .run(total, payment, nowStamp()).lastInsertRowid;
+        .run(total, payment, paid, nowStamp()).lastInsertRowid;
       const addLine = db.prepare(
         "INSERT INTO sale_items (sale_id, menu_item_id, qty, unit_price_cents) VALUES (?, ?, ?, ?)",
       );
@@ -533,18 +543,29 @@ export function createApp(dbPath, opts = {}) {
     res.json(sale);
   });
 
-  // Reversible void flag: {voided: 0|1}. Unvoid (0) restores the sale to totals.
+  // Reversible void/paid flags: {voided?: 0|1, paid?: 0|1}, at least one
+  // present. Unvoid (0) restores the sale to totals.
   app.patch("/api/sales/:id", (req, res) => {
     const id = parseId(req.params.id);
     const current = id
       ? db.prepare(`SELECT ${SALE_COLS} FROM sales WHERE id = ?`).get(id)
       : undefined;
     if (!current) return sendError(res, 404, "sale not found");
-    const { voided } = req.body ?? {};
+    const { voided = current.voided, paid = current.paid } = req.body ?? {};
+    if (req.body?.voided === undefined && req.body?.paid === undefined) {
+      return sendError(res, 400, "voided must be 0 or 1");
+    }
     if (voided !== 0 && voided !== 1) {
       return sendError(res, 400, "voided must be 0 or 1");
     }
-    db.prepare("UPDATE sales SET voided = ? WHERE id = ?").run(voided, id);
+    if (paid !== 0 && paid !== 1) {
+      return sendError(res, 400, "paid must be 0 or 1");
+    }
+    db.prepare("UPDATE sales SET voided = ?, paid = ? WHERE id = ?").run(
+      voided,
+      paid,
+      id,
+    );
     res.json(saleWithItems(id));
   });
 
