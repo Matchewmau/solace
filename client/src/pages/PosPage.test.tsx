@@ -684,6 +684,75 @@ describe("POS paid flow with history", () => {
     expect(within(paidList).getByText("Sale #23")).toBeDefined();
   });
 
+  it("list mark paid PATCHes paid 1, closes the holding tab, and lists under Paid today", async () => {
+    const patches: unknown[] = [];
+    let paid = 0;
+    const row = () => ({
+      id: 24,
+      total_cents: 7000,
+      payment: "cash",
+      voided: 0,
+      paid,
+      created_at: `${today} 10:00:00`,
+    });
+    globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
+      const u = String(url);
+      if (u === "/api/categories") return ok(categories);
+      if (u === "/api/menu_items?active=1") return ok(items);
+      if (u.startsWith("/api/sales/summary")) return ok(emptySummary);
+      if (u === "/api/sales" && init?.method === "POST") {
+        return ok(
+          {
+            ...unpaidSale(24, 7000, "cash", [{ menu_item_id: 1, qty: 1 }]),
+            items: [
+              { id: 1, menu_item_id: 1, qty: 1, unit_price_cents: 7000 },
+            ],
+          },
+          201,
+        );
+      }
+      if (u === "/api/sales/24" && init?.method === "PATCH") {
+        const body = JSON.parse(String(init.body));
+        patches.push(body);
+        paid = body.paid;
+        return ok(row());
+      }
+      // Today list vs history: only since-scoped rows are today's.
+      if (u.startsWith("/api/sales?") && u.includes("since=")) return ok([row()]);
+      if (u.startsWith("/api/sales?")) return ok([]);
+      throw new Error(`unexpected fetch ${u} ${init?.method}`);
+    }) as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Cortado");
+
+    fireEvent.click(screen.getByRole("button", { name: /Cortado/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Finalize" }));
+    await waitFor(() => {
+      expect(screen.getByText("UNPAID")).toBeDefined();
+    });
+
+    // LIST button (not the tab's "Mark paid"): the finalized tab holds sale 24.
+    const unpaidList = await screen.findByRole("list", { name: "Unpaid sales" });
+    fireEvent.click(
+      within(unpaidList).getByRole("button", { name: "Mark sale 24 paid" }),
+    );
+
+    await waitFor(() => {
+      expect(patches).toEqual([{ paid: 1 }]);
+    });
+    // Holding tab closed: Order #1 tab is gone, fresh empty order is open.
+    await waitFor(() => {
+      expect(screen.queryByRole("tab", { name: "Order #1 (1)" })).toBeNull();
+    });
+    expect(
+      screen.getByText("Order is empty. Tap an item to add it."),
+    ).toBeDefined();
+    // The sale now lives under Paid today.
+    const paidList = await screen.findByRole("list", { name: "Paid today sales" });
+    expect(within(paidList).getByText("Sale #24")).toBeDefined();
+  });
+
   it("history section lists a past-date sale", async () => {
     globalThis.fetch = vi.fn(async (url: unknown) => {
       const u = String(url);

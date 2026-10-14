@@ -79,7 +79,12 @@ export default function PosPage() {
   async function togglePaidRow(row: SaleRow) {
     setTodayError("");
     try {
-      await patchSalePaid(row.id, row.paid === 1 ? 0 : 1);
+      const paid = row.paid === 1 ? 0 : 1;
+      await patchSalePaid(row.id, paid);
+      if (paid === 1) {
+        const holder = useOrders.getState().orders.find((order) => order.sale?.id === row.id);
+        if (holder) useOrders.getState().closeOrder(holder.key);
+      }
       await queryClient.invalidateQueries({ queryKey: ["sales"] });
     } catch (err) {
       setTodayError(err instanceof Error ? err.message : "Mark paid failed.");
