@@ -12,6 +12,7 @@ export interface StockItem {
   unit: string;
   qty: number;
   low_threshold: number;
+  price_cents: number;
 }
 
 export type MovementReason = "delivery" | "adjustment" | "waste";
@@ -58,9 +59,21 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    throw new Error(`Request failed: ${res.status} ${url}`);
+    throw new Error(await readApiError(res, url));
   }
   return (await res.json()) as T;
+}
+
+async function readApiError(res: Response, url: string): Promise<string> {
+  try {
+    const body = (await res.json()) as { error?: unknown };
+    if (typeof body.error === "string" && body.error !== "") {
+      return body.error;
+    }
+  } catch {
+    // Non-JSON body — fall through to the status-based message.
+  }
+  return `Request failed: ${res.status} ${url}`;
 }
 
 export function fetchStockItems(): Promise<StockItem[]> {
@@ -90,6 +103,47 @@ export function postStockItem(input: {
   unit: string;
   qty?: number;
   low_threshold?: number;
+  price_cents?: number;
 }): Promise<StockItem> {
   return postJson<StockItem>("/api/stock_items", input);
+}
+
+/**
+ * Edit a stock item's catalog fields. qty is intentionally NOT accepted —
+ * counts only change through the movements ledger (delivery / waste /
+ * adjustment), so the UI can never write qty directly.
+ */
+export function patchStockItem(
+  id: number,
+  input: {
+    name?: string;
+    unit?: string;
+    low_threshold?: number;
+    price_cents?: number;
+  },
+): Promise<StockItem> {
+  return patchJson<StockItem>(`/api/stock_items/${id}`, input);
+}
+
+async function patchJson<T>(url: string, body: unknown): Promise<T> {
+  const res = await authFetch(url, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    throw new Error(await readApiError(res, url));
+  }
+  return (await res.json()) as T;
+}
+
+/**
+ * Delete a stock item. Rejects with the server message when the row is
+ * blocked by history (400 "stock item has movements").
+ */
+export async function deleteStockItem(id: number): Promise<void> {
+  const res = await authFetch(`/api/stock_items/${id}`, { method: "DELETE" });
+  if (!res.ok) {
+    throw new Error(await readApiError(res, `/api/stock_items/${id}`));
+  }
 }

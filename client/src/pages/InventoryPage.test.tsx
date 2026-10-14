@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import InventoryPage from "./InventoryPage";
 import { adjustmentDelta, isLowStock } from "../api/stock";
@@ -14,8 +14,8 @@ afterEach(() => {
 });
 
 const items: StockItem[] = [
-  { id: 1, name: "Milk", unit: "ml", qty: 45, low_threshold: 10 },
-  { id: 2, name: "Ice", unit: "", qty: 0, low_threshold: 0 },
+  { id: 1, name: "Milk", unit: "ml", qty: 45, low_threshold: 10, price_cents: 250 },
+  { id: 2, name: "Ice", unit: "", qty: 0, low_threshold: 0, price_cents: 0 },
 ];
 
 const posted: Array<{ url: string; body: unknown }> = [];
@@ -117,9 +117,7 @@ describe("InventoryPage with mocked data", () => {
     renderInventory();
     await screen.findByText("Milk");
 
-    const milkRow = screen.getByText("Milk").closest("li") as HTMLElement;
-    const historyButton = milkRow.querySelector("button") as HTMLButtonElement;
-    fireEvent.click(historyButton);
+    fireEvent.click(screen.getByLabelText("Show history for Milk"));
     expect(await screen.findByText(/waste -5/)).toBeDefined();
   });
 });
@@ -190,5 +188,188 @@ describe("InventoryPage create form (review fix wave)", () => {
     renderInventory();
     await screen.findByText("No stock items yet");
     expect(screen.getByLabelText("Add stock item")).toBeDefined();
+  });
+});
+
+describe("InventoryPage price, edit, delete, restock (Task 8)", () => {
+  const requests: Array<{ method: string; url: string; body: unknown }> = [];
+  let store: StockItem[];
+  let movements: StockMovement[];
+
+  function stubInventoryApi() {
+    requests.length = 0;
+    store = [
+      { id: 1, name: "Milk", unit: "ml", qty: 45, low_threshold: 10, price_cents: 250 },
+      { id: 2, name: "Ice", unit: "", qty: 0, low_threshold: 0, price_cents: 7000 },
+      { id: 3, name: "Sugar", unit: "g", qty: 100, low_threshold: 5, price_cents: 0 },
+    ];
+    movements = [
+      { id: 9, stock_item_id: 1, delta: -5, reason: "waste", created_at: "2026-10-13 10:00:00" },
+    ];
+    globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
+      const u = String(url);
+      const method = init?.method ?? "GET";
+      if (u === "/api/stock_items" && method === "GET") {
+        return ok(store);
+      }
+      if (u.startsWith("/api/stock_movements?stock_item_id=")) {
+        const id = Number(u.split("=").at(-1));
+        return ok(movements.filter((m) => m.stock_item_id === id));
+      }
+      if (u === "/api/stock_movements" && init?.method === "POST") {
+        const body = JSON.parse(String(init.body)) as {
+          stock_item_id: number;
+          delta: number;
+          reason: StockMovement["reason"];
+        };
+        requests.push({ method, url: u, body });
+        const row: StockMovement = {
+          id: 100 + movements.length,
+          ...body,
+          created_at: "2026-10-14 09:30:00",
+        };
+        movements.push(row);
+        return ok(row, 201);
+      }
+      const patchMatch = u.match(/^\/api\/stock_items\/(\d+)$/);
+      if (patchMatch && init?.method === "PATCH") {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+        requests.push({ method, url: u, body });
+        const id = Number(patchMatch[1]);
+        store = store.map((item) => (item.id === id ? { ...item, ...body } : item));
+        return ok(store.find((item) => item.id === id));
+      }
+      if (patchMatch && method === "DELETE") {
+        const id = Number(patchMatch[1]);
+        requests.push({ method, url: u, body: null });
+        if (movements.some((m) => m.stock_item_id === id)) {
+          return {
+            ok: false,
+            status: 400,
+            json: async () => ({ error: "stock item has movements" }),
+          } as Response;
+        }
+        store = store.filter((item) => item.id !== id);
+        return { ok: true, status: 204, json: async () => ({}) } as Response;
+      }
+      throw new Error(`unexpected fetch ${u} ${method}`);
+    }) as typeof fetch;
+  }
+
+  it("renders each row price formatted via formatPeso", async () => {
+    stubInventoryApi();
+    renderInventory();
+    await screen.findByText("Milk");
+
+    const milkRow = screen.getByText("Milk").closest("li") as HTMLElement;
+    expect(milkRow.textContent).toContain("₱2.50");
+    const iceRow = screen.getByText("Ice").closest("li") as HTMLElement;
+    expect(iceRow.textContent).toContain("₱70");
+  });
+
+  it("edit dialog saves name/price/unit/threshold and never edits qty", async () => {
+    stubInventoryApi();
+    renderInventory();
+    await screen.findByText("Milk");
+
+    fireEvent.click(screen.getByLabelText("Edit Milk"));
+    const dialog = await screen.findByRole("dialog", { name: "Edit Milk" });
+    // qty is not directly editable: no qty/count field inside the dialog.
+    expect(dialog.querySelector('input[name="qty"]')).toBeNull();
+    expect(dialog.querySelector('input[name="count"]')).toBeNull();
+
+    fireEvent.change(within(dialog).getByLabelText("Item name"), {
+      target: { value: "Oat Milk" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Price in pesos"), {
+      target: { value: "3.75" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Unit"), {
+      target: { value: "L" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Low threshold"), {
+      target: { value: "5" },
+    });
+    fireEvent.submit(within(dialog).getByLabelText("Edit Milk form").closest("form") as HTMLFormElement);
+
+    await vi.waitFor(() => {
+      expect(requests).toHaveLength(1);
+    });
+    expect(requests[0]).toEqual({
+      method: "PATCH",
+      url: "/api/stock_items/1",
+      body: { name: "Oat Milk", unit: "L", low_threshold: 5, price_cents: 375 },
+    });
+    expect("qty" in (requests[0].body as Record<string, unknown>)).toBe(false);
+
+    // Saved values render back on the row.
+    expect(await screen.findByText("Oat Milk")).toBeDefined();
+    expect(await screen.findByText("₱3.75")).toBeDefined();
+  });
+
+  it("delete removes an item with no history", async () => {
+    stubInventoryApi();
+    renderInventory();
+    await screen.findByText("Sugar");
+
+    fireEvent.click(screen.getByLabelText("Delete Sugar"));
+    fireEvent.click(await screen.findByLabelText("Confirm delete Sugar"));
+
+    await vi.waitFor(() => {
+      expect(requests).toContainEqual({
+        method: "DELETE",
+        url: "/api/stock_items/3",
+        body: null,
+      });
+    });
+    await vi.waitFor(() => {
+      expect(screen.queryByText("Sugar")).toBeNull();
+    });
+  });
+
+  it("delete blocked by history shows the server message", async () => {
+    stubInventoryApi();
+    renderInventory();
+    await screen.findByText("Milk");
+
+    fireEvent.click(screen.getByLabelText("Delete Milk"));
+    fireEvent.click(await screen.findByLabelText("Confirm delete Milk"));
+
+    expect(await screen.findByText(/stock item has movements/)).toBeDefined();
+    // The row stays: nothing was deleted.
+    expect(screen.getByText("Milk")).toBeDefined();
+  });
+
+  it("−1 posts waste and +1 posts delivery, both appearing in dated history", async () => {
+    stubInventoryApi();
+    renderInventory();
+    await screen.findByText("Milk");
+
+    fireEvent.click(screen.getByLabelText("Show history for Milk"));
+    expect(await screen.findByText(/waste -5/)).toBeDefined();
+
+    fireEvent.click(screen.getByLabelText("Waste one Milk"));
+    await vi.waitFor(() => {
+      expect(requests).toHaveLength(1);
+    });
+    expect(requests[0].body).toEqual({
+      stock_item_id: 1,
+      delta: -1,
+      reason: "waste",
+    });
+    const wasteLine = await screen.findByText(/waste -1/);
+    expect(wasteLine.textContent).toContain("2026-10-14");
+
+    fireEvent.click(screen.getByLabelText("Restock one Milk"));
+    await vi.waitFor(() => {
+      expect(requests).toHaveLength(2);
+    });
+    expect(requests[1].body).toEqual({
+      stock_item_id: 1,
+      delta: 1,
+      reason: "delivery",
+    });
+    const deliveryLine = await screen.findByText(/delivery 1/);
+    expect(deliveryLine.textContent).toContain("2026-10-14");
   });
 });

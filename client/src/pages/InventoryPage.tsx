@@ -2,14 +2,17 @@ import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   adjustmentDelta,
+  deleteStockItem,
   fetchMovements,
   fetchStockItems,
   isLowStock,
+  patchStockItem,
   postStockItem,
   postStockMovement,
   type MovementReason,
   type StockItem,
 } from "../api/stock";
+import { formatPeso } from "../lib/formatPeso";
 
 function LoadingSkeleton() {
   return (
@@ -38,6 +41,26 @@ function RowControls({ item, onMove, pending, formError }: RowControlsProps) {
   return (
     <div className="mt-2 flex flex-col gap-2">
       <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          aria-label={`Waste one ${item.name}`}
+          title="Use one (waste)"
+          disabled={pending}
+          onClick={() => onMove(item, -1, "waste")}
+          className="border border-ink px-3 py-1 text-sm font-semibold"
+        >
+          −1
+        </button>
+        <button
+          type="button"
+          aria-label={`Restock one ${item.name}`}
+          title="Restock one (delivery)"
+          disabled={pending}
+          onClick={() => onMove(item, 1, "delivery")}
+          className="border border-ink px-3 py-1 text-sm font-semibold"
+        >
+          +1
+        </button>
         <form
           aria-label={`Deliver ${item.name}`}
           className="flex gap-2"
@@ -134,11 +157,136 @@ function RowControls({ item, onMove, pending, formError }: RowControlsProps) {
   );
 }
 
+interface EditPatch {
+  name: string;
+  unit: string;
+  low_threshold: number;
+  price_cents: number;
+}
+
+interface EditDialogProps {
+  item: StockItem;
+  pending: boolean;
+  error: string | null;
+  onClose: () => void;
+  onSave: (id: number, patch: EditPatch) => void;
+}
+
+/**
+ * Catalog edit dialog: name, price, unit, threshold only. qty is NEVER
+ * shown or sent here — counts only change through the movements ledger.
+ */
+function EditDialog({ item, pending, error, onClose, onSave }: EditDialogProps) {
+  const pricePesos =
+    item.price_cents % 100 === 0
+      ? String(item.price_cents / 100)
+      : (item.price_cents / 100).toFixed(2);
+  return (
+    <div
+      role="dialog"
+      aria-label={`Edit ${item.name}`}
+      className="mt-2 border border-ink/20 p-3"
+    >
+      <form
+        aria-label={`Edit ${item.name} form`}
+        className="flex flex-wrap gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const data = new FormData(event.currentTarget);
+          const name = String(data.get("name") ?? "").trim();
+          const unit = String(data.get("unit") ?? "");
+          const priceValue = Number(String(data.get("price") ?? ""));
+          const thresholdRaw = String(data.get("threshold") ?? "");
+          const low_threshold =
+            thresholdRaw === "" ? 0 : Number(thresholdRaw);
+          if (name === "") return;
+          if (!Number.isFinite(priceValue) || priceValue < 0) return;
+          if (!Number.isFinite(low_threshold) || low_threshold < 0) return;
+          onSave(item.id, {
+            name,
+            unit,
+            low_threshold,
+            price_cents: Math.round(priceValue * 100),
+          });
+        }}
+      >
+        <input
+          name="name"
+          type="text"
+          required
+          defaultValue={item.name}
+          placeholder="Item name"
+          aria-label="Item name"
+          className="w-32 border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+        />
+        <input
+          name="price"
+          type="number"
+          min="0"
+          step="any"
+          required
+          defaultValue={pricePesos}
+          placeholder="Price (₱)"
+          aria-label="Price in pesos"
+          className="w-24 border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+        />
+        <input
+          name="unit"
+          type="text"
+          required
+          defaultValue={item.unit}
+          placeholder="Unit"
+          aria-label="Unit"
+          className="w-24 border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+        />
+        <input
+          name="threshold"
+          type="number"
+          min="0"
+          step="any"
+          defaultValue={item.low_threshold}
+          placeholder="Threshold"
+          aria-label="Low threshold"
+          className="w-28 border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+        />
+        <button
+          type="submit"
+          disabled={pending}
+          className="border border-ink px-3 py-1 text-sm font-semibold"
+        >
+          Save
+        </button>
+        <button
+          type="button"
+          onClick={onClose}
+          className="border border-ink/20 px-3 py-1 text-sm"
+        >
+          Cancel
+        </button>
+      </form>
+      {error ? (
+        <p role="alert" className="mt-2 text-sm text-accent">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 export default function InventoryPage() {
   const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
   const [addError, setAddError] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<number | null>(
+    null,
+  );
+  const [editError, setEditError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<{
+    id: number;
+    message: string;
+  } | null>(null);
   const addFormRef = useRef<HTMLFormElement | null>(null);
 
   const itemsQuery = useQuery({
@@ -189,6 +337,34 @@ export default function InventoryPage() {
     },
     onError: () => {
       setAddError("Could not add that stock item.");
+    },
+  });
+
+  const editMutation = useMutation({
+    mutationFn: ({ id, patch }: { id: number; patch: EditPatch }) =>
+      patchStockItem(id, patch),
+    onSuccess: () => {
+      setEditError(null);
+      setEditingId(null);
+      void queryClient.invalidateQueries({ queryKey: ["stock-items"] });
+    },
+    onError: () => {
+      setEditError("Could not save those changes.");
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (item: StockItem) => deleteStockItem(item.id),
+    onSuccess: (_data, item) => {
+      setDeleteError(null);
+      setConfirmingDeleteId(null);
+      if (selectedId === item.id) setSelectedId(null);
+      if (editingId === item.id) setEditingId(null);
+      void queryClient.invalidateQueries({ queryKey: ["stock-items"] });
+    },
+    onError: (err, item) => {
+      const detail = err instanceof Error ? err.message : "request failed";
+      setDeleteError({ id: item.id, message: `Could not delete ${item.name}: ${detail}` });
     },
   });
 
@@ -327,25 +503,78 @@ export default function InventoryPage() {
                   >
                     <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                       <span className="text-lg font-semibold">{item.name}</span>
-                      <span className="text-sm text-muted">{item.unit}</span>
+                      <span className="text-base font-semibold text-accent">
+                        {formatPeso(item.price_cents)}
+                      </span>
                       <span className="text-base">
-                        {item.qty} (threshold {item.low_threshold})
+                        {item.qty} {item.unit} (threshold {item.low_threshold})
                       </span>
                       {isLowStock(item) ? (
                         <span className="border border-accent px-2 py-0.5 text-xs font-semibold text-accent">
                           LOW
                         </span>
                       ) : null}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setSelectedId(selectedId === item.id ? null : item.id)
-                        }
-                        aria-pressed={selectedId === item.id}
-                        className="ml-auto border border-ink/20 px-3 py-1 text-sm"
-                      >
-                        {selectedId === item.id ? "Hide history" : "History"}
-                      </button>
+                      <span className="ml-auto flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSelectedId(selectedId === item.id ? null : item.id)
+                          }
+                          aria-pressed={selectedId === item.id}
+                          aria-label={
+                            selectedId === item.id
+                              ? `Hide history for ${item.name}`
+                              : `Show history for ${item.name}`
+                          }
+                          className="border border-ink/20 px-3 py-1 text-sm"
+                        >
+                          {selectedId === item.id ? "Hide history" : "History"}
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`Edit ${item.name}`}
+                          onClick={() => {
+                            setEditingId(item.id);
+                            setEditError(null);
+                          }}
+                          className="border border-ink/20 px-3 py-1 text-sm"
+                        >
+                          Edit
+                        </button>
+                        {confirmingDeleteId === item.id ? (
+                          <>
+                            <button
+                              type="button"
+                              aria-label={`Confirm delete ${item.name}`}
+                              disabled={deleteMutation.isPending}
+                              onClick={() => deleteMutation.mutate(item)}
+                              className="border border-accent px-3 py-1 text-sm font-semibold text-accent"
+                            >
+                              Confirm delete
+                            </button>
+                            <button
+                              type="button"
+                              aria-label={`Cancel delete ${item.name}`}
+                              onClick={() => setConfirmingDeleteId(null)}
+                              className="border border-ink/20 px-3 py-1 text-sm"
+                            >
+                              Cancel
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            aria-label={`Delete ${item.name}`}
+                            onClick={() => {
+                              setConfirmingDeleteId(item.id);
+                              setDeleteError(null);
+                            }}
+                            className="border border-ink/20 px-3 py-1 text-sm"
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </span>
                     </div>
                     <RowControls
                       item={item}
@@ -355,6 +584,25 @@ export default function InventoryPage() {
                         moveMutation.mutate({ item: target, delta, reason })
                       }
                     />
+                    {deleteError !== null && deleteError.id === item.id ? (
+                      <p role="alert" className="text-sm text-accent">
+                        {deleteError.message}
+                      </p>
+                    ) : null}
+                    {editingId === item.id ? (
+                      <EditDialog
+                        item={item}
+                        pending={editMutation.isPending}
+                        error={editError}
+                        onClose={() => {
+                          setEditingId(null);
+                          setEditError(null);
+                        }}
+                        onSave={(id, patch) =>
+                          editMutation.mutate({ id, patch })
+                        }
+                      />
+                    ) : null}
                   </li>
                 ))}
               </ul>
