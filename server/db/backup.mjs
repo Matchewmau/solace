@@ -118,6 +118,21 @@ export function verifyBackup(backupPath) {
   }
 }
 
+// CLI defaults: explicit positionals win, then SOLACE_* env, then builtins.
+// Exported for tests (the `invokedAsCli` block below delegates to it).
+export function resolveCliDefaults(positionals = [], keepOverride = null) {
+  const envKeep = Number(process.env.SOLACE_BACKUP_KEEP);
+  const envKeepValid =
+    Number.isInteger(envKeep) && envKeep >= 1 ? envKeep : 14;
+  return {
+    dbPath:
+      positionals[0] ?? process.env.SOLACE_DB ?? join("server", "data", "solace.db"),
+    backupDir:
+      positionals[1] ?? process.env.SOLACE_BACKUP_DIR ?? join("server", "backups"),
+    keep: keepOverride ?? envKeepValid,
+  };
+}
+
 function fail(message) {
   console.error(JSON.stringify({ error: message }));
   process.exit(1);
@@ -128,7 +143,7 @@ const invokedAsCli =
 
 if (invokedAsCli) {
   const raw = process.argv.slice(2);
-  let keep = 14;
+  let keepOverride = null;
   let verifyTarget = null;
   const positionals = [];
   for (let i = 0; i < raw.length; i += 1) {
@@ -138,14 +153,14 @@ if (invokedAsCli) {
       if (!Number.isInteger(n) || n < 1) {
         fail("--keep requires a positive integer");
       }
-      keep = n;
+      keepOverride = n;
       i += 1;
     } else if (arg.startsWith("--keep=")) {
       const n = Number(arg.slice("--keep=".length));
       if (!Number.isInteger(n) || n < 1) {
         fail("--keep requires a positive integer");
       }
-      keep = n;
+      keepOverride = n;
     } else if (arg === "--verify") {
       verifyTarget = raw[i + 1];
       if (!verifyTarget) {
@@ -171,8 +186,7 @@ if (invokedAsCli) {
       fail(err.message);
     }
   } else {
-    const dbPath = positionals[0] ?? process.env.SOLACE_DB ?? join("server", "data", "solace.db");
-    const backupDir = positionals[1] ?? join("server", "backups");
+    const { dbPath, backupDir, keep } = resolveCliDefaults(positionals, keepOverride);
     try {
       const created = await runBackup(dbPath, backupDir, keep);
       console.log(created);

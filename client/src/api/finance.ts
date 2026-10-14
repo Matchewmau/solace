@@ -103,6 +103,14 @@ export function patchBillPaid(id: number, paid: 0 | 1): Promise<Bill> {
   return patchJson<Bill>(`/api/bills/${id}`, { paid });
 }
 
+export function postBill(input: {
+  name: string;
+  amount_cents: number;
+  due_day: number;
+}): Promise<Bill> {
+  return postJson<Bill>("/api/bills", input);
+}
+
 export function fetchExpenses(): Promise<Expense[]> {
   return requestJson<Expense[]>("/api/expenses");
 }
@@ -124,6 +132,14 @@ export function patchPayablePaid(id: number, paid: 0 | 1): Promise<Payable> {
   return patchJson<Payable>(`/api/payables/${id}`, { paid });
 }
 
+export function postPayable(input: {
+  label: string;
+  amount_cents: number;
+  due_date: string;
+}): Promise<Payable> {
+  return postJson<Payable>("/api/payables", input);
+}
+
 export function fetchLoans(outstandingOnly = false): Promise<Loan[]> {
   return requestJson<Loan[]>(
     outstandingOnly ? "/api/loans?outstanding=1" : "/api/loans",
@@ -142,4 +158,13 @@ export function postLoanPayment(
     `/api/loans/${loanId}/payments`,
     { amount_cents },
   );
+}
+
+export function postLoan(input: {
+  lender: string;
+  principal_cents: number;
+  installment_cents: number;
+  due_day: number;
+}): Promise<Loan> {
+  return postJson<Loan>("/api/loans", input);
 }

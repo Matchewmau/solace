@@ -69,6 +69,18 @@ describe("loans CRUD (Task 12)", () => {
     }
   });
 
+  it("POST defaults omitted balance_cents to principal_cents", async () => {
+    const res = await request(app)
+      .post("/api/loans")
+      .send({ lender: "Default Balance", principal_cents: 60000, installment_cents: 6000, due_day: 10 })
+      .expect(201);
+    expect(res.body).toMatchObject({
+      lender: "Default Balance",
+      principal_cents: 60000,
+      balance_cents: 60000,
+    });
+  });
+
   it("installment_cents of 0 is rejected -> 400", async () => {
     const res = await request(app)
       .post("/api/loans")

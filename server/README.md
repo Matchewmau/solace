@@ -26,8 +26,10 @@ off-hours coverage.
 Daily invocation snippets (run from the repo root):
 
 ```bat
-schtasks /create /tn "SolaceBackup" /tr "cmd /c \"cd /d C:\CODE\Solace && node server\db\backup.mjs\"" /sc daily /st 23:30
+schtasks /create /tn "SolaceBackup" /tr "cmd /c \"cd /d <repo-root> && node server\db\backup.mjs\"" /sc daily /st 23:30
 ```
+
+Substitute your checkout path for `<repo-root>` (e.g. `C:\CODE\Solace`).
 
 ```cron
 30 23 * * * cd /opt/solace && node server/db/backup.mjs >> /var/log/solace-backup.log 2>&1

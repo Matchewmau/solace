@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   fetchBills,
@@ -9,8 +9,11 @@ import {
   isOverdue,
   patchBillPaid,
   patchPayablePaid,
+  postBill,
   postExpense,
+  postLoan,
   postLoanPayment,
+  postPayable,
   type Bill,
   type Expense,
   type Loan,
@@ -64,15 +67,83 @@ function BillsSection({
   bills,
   pending,
   onToggle,
+  addPending,
+  formError,
+  formRef,
+  onAdd,
 }: {
   bills: Bill[];
   pending: boolean;
   onToggle: (bill: Bill, next: 0 | 1) => void;
+  addPending: boolean;
+  formError: string | null;
+  formRef: React.RefObject<HTMLFormElement | null>;
+  onAdd: (input: { name: string; amount_cents: number; due_day: number }) => void;
 }) {
   return (
     <section aria-label="Bills">
       <p className="label text-xs text-muted">Solace &middot; Bills</p>
       <h2 className="mt-2 text-2xl font-semibold">Bills</h2>
+      <form
+        ref={formRef}
+        aria-label="Add bill"
+        className="mt-4 flex flex-wrap gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const data = new FormData(event.currentTarget);
+          const name = String(data.get("name") ?? "").trim();
+          const amount_cents = Math.round(
+            Number(String(data.get("amount") ?? "")) * 100,
+          );
+          const due_day = Number(String(data.get("due_day") ?? ""));
+          if (name === "") return;
+          if (!Number.isInteger(amount_cents) || amount_cents < 0) return;
+          if (!Number.isInteger(due_day) || due_day < 1 || due_day > 31) return;
+          onAdd({ name, amount_cents, due_day });
+        }}
+      >
+        <input
+          name="name"
+          type="text"
+          required
+          placeholder="Bill name"
+          aria-label="Bill name"
+          className="w-32 border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+        />
+        <input
+          name="amount"
+          type="number"
+          min="0"
+          step="0.01"
+          required
+          placeholder="₱ amount"
+          aria-label="Bill amount in pesos"
+          className="w-28 border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+        />
+        <input
+          name="due_day"
+          type="number"
+          min="1"
+          max="31"
+          step="1"
+          required
+          placeholder="Due day"
+          aria-label="Bill due day"
+          className="w-24 border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+        />
+        <button
+          type="submit"
+          disabled={addPending}
+          className="border border-ink px-3 py-1 text-sm font-semibold"
+        >
+          Add bill
+        </button>
+      </form>
+      {formError ? (
+        <p role="alert" className="mt-2 text-sm text-accent">
+          {formError}
+        </p>
+      ) : null}
       {bills.length === 0 ? (
         <p className="mt-4 text-muted">No bills recorded.</p>
       ) : (
@@ -110,6 +181,7 @@ function ExpensesSection({
   onAdd,
   pending,
   formError,
+  formRef,
 }: {
   expenses: Expense[];
   onAdd: (input: {
@@ -120,12 +192,14 @@ function ExpensesSection({
   }) => void;
   pending: boolean;
   formError: string | null;
+  formRef: React.RefObject<HTMLFormElement | null>;
 }) {
   return (
     <section aria-label="Expenses">
       <p className="label text-xs text-muted">Solace &middot; Expenses</p>
       <h2 className="mt-2 text-2xl font-semibold">Expenses</h2>
       <form
+        ref={formRef}
         aria-label="Add expense"
         className="mt-4 flex flex-wrap gap-2"
         onSubmit={(event) => {
@@ -139,7 +213,6 @@ function ExpensesSection({
           if (date === "" || category === "") return;
           if (!Number.isInteger(amount_cents) || amount_cents < 0) return;
           onAdd({ date, category, amount_cents, note });
-          event.currentTarget.reset();
         }}
       >
         <input
@@ -208,15 +281,82 @@ function PayablesSection({
   payables,
   pending,
   onToggle,
+  addPending,
+  formError,
+  formRef,
+  onAdd,
 }: {
   payables: Payable[];
   pending: boolean;
   onToggle: (payable: Payable, next: 0 | 1) => void;
+  addPending: boolean;
+  formError: string | null;
+  formRef: React.RefObject<HTMLFormElement | null>;
+  onAdd: (input: {
+    label: string;
+    amount_cents: number;
+    due_date: string;
+  }) => void;
 }) {
   return (
     <section aria-label="Payables">
       <p className="label text-xs text-muted">Solace &middot; Payables</p>
       <h2 className="mt-2 text-2xl font-semibold">Payables</h2>
+      <form
+        ref={formRef}
+        aria-label="Add payable"
+        className="mt-4 flex flex-wrap gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const data = new FormData(event.currentTarget);
+          const label = String(data.get("label") ?? "").trim();
+          const amount_cents = Math.round(
+            Number(String(data.get("amount") ?? "")) * 100,
+          );
+          const due_date = String(data.get("due_date") ?? "");
+          if (label === "" || due_date === "") return;
+          if (!Number.isInteger(amount_cents) || amount_cents < 0) return;
+          onAdd({ label, amount_cents, due_date });
+        }}
+      >
+        <input
+          name="label"
+          type="text"
+          required
+          placeholder="Payable label"
+          aria-label="Payable label"
+          className="w-32 border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+        />
+        <input
+          name="amount"
+          type="number"
+          min="0"
+          step="0.01"
+          required
+          placeholder="₱ amount"
+          aria-label="Payable amount in pesos"
+          className="w-28 border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+        />
+        <input
+          name="due_date"
+          type="date"
+          required
+          aria-label="Payable due date"
+          className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+        />
+        <button
+          type="submit"
+          disabled={addPending}
+          className="border border-ink px-3 py-1 text-sm font-semibold"
+        >
+          Add payable
+        </button>
+      </form>
+      {formError ? (
+        <p role="alert" className="mt-2 text-sm text-accent">
+          {formError}
+        </p>
+      ) : null}
       {payables.length === 0 ? (
         <p className="mt-4 text-muted">Nothing to pay right now.</p>
       ) : (
@@ -265,6 +405,10 @@ function LoansSection({
   payError,
   onSelect,
   onPay,
+  addPending,
+  addError,
+  addFormRef,
+  onAdd,
 }: {
   loans: Loan[];
   selectedId: number | null;
@@ -274,12 +418,96 @@ function LoansSection({
   payError: string | null;
   onSelect: (id: number) => void;
   onPay: (loan: Loan, amount_cents: number) => void;
+  addPending: boolean;
+  addError: string | null;
+  addFormRef: React.RefObject<HTMLFormElement | null>;
+  onAdd: (input: {
+    lender: string;
+    principal_cents: number;
+    installment_cents: number;
+    due_day: number;
+  }) => void;
 }) {
   const selected = loans.find((loan) => loan.id === selectedId) ?? null;
   return (
     <section aria-label="Loans">
       <p className="label text-xs text-muted">Solace &middot; Loans</p>
       <h2 className="mt-2 text-2xl font-semibold">Loans</h2>
+      <form
+        ref={addFormRef}
+        aria-label="Add loan"
+        className="mt-4 flex flex-wrap gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const data = new FormData(event.currentTarget);
+          const lender = String(data.get("lender") ?? "").trim();
+          const principal_cents = Math.round(
+            Number(String(data.get("principal") ?? "")) * 100,
+          );
+          const installment_cents = Math.round(
+            Number(String(data.get("installment") ?? "")) * 100,
+          );
+          const due_day = Number(String(data.get("due_day") ?? ""));
+          if (lender === "") return;
+          if (!Number.isInteger(principal_cents) || principal_cents < 0) return;
+          if (!Number.isInteger(installment_cents) || installment_cents <= 0)
+            return;
+          if (!Number.isInteger(due_day) || due_day < 1 || due_day > 31) return;
+          onAdd({ lender, principal_cents, installment_cents, due_day });
+        }}
+      >
+        <input
+          name="lender"
+          type="text"
+          required
+          placeholder="Lender"
+          aria-label="Loan lender"
+          className="w-32 border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+        />
+        <input
+          name="principal"
+          type="number"
+          min="0"
+          step="0.01"
+          required
+          placeholder="₱ principal"
+          aria-label="Loan principal in pesos"
+          className="w-28 border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+        />
+        <input
+          name="installment"
+          type="number"
+          min="0"
+          step="0.01"
+          required
+          placeholder="₱ installment"
+          aria-label="Loan installment in pesos"
+          className="w-28 border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+        />
+        <input
+          name="due_day"
+          type="number"
+          min="1"
+          max="31"
+          step="1"
+          required
+          placeholder="Due day"
+          aria-label="Loan due day"
+          className="w-24 border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+        />
+        <button
+          type="submit"
+          disabled={addPending}
+          className="border border-ink px-3 py-1 text-sm font-semibold"
+        >
+          Add loan
+        </button>
+      </form>
+      {addError ? (
+        <p role="alert" className="mt-2 text-sm text-accent">
+          {addError}
+        </p>
+      ) : null}
       {loans.length === 0 ? (
         <p className="mt-4 text-muted">No loans recorded.</p>
       ) : (
@@ -394,8 +622,15 @@ export default function FinancePage() {
   const queryClient = useQueryClient();
   const gate = usePinGate();
   const [expenseError, setExpenseError] = useState<string | null>(null);
+  const [billError, setBillError] = useState<string | null>(null);
+  const [payableError, setPayableError] = useState<string | null>(null);
+  const [loanAddError, setLoanAddError] = useState<string | null>(null);
   const [selectedLoanId, setSelectedLoanId] = useState<number | null>(null);
   const [payError, setPayError] = useState<string | null>(null);
+  const billFormRef = useRef<HTMLFormElement | null>(null);
+  const expenseFormRef = useRef<HTMLFormElement | null>(null);
+  const payableFormRef = useRef<HTMLFormElement | null>(null);
+  const loanAddFormRef = useRef<HTMLFormElement | null>(null);
 
   const queryEnabled = gate.state === "open";
   const billsQuery = useQuery({ queryKey: ["bills"], queryFn: fetchBills, enabled: queryEnabled });
@@ -428,6 +663,22 @@ export default function FinancePage() {
     },
   });
 
+  const billAddMutation = useMutation({
+    mutationFn: (input: {
+      name: string;
+      amount_cents: number;
+      due_day: number;
+    }) => postBill(input),
+    onSuccess: () => {
+      setBillError(null);
+      billFormRef.current?.reset();
+      void queryClient.invalidateQueries({ queryKey: ["bills"] });
+    },
+    onError: () => {
+      setBillError("Could not add that bill.");
+    },
+  });
+
   const expenseMutation = useMutation({
     mutationFn: (input: {
       date: string;
@@ -437,6 +688,7 @@ export default function FinancePage() {
     }) => postExpense(input),
     onSuccess: () => {
       setExpenseError(null);
+      expenseFormRef.current?.reset();
       void queryClient.invalidateQueries({ queryKey: ["expenses"] });
     },
     onError: () => {
@@ -449,6 +701,39 @@ export default function FinancePage() {
       patchPayablePaid(payable.id, next),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["payables"] });
+    },
+  });
+
+  const payableAddMutation = useMutation({
+    mutationFn: (input: {
+      label: string;
+      amount_cents: number;
+      due_date: string;
+    }) => postPayable(input),
+    onSuccess: () => {
+      setPayableError(null);
+      payableFormRef.current?.reset();
+      void queryClient.invalidateQueries({ queryKey: ["payables"] });
+    },
+    onError: () => {
+      setPayableError("Could not add that payable.");
+    },
+  });
+
+  const loanAddMutation = useMutation({
+    mutationFn: (input: {
+      lender: string;
+      principal_cents: number;
+      installment_cents: number;
+      due_day: number;
+    }) => postLoan(input),
+    onSuccess: () => {
+      setLoanAddError(null);
+      loanAddFormRef.current?.reset();
+      void queryClient.invalidateQueries({ queryKey: ["loans"] });
+    },
+    onError: () => {
+      setLoanAddError("Could not add that loan.");
     },
   });
 
@@ -525,11 +810,16 @@ export default function FinancePage() {
               onToggle={(bill, next) =>
                 billMutation.mutate({ bill, next })
               }
+              addPending={billAddMutation.isPending}
+              formError={billError}
+              formRef={billFormRef}
+              onAdd={(input) => billAddMutation.mutate(input)}
             />
             <ExpensesSection
               expenses={expensesQuery.data ?? []}
               pending={expenseMutation.isPending}
               formError={expenseError}
+              formRef={expenseFormRef}
               onAdd={(input) => expenseMutation.mutate(input)}
             />
             <PayablesSection
@@ -538,6 +828,10 @@ export default function FinancePage() {
               onToggle={(payable, next) =>
                 payableMutation.mutate({ payable, next })
               }
+              addPending={payableAddMutation.isPending}
+              formError={payableError}
+              formRef={payableFormRef}
+              onAdd={(input) => payableAddMutation.mutate(input)}
             />
             <LoansSection
               loans={loansQuery.data ?? []}
@@ -553,6 +847,10 @@ export default function FinancePage() {
               onPay={(loan, amount_cents) =>
                 payMutation.mutate({ loanId: loan.id, amount_cents })
               }
+              addPending={loanAddMutation.isPending}
+              addError={loanAddError}
+              addFormRef={loanAddFormRef}
+              onAdd={(input) => loanAddMutation.mutate(input)}
             />
           </div>
         )}

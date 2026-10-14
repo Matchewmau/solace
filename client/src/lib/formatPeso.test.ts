@@ -11,4 +11,9 @@ describe("formatPeso (whole-peso only)", () => {
   it("formats zero", () => {
     expect(formatPeso(0)).toBe("₱0");
   });
+
+  it("renders centavo fractions with two decimals", () => {
+    expect(formatPeso(8050)).toBe("₱80.50");
+    expect(formatPeso(5)).toBe("₱0.05");
+  });
 });

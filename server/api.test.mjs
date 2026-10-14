@@ -140,11 +140,7 @@ describe("sales validation", () => {
 
 describe("menu item constraint mapping", () => {
   it("duplicate POST / PATCH -> 400 {error}, never 500", async () => {
-    // Schema ships no UNIQUE on menu_items; create one on this temp DB so
-    // the SQLITE_CONSTRAINT->400 mapping in the handlers is exercised.
-    app.locals.db.exec(
-      "CREATE UNIQUE INDEX IF NOT EXISTS idx_api_test_menu_items_unique_name ON menu_items (category_id, name)",
-    );
+    // App-level pre-check (no schema UNIQUE): works on prod DBs as-is.
     const cat = await request(app)
       .post("/api/categories")
       .send({ name: "Dupes" })

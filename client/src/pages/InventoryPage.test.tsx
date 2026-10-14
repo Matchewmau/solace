@@ -3,11 +3,14 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import InventoryPage from "./InventoryPage";
 import { adjustmentDelta, isLowStock } from "../api/stock";
+import { clearStoredPin, setStoredPin } from "../lib/pin";
 import type { StockItem, StockMovement } from "../api/stock";
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  clearStoredPin();
+  sessionStorage.clear();
 });
 
 const items: StockItem[] = [
@@ -118,5 +121,74 @@ describe("InventoryPage with mocked data", () => {
     const historyButton = milkRow.querySelector("button") as HTMLButtonElement;
     fireEvent.click(historyButton);
     expect(await screen.findByText(/waste -5/)).toBeDefined();
+  });
+});
+
+describe("InventoryPage create form (review fix wave)", () => {
+  it("add-stock-item form POSTs name/unit/qty/threshold with the PIN header", async () => {
+    const created: Array<{ url: string; body: unknown; headers: unknown }> = [];
+    setStoredPin("1234");
+    globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
+      const u = String(url);
+      if (u === "/api/stock_items" && (!init || init.method === undefined)) {
+        return ok(items);
+      }
+      if (u === "/api/stock_items" && init?.method === "POST") {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+        created.push({ url: u, body, headers: init.headers });
+        return ok({ id: 99, ...body }, 201);
+      }
+      if (u.startsWith("/api/stock_movements?stock_item_id=")) {
+        return ok([]);
+      }
+      throw new Error(`unexpected fetch ${u} ${init?.method ?? "GET"}`);
+    }) as typeof fetch;
+    renderInventory();
+    await screen.findByText("Milk");
+
+    const form = screen.getByLabelText("Add stock item").closest(
+      "form",
+    ) as HTMLFormElement;
+    fireEvent.change(
+      form.querySelector('input[name="name"]') as HTMLInputElement,
+      { target: { value: "Sugar" } },
+    );
+    fireEvent.change(
+      form.querySelector('input[name="unit"]') as HTMLInputElement,
+      { target: { value: "g" } },
+    );
+    fireEvent.change(form.querySelector('input[name="qty"]') as HTMLInputElement, {
+      target: { value: "500" },
+    });
+    fireEvent.change(
+      form.querySelector('input[name="threshold"]') as HTMLInputElement,
+      { target: { value: "50" } },
+    );
+    fireEvent.submit(form);
+
+    await vi.waitFor(() => {
+      expect(created).toHaveLength(1);
+    });
+    expect(created[0].url).toBe("/api/stock_items");
+    expect(created[0].body).toEqual({
+      name: "Sugar",
+      unit: "g",
+      qty: 500,
+      low_threshold: 50,
+    });
+    expect(created[0].headers).toMatchObject({ "x-solace-pin": "1234" });
+  });
+
+  it("add-stock-item form shows on an empty list (fresh DB)", async () => {
+    globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
+      const u = String(url);
+      if (u === "/api/stock_items" && (!init || init.method === undefined)) {
+        return ok([]);
+      }
+      throw new Error(`unexpected fetch ${u} ${init?.method ?? "GET"}`);
+    }) as typeof fetch;
+    renderInventory();
+    await screen.findByText("No stock items yet");
+    expect(screen.getByLabelText("Add stock item")).toBeDefined();
   });
 });

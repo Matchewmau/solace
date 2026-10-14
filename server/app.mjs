@@ -250,12 +250,21 @@ export function createApp(dbPath, opts = {}) {
     if (active !== 0 && active !== 1) {
       return sendError(res, 400, "active must be 0 or 1");
     }
+    // App-level duplicate guard: schema has no UNIQUE(category_id, name),
+    // so check before insert (keeps POS buttons duplicate-free on prod DBs).
+    const trimmedName = name.trim();
+    const clash = db
+      .prepare("SELECT id FROM menu_items WHERE category_id = ? AND name = ?")
+      .get(category_id, trimmedName);
+    if (clash) {
+      return sendError(res, 400, "menu item already exists");
+    }
     try {
       const info = db
         .prepare(
           "INSERT INTO menu_items (category_id, name, price_cents, cost_cents, active) VALUES (?, ?, ?, ?, ?)",
         )
-        .run(category_id, name.trim(), price_cents, cost_cents, active);
+        .run(category_id, trimmedName, price_cents, cost_cents, active);
       res
         .status(201)
         .json(
@@ -319,10 +328,20 @@ export function createApp(dbPath, opts = {}) {
     if (active !== 0 && active !== 1) {
       return sendError(res, 400, "active must be 0 or 1");
     }
+    // App-level rename-clash guard (same reason as the POST pre-check).
+    const trimmedName = name.trim();
+    const clash = db
+      .prepare(
+        "SELECT id FROM menu_items WHERE category_id = ? AND name = ? AND id != ?",
+      )
+      .get(category_id, trimmedName, id);
+    if (clash) {
+      return sendError(res, 400, "menu item already exists");
+    }
     try {
       db.prepare(
         "UPDATE menu_items SET category_id = ?, name = ?, price_cents = ?, cost_cents = ?, active = ? WHERE id = ?",
-      ).run(category_id, name.trim(), price_cents, cost_cents, active, id);
+      ).run(category_id, trimmedName, price_cents, cost_cents, active, id);
     } catch (err) {
       if (String(err?.code).startsWith("SQLITE_CONSTRAINT")) {
         return sendError(res, 400, "menu item already exists");
@@ -1149,8 +1168,11 @@ export function createApp(dbPath, opts = {}) {
   });
 
   app.post("/api/loans", (req, res) => {
-    const { lender, principal_cents, balance_cents, installment_cents, due_day } =
+    const { lender, principal_cents, installment_cents, due_day } =
       req.body ?? {};
+    // Fresh-loan default: omitted balance starts at the full principal.
+    let { balance_cents } = req.body ?? {};
+    if (balance_cents === undefined) balance_cents = principal_cents;
     const error = validateLoanFields({
       lender,
       principal_cents,

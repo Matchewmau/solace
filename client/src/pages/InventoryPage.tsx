@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   adjustmentDelta,
   fetchMovements,
   fetchStockItems,
   isLowStock,
+  postStockItem,
   postStockMovement,
   type MovementReason,
   type StockItem,
@@ -139,6 +140,8 @@ export default function InventoryPage() {
   const gate = usePinGate();
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
+  const [addError, setAddError] = useState<string | null>(null);
+  const addFormRef = useRef<HTMLFormElement | null>(null);
 
   const itemsQuery = useQuery({
     queryKey: ["stock-items"],
@@ -172,6 +175,23 @@ export default function InventoryPage() {
     },
     onError: () => {
       setMoveError("Could not record that movement.");
+    },
+  });
+
+  const addMutation = useMutation({
+    mutationFn: (input: {
+      name: string;
+      unit: string;
+      qty: number;
+      low_threshold: number;
+    }) => postStockItem(input),
+    onSuccess: () => {
+      setAddError(null);
+      addFormRef.current?.reset();
+      void queryClient.invalidateQueries({ queryKey: ["stock-items"] });
+    },
+    onError: () => {
+      setAddError("Could not add that stock item.");
     },
   });
 
@@ -209,9 +229,83 @@ export default function InventoryPage() {
               Retry
             </button>
           </div>
-        ) : items.length === 0 ? (
-          <p className="py-16 text-center text-muted">No stock items yet</p>
         ) : (
+          <div className="flex flex-col gap-10">
+            <section aria-label="New stock item">
+              <p className="label text-xs text-muted">Solace &middot; New item</p>
+              <h2 className="mt-2 text-2xl font-semibold">Add stock item</h2>
+              <form
+                ref={addFormRef}
+                aria-label="Add stock item"
+                className="mt-4 flex flex-wrap gap-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const data = new FormData(event.currentTarget);
+                  const name = String(data.get("name") ?? "").trim();
+                  const unit = String(data.get("unit") ?? "");
+                  const qtyRaw = String(data.get("qty") ?? "");
+                  const thresholdRaw = String(data.get("threshold") ?? "");
+                  const qty = qtyRaw === "" ? 0 : Number(qtyRaw);
+                  const low_threshold =
+                    thresholdRaw === "" ? 0 : Number(thresholdRaw);
+                  if (name === "") return;
+                  if (!Number.isFinite(qty) || qty < 0) return;
+                  if (!Number.isFinite(low_threshold) || low_threshold < 0)
+                    return;
+                  addMutation.mutate({ name, unit, qty, low_threshold });
+                }}
+              >
+                <input
+                  name="name"
+                  type="text"
+                  required
+                  placeholder="Item name"
+                  aria-label="Stock item name"
+                  className="w-32 border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+                />
+                <input
+                  name="unit"
+                  type="text"
+                  required
+                  placeholder="Unit"
+                  aria-label="Stock item unit"
+                  className="w-24 border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+                />
+                <input
+                  name="qty"
+                  type="number"
+                  min="0"
+                  step="any"
+                  placeholder="Qty (0)"
+                  aria-label="Stock item quantity"
+                  className="w-24 border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+                />
+                <input
+                  name="threshold"
+                  type="number"
+                  min="0"
+                  step="any"
+                  placeholder="Threshold (0)"
+                  aria-label="Stock item threshold"
+                  className="w-28 border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+                />
+                <button
+                  type="submit"
+                  disabled={addMutation.isPending}
+                  className="border border-ink px-3 py-1 text-sm font-semibold"
+                >
+                  Add item
+                </button>
+              </form>
+              {addError ? (
+                <p role="alert" className="mt-2 text-sm text-accent">
+                  {addError}
+                </p>
+              ) : null}
+            </section>
+            {items.length === 0 ? (
+              <p className="py-8 text-center text-muted">No stock items yet</p>
+            ) : (
           <div className="flex flex-col gap-10">
             <section aria-label="Low stock">
               <p className="label text-xs text-muted">Solace &middot; Low stock</p>
@@ -312,6 +406,8 @@ export default function InventoryPage() {
                 )}
               </section>
             ) : null}
+          </div>
+            )}
           </div>
         )}
       </div>

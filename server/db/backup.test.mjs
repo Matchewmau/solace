@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { runBackup, verifyBackup, EXPECTED_TABLES } from "./backup.mjs";
+import { runBackup, verifyBackup, EXPECTED_TABLES, resolveCliDefaults } from "./backup.mjs";
 import { seedDb } from "./seed.mjs";
 
 const dir = mkdtempSync(join(tmpdir(), "solace-backup-test-"));
@@ -46,5 +46,40 @@ describe("backup routine", () => {
       .sort();
     expect(remaining).toHaveLength(2);
     expect(remaining).toContain(created.split(/[\\/]/).pop());
+  });
+});
+
+describe("CLI env defaults (SOLACE_BACKUP_DIR / SOLACE_BACKUP_KEEP)", () => {
+  it("falls back to env when positionals/flags are absent; explicit wins", () => {
+    const savedDir = process.env.SOLACE_BACKUP_DIR;
+    const savedKeep = process.env.SOLACE_BACKUP_KEEP;
+    const savedDb = process.env.SOLACE_DB;
+    try {
+      delete process.env.SOLACE_BACKUP_DIR;
+      delete process.env.SOLACE_BACKUP_KEEP;
+      delete process.env.SOLACE_DB;
+      expect(resolveCliDefaults([], null)).toMatchObject({
+        backupDir: join("server", "backups"),
+        keep: 14,
+      });
+      process.env.SOLACE_BACKUP_DIR = join("custom", "dir");
+      process.env.SOLACE_BACKUP_KEEP = "7";
+      const fromEnv = resolveCliDefaults([], null);
+      expect(fromEnv.backupDir).toBe(join("custom", "dir"));
+      expect(fromEnv.keep).toBe(7);
+      const explicit = resolveCliDefaults(["db.db", "pos-dir"], 3);
+      expect(explicit).toMatchObject({
+        dbPath: "db.db",
+        backupDir: "pos-dir",
+        keep: 3,
+      });
+    } finally {
+      if (savedDir === undefined) delete process.env.SOLACE_BACKUP_DIR;
+      else process.env.SOLACE_BACKUP_DIR = savedDir;
+      if (savedKeep === undefined) delete process.env.SOLACE_BACKUP_KEEP;
+      else process.env.SOLACE_BACKUP_KEEP = savedKeep;
+      if (savedDb === undefined) delete process.env.SOLACE_DB;
+      else process.env.SOLACE_DB = savedDb;
+    }
   });
 });

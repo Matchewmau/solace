@@ -3,11 +3,14 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import FinancePage from "./FinancePage";
 import { isOverdue } from "../api/finance";
+import { clearStoredPin, setStoredPin } from "../lib/pin";
 import type { Bill, Expense, Loan, LoanPayment, Payable } from "../api/finance";
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  clearStoredPin();
+  sessionStorage.clear();
 });
 
 const bills: Bill[] = [
@@ -342,5 +345,143 @@ describe("FinancePage loans (Task 12)", () => {
     fireEvent.click(screen.getByLabelText("View payments for BDO"));
     const history = await screen.findByLabelText("Payment history");
     expect(history.textContent).toContain("2026-10-12 10:00:00");
+  });
+});
+
+describe("FinancePage create forms (review fix wave)", () => {
+  const created: Array<{ url: string; body: unknown; headers: unknown }> = [];
+
+  function stubCreate() {
+    created.length = 0;
+    setStoredPin("1234");
+    globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
+      const u = String(url);
+      if (
+        (u === "/api/bills" ||
+          u === "/api/expenses" ||
+          u === "/api/payables" ||
+          u === "/api/loans") &&
+        (!init || init.method === undefined)
+      ) {
+        return ok([]);
+      }
+      if (
+        (u === "/api/bills" ||
+          u === "/api/payables" ||
+          u === "/api/loans") &&
+        init?.method === "POST"
+      ) {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+        created.push({ url: u, body, headers: init.headers });
+        return ok({ id: 99, ...body }, 201);
+      }
+      throw new Error(`unexpected fetch ${u} ${init?.method ?? "GET"}`);
+    }) as typeof fetch;
+  }
+
+  it("add-bill form POSTs name/amount_cents/due_day with the PIN header", async () => {
+    stubCreate();
+    renderFinance();
+    await screen.findByText("Bills");
+
+    const form = screen.getByLabelText("Add bill").closest(
+      "form",
+    ) as HTMLFormElement;
+    fireEvent.change(form.querySelector('input[name="name"]') as HTMLInputElement, {
+      target: { value: "Meralco" },
+    });
+    fireEvent.change(
+      form.querySelector('input[name="amount"]') as HTMLInputElement,
+      { target: { value: "250" } },
+    );
+    fireEvent.change(
+      form.querySelector('input[name="due_day"]') as HTMLInputElement,
+      { target: { value: "15" } },
+    );
+    fireEvent.submit(form);
+
+    await vi.waitFor(() => {
+      expect(created).toHaveLength(1);
+    });
+    expect(created[0].url).toBe("/api/bills");
+    expect(created[0].body).toEqual({
+      name: "Meralco",
+      amount_cents: 25000,
+      due_day: 15,
+    });
+    expect(created[0].headers).toMatchObject({ "x-solace-pin": "1234" });
+  });
+
+  it("add-payable form POSTs label/amount_cents/due_date with the PIN header", async () => {
+    stubCreate();
+    renderFinance();
+    await screen.findByText("Payables");
+
+    const form = screen.getByLabelText("Add payable").closest(
+      "form",
+    ) as HTMLFormElement;
+    fireEvent.change(
+      form.querySelector('input[name="label"]') as HTMLInputElement,
+      { target: { value: "Supplier Ana" } },
+    );
+    fireEvent.change(
+      form.querySelector('input[name="amount"]') as HTMLInputElement,
+      { target: { value: "800" } },
+    );
+    fireEvent.change(
+      form.querySelector('input[name="due_date"]') as HTMLInputElement,
+      { target: { value: "2026-10-20" } },
+    );
+    fireEvent.submit(form);
+
+    await vi.waitFor(() => {
+      expect(created).toHaveLength(1);
+    });
+    expect(created[0].url).toBe("/api/payables");
+    expect(created[0].body).toEqual({
+      label: "Supplier Ana",
+      amount_cents: 80000,
+      due_date: "2026-10-20",
+    });
+    expect(created[0].headers).toMatchObject({ "x-solace-pin": "1234" });
+  });
+
+  it("add-loan form POSTs lender/principal/installment/due_day (no balance) with the PIN header", async () => {
+    stubCreate();
+    renderFinance();
+    await screen.findByText("Loans");
+
+    const form = screen.getByLabelText("Add loan").closest(
+      "form",
+    ) as HTMLFormElement;
+    fireEvent.change(
+      form.querySelector('input[name="lender"]') as HTMLInputElement,
+      { target: { value: "BDO" } },
+    );
+    fireEvent.change(
+      form.querySelector('input[name="principal"]') as HTMLInputElement,
+      { target: { value: "1000" } },
+    );
+    fireEvent.change(
+      form.querySelector('input[name="installment"]') as HTMLInputElement,
+      { target: { value: "100" } },
+    );
+    fireEvent.change(
+      form.querySelector('input[name="due_day"]') as HTMLInputElement,
+      { target: { value: "15" } },
+    );
+    fireEvent.submit(form);
+
+    await vi.waitFor(() => {
+      expect(created).toHaveLength(1);
+    });
+    expect(created[0].url).toBe("/api/loans");
+    expect(created[0].body).toEqual({
+      lender: "BDO",
+      principal_cents: 100000,
+      installment_cents: 10000,
+      due_day: 15,
+    });
+    expect(created[0].headers).toMatchObject({ "x-solace-pin": "1234" });
   });
 });

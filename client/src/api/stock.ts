@@ -84,3 +84,12 @@ export function postStockMovement(
     reason,
   });
 }
+
+export function postStockItem(input: {
+  name: string;
+  unit: string;
+  qty?: number;
+  low_threshold?: number;
+}): Promise<StockItem> {
+  return postJson<StockItem>("/api/stock_items", input);
+}
