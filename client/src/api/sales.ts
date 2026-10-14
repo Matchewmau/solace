@@ -3,7 +3,10 @@
  * Payload is exactly {payment, items} — no ref field anywhere,
  * per the spec ruling on GCash (open item #2: method + total only).
  * Relative URLs only — no CDN, no runtime fetches outside /api.
+ * POST /api/sales is PIN-exempt so the register keeps flowing; the void
+ * PATCH attaches the manager PIN when one is stored or entered (Task 15).
  */
+import { pinHeaders } from "../lib/pin";
 
 export type PaymentMethod = "cash" | "gcash";
 
@@ -82,10 +85,10 @@ export function fetchSummary(date: string): Promise<SaleSummary> {
   );
 }
 
-export function patchSaleVoid(id: number, voided: 0 | 1): Promise<Sale> {
+export function patchSaleVoid(id: number, voided: 0 | 1, pin?: string): Promise<Sale> {
   return requestJson<Sale>(`/api/sales/${id}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...pinHeaders(pin ?? null) },
     body: JSON.stringify({ voided }),
   });
 }

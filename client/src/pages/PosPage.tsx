@@ -1,16 +1,8 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchActiveMenuItems, fetchCategories } from "../api/menu";
-import {
-  fetchSalesForDate,
-  fetchSummary,
-  patchSaleVoid,
-  postSale,
-  utcToday,
-  type PaymentMethod,
-  type Sale,
-  type SaleRow,
-} from "../api/sales";
+import { fetchSalesForDate, fetchSummary, patchSaleVoid, postSale, utcToday, type PaymentMethod, type Sale, type SaleRow } from "../api/sales";
+import { PinPrompt } from "../components/PinGate";
 import { formatPeso } from "../lib/formatPeso";
 import { cartTotalCents, useCart } from "../store/cart";
 import { sortCategories } from "../lib/sortCategories";
@@ -35,6 +27,7 @@ export default function PosPage() {
   const [sale, setSale] = useState<Sale | null>(null);
   const [error, setError] = useState("");
   const [todayError, setTodayError] = useState("");
+  const [pinPromptSale, setPinPromptSale] = useState<SaleRow | null>(null);
 
   // UTC-date "Today" panel (Task 8): the day boundary is the UTC calendar
   // date, matching GET /api/sales/summary. Shop hours 2pm-10pm PHT always
@@ -50,12 +43,17 @@ export default function PosPage() {
     queryFn: () => fetchSalesForDate(today),
   });
 
-  async function toggleVoid(row: SaleRow) {
+  async function toggleVoid(row: SaleRow, pin?: string) {
     setTodayError("");
     try {
-      await patchSaleVoid(row.id, row.voided === 1 ? 0 : 1);
+      await patchSaleVoid(row.id, row.voided === 1 ? 0 : 1, pin);
+      setPinPromptSale(null);
       await queryClient.invalidateQueries({ queryKey: ["sales"] });
     } catch (err) {
+      if (!pin && err instanceof Error && err.message.includes("pin required")) {
+        setPinPromptSale(row);
+        return;
+      }
       setTodayError(err instanceof Error ? err.message : "Void failed.");
     }
   }
@@ -311,6 +309,17 @@ export default function PosPage() {
           </div>
           <section aria-label="Today" className="flex flex-col gap-4 border border-ink p-6">
             <h2 className="text-2xl font-semibold">Today</h2>
+            {pinPromptSale ? (
+              <div className="flex flex-col gap-3 border border-ink/20 p-4">
+                <p className="text-sm text-muted">
+                  Enter the manager PIN to {pinPromptSale.voided === 1 ? "unvoid" : "void"} sale #{pinPromptSale.id}.
+                </p>
+                <PinPrompt
+                  submitLabel="Confirm"
+                  onUnlock={() => toggleVoid(pinPromptSale)}
+                />
+              </div>
+            ) : null}
             {summaryQuery.data ? (
               <p className="text-lg">
                 Cash{" "}

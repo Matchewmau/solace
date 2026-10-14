@@ -3,8 +3,8 @@
 //   node server/db/backup.mjs [db-path] [backup-dir] [--keep N]
 //   node server/db/backup.mjs --verify <backup-path>
 // Defaults: db SOLACE_DB env or server/data/solace.db; dir server/backups/
-// (both CWD-relative). Invoked manually or by OS scheduler; no daemons here.
-// Offline only: no network calls.
+// (both CWD-relative). Invoked manually, by OS scheduler, or by the server's
+// once-per-day boot check. Offline only: no network calls.
 import Database from "better-sqlite3";
 import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { basename, join, resolve } from "node:path";

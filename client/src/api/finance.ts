@@ -1,7 +1,10 @@
 /**
  * Same-origin finance API fetchers for the /finance page.
  * Relative URLs only — no CDN, no runtime fetches outside /api.
+ * Mutating calls attach the stored manager PIN (Task 15 x-solace-pin
+ * header; empty when the server has no PIN configured).
  */
+import { pinHeaders } from "../lib/pin";
 
 export interface Bill {
   id: number;
@@ -79,7 +82,7 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
 function postJson<T>(url: string, body: unknown): Promise<T> {
   return requestJson<T>(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...pinHeaders() },
     body: JSON.stringify(body),
   });
 }
@@ -87,7 +90,7 @@ function postJson<T>(url: string, body: unknown): Promise<T> {
 function patchJson<T>(url: string, body: unknown): Promise<T> {
   return requestJson<T>(url, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...pinHeaders() },
     body: JSON.stringify(body),
   });
 }

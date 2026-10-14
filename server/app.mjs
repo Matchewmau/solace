@@ -4,6 +4,7 @@
 // errors {error} with 400/404/500; money *_cents ints; timestamps YYYY-MM-DD HH:MM:SS.
 import Database from "better-sqlite3";
 import express from "express";
+import { timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,7 +34,7 @@ function parseId(raw) {
   return isInt(id) && id > 0 ? id : null;
 }
 
-export function createApp(dbPath) {
+export function createApp(dbPath, opts = {}) {
   const db = openDb(dbPath);
   const app = express();
   app.locals.db = db;
@@ -41,6 +42,46 @@ export function createApp(dbPath) {
 
   const sendError = (res, status, message) =>
     res.status(status).json({ error: message });
+
+  // --- PIN lock (Task 15; LAN-only single admin) ---
+  // Env SOLACE_PIN (4-8 digits; optional). When UNSET: no lock, no 401s.
+  // Threat model is a trusted LAN (no public internet): the PIN is a casual
+  // lock against curious taps, not a security boundary — hence plaintext env
+  // compare and no brute-force machinery (documented, YAGNI).
+  const rawPin = opts.pin ?? process.env.SOLACE_PIN ?? "";
+  const serverPin = /^\d{4,8}$/.test(String(rawPin)) ? String(rawPin) : "";
+  app.locals.pinConfigured = serverPin !== "";
+
+  // Constant-time string compare (length-mismatch short-circuits false
+  // without leaking prefix info through early exit).
+  function pinMatches(candidate) {
+    const a = Buffer.from(String(candidate ?? ""));
+    const b = Buffer.from(serverPin);
+    if (a.length !== b.length) return false;
+    return timingSafeEqual(a, b);
+  }
+
+  // Gate: when a PIN is set, ALL mutating /api endpoints require the
+  // x-solace-pin header. EXEMPT so the register keeps flowing:
+  // POST /api/sales and POST /api/auth/verify. All GETs stay open.
+  app.use("/api", (req, res, next) => {
+    if (serverPin === "") return next();
+    if (!["POST", "PATCH", "PUT", "DELETE"].includes(req.method)) {
+      return next();
+    }
+    if (req.method === "POST" && (req.path === "/sales" || req.path === "/auth/verify")) {
+      return next();
+    }
+    if (pinMatches(req.get("x-solace-pin") ?? "")) return next();
+    return sendError(res, 401, "pin required");
+  });
+
+  app.post("/api/auth/verify", (req, res) => {
+    if (serverPin === "") return res.json({ ok: true });
+    const { pin } = req.body ?? {};
+    if (pinMatches(pin)) return res.json({ ok: true });
+    return res.status(401).json({ ok: false, error: "incorrect pin" });
+  });
 
   // --- categories ---
   app.get("/api/categories", (req, res) => {

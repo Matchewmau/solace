@@ -1,7 +1,10 @@
 /**
  * Same-origin stock API fetchers for the /inventory page.
  * Relative URLs only — no CDN, no runtime fetches outside /api.
+ * Mutating calls attach the stored manager PIN (Task 15 x-solace-pin
+ * header; empty when the server has no PIN configured).
  */
+import { pinHeaders } from "../lib/pin";
 
 export interface StockItem {
   id: number;
@@ -51,7 +54,7 @@ async function getJson<T>(url: string): Promise<T> {
 async function postJson<T>(url: string, body: unknown): Promise<T> {
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...pinHeaders() },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
