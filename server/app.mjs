@@ -24,6 +24,18 @@ function openDb(dbPath) {
   const db = new Database(resolved);
   db.pragma("foreign_keys = ON");
   db.exec(readFileSync(join(SERVER_DIR, "db", "schema.sql"), "utf8"));
+  // Boot migration: pre-price Task 4 DBs lack stock_items.price_cents
+  // (CREATE TABLE IF NOT EXISTS never alters existing tables), so add it
+  // when missing. DEFAULT 0 backfills old rows.
+  const stockCols = db
+    .prepare("PRAGMA table_info(stock_items)")
+    .all()
+    .map((col) => col.name);
+  if (!stockCols.includes("price_cents")) {
+    db.exec(
+      "ALTER TABLE stock_items ADD COLUMN price_cents INTEGER NOT NULL DEFAULT 0",
+    );
+  }
   return db;
 }
 
@@ -632,7 +644,7 @@ export function createApp(dbPath, opts = {}) {
   // qty stays allowed by the API, but the client uses movements for every
   // qty change so the audit trail is complete). Recipe auto-deduction on
   // sale is explicitly NOT built (spec non-goal).
-  const STOCK_COLS = "id, name, unit, qty, low_threshold";
+  const STOCK_COLS = "id, name, unit, qty, low_threshold, price_cents";
   const MOVEMENT_COLS = "id, stock_item_id, delta, reason, created_at";
   const MOVEMENT_REASONS = new Set(["delivery", "adjustment", "waste"]);
 
@@ -662,7 +674,8 @@ export function createApp(dbPath, opts = {}) {
   });
 
   app.post("/api/stock_items", (req, res) => {
-    const { name, unit, qty = 0, low_threshold = 0 } = req.body ?? {};
+    const { name, unit, qty = 0, low_threshold = 0, price_cents = 0 } =
+      req.body ?? {};
     if (typeof name !== "string" || name.trim() === "") {
       return sendError(res, 400, "name is required");
     }
@@ -675,11 +688,14 @@ export function createApp(dbPath, opts = {}) {
     if (!isNonNegNumber(low_threshold)) {
       return sendError(res, 400, "low_threshold must be a non-negative number");
     }
+    if (!isInt(price_cents) || price_cents < 0) {
+      return sendError(res, 400, "price_cents must be a non-negative integer");
+    }
     const info = db
       .prepare(
-        "INSERT INTO stock_items (name, unit, qty, low_threshold) VALUES (?, ?, ?, ?)",
+        "INSERT INTO stock_items (name, unit, qty, low_threshold, price_cents) VALUES (?, ?, ?, ?, ?)",
       )
-      .run(name.trim(), unit, qty, low_threshold);
+      .run(name.trim(), unit, qty, low_threshold, price_cents);
     res.status(201).json(stockRow(info.lastInsertRowid));
   });
 
@@ -699,6 +715,7 @@ export function createApp(dbPath, opts = {}) {
       unit = current.unit,
       qty = current.qty,
       low_threshold = current.low_threshold,
+      price_cents = current.price_cents,
     } = req.body ?? {};
     if (typeof name !== "string" || name.trim() === "") {
       return sendError(res, 400, "name is required");
@@ -712,9 +729,12 @@ export function createApp(dbPath, opts = {}) {
     if (!isNonNegNumber(low_threshold)) {
       return sendError(res, 400, "low_threshold must be a non-negative number");
     }
+    if (!isInt(price_cents) || price_cents < 0) {
+      return sendError(res, 400, "price_cents must be a non-negative integer");
+    }
     db.prepare(
-      "UPDATE stock_items SET name = ?, unit = ?, qty = ?, low_threshold = ? WHERE id = ?",
-    ).run(name.trim(), unit, qty, low_threshold, id);
+      "UPDATE stock_items SET name = ?, unit = ?, qty = ?, low_threshold = ?, price_cents = ? WHERE id = ?",
+    ).run(name.trim(), unit, qty, low_threshold, price_cents, id);
     res.json(stockRow(id));
   });
 

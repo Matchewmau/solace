@@ -36,7 +36,8 @@ CREATE TABLE IF NOT EXISTS stock_items (
   name TEXT NOT NULL,
   unit TEXT NOT NULL,
   qty REAL NOT NULL DEFAULT 0,
-  low_threshold REAL NOT NULL DEFAULT 0
+  low_threshold REAL NOT NULL DEFAULT 0,
+  price_cents INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS stock_movements (
