@@ -714,4 +714,54 @@ describe("POS paid flow with history", () => {
     const history = screen.getByRole("list", { name: "History sales" });
     expect(within(history).getByText("Sale #31")).toBeDefined();
   });
+
+  it("mark unpaid PATCHes paid 0 and returns the row to Unpaid, red", async () => {
+    const patches: unknown[] = [];
+    let paid = 1;
+    const row = () => ({
+      id: 41,
+      total_cents: 9000,
+      payment: "gcash",
+      voided: 0,
+      paid,
+      created_at: `${today} 07:15:00`,
+    });
+    globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
+      const u = String(url);
+      if (u === "/api/categories") return ok(categories);
+      if (u === "/api/menu_items?active=1") return ok(items);
+      if (u.startsWith("/api/sales/summary")) return ok(emptySummary);
+      if (u === "/api/sales/41" && init?.method === "PATCH") {
+        const body = JSON.parse(String(init.body));
+        patches.push(body);
+        paid = body.paid;
+        return ok(row());
+      }
+      if (u.startsWith("/api/sales?") && u.includes("since=")) return ok([row()]);
+      if (u.startsWith("/api/sales?")) return ok([]);
+      throw new Error(`unexpected fetch ${u} ${init?.method}`);
+    }) as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Cortado");
+
+    // Paid row starts under Paid today.
+    const paidList = await screen.findByRole("list", { name: "Paid today sales" });
+    expect(within(paidList).getByText("Sale #41")).toBeDefined();
+
+    fireEvent.click(
+      within(paidList).getByRole("button", { name: "Mark sale 41 unpaid" }),
+    );
+
+    await waitFor(() => {
+      expect(patches).toEqual([{ paid: 0 }]);
+    });
+    // Row moves back under Unpaid and reads red.
+    const unpaidList = await screen.findByRole("list", { name: "Unpaid sales" });
+    await waitFor(() => {
+      expect(within(unpaidList).getByText("Sale #41")).toBeDefined();
+    });
+    const li = within(unpaidList).getByText("Sale #41").closest("li");
+    expect(li?.className).toMatch(/red/);
+  });
 });

@@ -207,8 +207,9 @@ export default function PosPage() {
     setError("");
   }
 
-  // One today-list row. Unpaid rows read red and carry a Mark paid button
-  // (aria-labeled per sale so it never collides with the tab's Mark paid);
+  // One today-list row. Unpaid rows read red and carry a Mark paid button;
+  // paid rows carry Mark unpaid. Both are aria-labeled per sale so they
+  // never collide with the tab's Mark paid / Mark unpaid buttons.
   // void/unvoid stays on every today row, paid or not.
   function todayRow(row: SaleRow, markPaid: boolean) {
     return (
@@ -235,7 +236,16 @@ export default function PosPage() {
         >
           {row.voided === 1 ? "Unvoid" : "Void"}
         </button>
-        {markPaid ? (
+        {row.paid === 1 ? (
+          <button
+            type="button"
+            aria-label={`Mark sale ${row.id} unpaid`}
+            onClick={() => void togglePaidRow(row)}
+            className="border border-ink px-3 py-1 text-sm font-semibold"
+          >
+            Mark unpaid
+          </button>
+        ) : markPaid ? (
           <button
             type="button"
             aria-label={`Mark sale ${row.id} paid`}
