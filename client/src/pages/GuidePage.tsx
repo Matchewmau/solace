@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   fetchRecipe,
@@ -96,20 +96,43 @@ export function GuideBrowser({
 export default function GuidePage() {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [isOpen, setIsOpen] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const listQuery = useQuery({ queryKey: ["recipes"], queryFn: fetchRecipes });
 
   const recipes = listQuery.data ?? [];
-  const activeId = selectedId ?? filterRecipes(recipes, query)[0]?.id ?? null;
-  const active = recipes.find((recipe) => recipe.id === activeId) ?? null;
+  const active = recipes.find((recipe) => recipe.id === selectedId) ?? null;
 
   const detailQuery = useQuery({
-    queryKey: ["recipe", activeId],
-    queryFn: () => fetchRecipe(activeId as number),
-    enabled: activeId !== null,
+    queryKey: ["recipe", selectedId],
+    queryFn: () => fetchRecipe(selectedId as number),
+    enabled: selectedId !== null,
   });
 
   const isLoading = listQuery.isLoading;
   const isError = listQuery.isError;
+
+  function handleSelect(id: number) {
+    setSelectedId(id);
+    setIsOpen(true);
+  }
+
+  function handleClose() {
+    setIsOpen(false);
+  }
+
+  useEffect(() => {
+    if (!isOpen) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") handleClose();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (isOpen) dialogRef.current?.focus();
+  }, [isOpen, selectedId]);
 
   return (
     <main className="min-h-screen bg-paper text-ink">
@@ -144,49 +167,80 @@ export default function GuidePage() {
               recipes={recipes}
               query={query}
               onQueryChange={setQuery}
-              selectedId={activeId}
-              onSelect={setSelectedId}
+              selectedId={selectedId}
+              onSelect={handleSelect}
             />
-            {active === null ? (
-              <p className="text-muted">Select a drink to see its recipe.</p>
-            ) : detailQuery.isLoading ? (
-              <p className="text-muted" aria-busy="true">
-                Loading recipe…
-              </p>
-            ) : detailQuery.isError ? (
-              <div className="flex flex-col items-start gap-4">
-                <p role="alert" className="text-lg">
-                  Could not load this recipe.
-                </p>
-                <button
-                  type="button"
-                  className="border border-ink px-4 py-2 text-sm font-semibold"
-                  onClick={() => {
-                    void detailQuery.refetch();
-                  }}
+            {isOpen && selectedId !== null ? (
+              <div
+                data-testid="guide-dialog-backdrop"
+                onClick={handleClose}
+                className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 px-4"
+              >
+                <div
+                  ref={dialogRef}
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label={
+                    detailQuery.data?.menu_item_name ??
+                    active?.menu_item_name ??
+                    "Recipe"
+                  }
+                  tabIndex={-1}
+                  onClick={(event) => event.stopPropagation()}
+                  className="w-full max-w-lg border border-ink/20 bg-paper p-6 text-ink"
                 >
-                  Retry
-                </button>
+                  <div className="flex items-start justify-between gap-4">
+                    <p className="label text-xs text-muted">
+                      Solace &middot; Recipe
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleClose}
+                      className="border border-ink px-3 py-1 text-sm font-semibold"
+                    >
+                      Close
+                    </button>
+                  </div>
+                  {detailQuery.isLoading ? (
+                    <p className="mt-4 text-muted" aria-busy="true">
+                      Loading recipe…
+                    </p>
+                  ) : detailQuery.isError ? (
+                    <div className="mt-4 flex flex-col items-start gap-4">
+                      <p role="alert" className="text-lg">
+                        Could not load this recipe.
+                      </p>
+                      <button
+                        type="button"
+                        className="border border-ink px-4 py-2 text-sm font-semibold"
+                        onClick={() => {
+                          void detailQuery.refetch();
+                        }}
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  ) : detailQuery.data ? (
+                    <div>
+                      <h2 className="mt-2 text-2xl font-semibold">
+                        {detailQuery.data.menu_item_name}
+                      </h2>
+                      <h3 className="mt-6 text-sm font-semibold">Steps</h3>
+                      <p className="mt-2 whitespace-pre-line text-base">
+                        {detailQuery.data.steps}
+                      </p>
+                      <h3 className="mt-6 text-sm font-semibold">Ingredients</h3>
+                      <ul className="mt-2 flex flex-col gap-2">
+                        {detailQuery.data.lines.map((line) => (
+                          <li key={line.id} className="text-base">
+                            {formatLine(line)}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </div>
               </div>
-            ) : detailQuery.data ? (
-              <section aria-label={detailQuery.data.menu_item_name}>
-                <p className="label text-xs text-muted">Solace &middot; Recipe</p>
-                <h2 className="mt-2 text-2xl font-semibold">
-                  {detailQuery.data.menu_item_name}
-                </h2>
-                <h3 className="mt-6 text-sm font-semibold">Steps</h3>
-                <p className="mt-2 whitespace-pre-line text-base">
-                  {detailQuery.data.steps}
-                </p>
-                <h3 className="mt-6 text-sm font-semibold">Ingredients</h3>
-                <ul className="mt-2 flex flex-col gap-2">
-                  {detailQuery.data.lines.map((line) => (
-                    <li key={line.id} className="text-base">
-                      {formatLine(line)}
-                    </li>
-                  ))}
-                </ul>
-              </section>
             ) : null}
           </div>
         )}

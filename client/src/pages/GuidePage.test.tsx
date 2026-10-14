@@ -82,7 +82,7 @@ describe("filterRecipes (pure)", () => {
 });
 
 describe("GuidePage with mocked data", () => {
-  it("lists drinks and shows the first drink's steps + lines", async () => {
+  it("lists drinks and shows the clicked drink's steps + lines in a dialog", async () => {
     stubFetch();
     renderGuide();
 
@@ -91,9 +91,11 @@ describe("GuidePage with mocked data", () => {
     ).toBeDefined();
     expect(screen.getByRole("button", { name: "Dark Mocha" })).toBeDefined();
     expect(screen.getByRole("button", { name: "Matcha Latte" })).toBeDefined();
-    // First drink auto-selected: steps + measured and unmeasured lines.
+    // Clicking opens the modal: steps + measured and unmeasured lines.
+    fireEvent.click(screen.getByRole("button", { name: "Spanish Latte" }));
     expect(await screen.findByText("Condensed Milk — 40 ml")).toBeDefined();
     expect(screen.getByText("Ice")).toBeDefined();
+    expect(await screen.findByRole("dialog")).toBeDefined();
   });
 
   it("search filters the drink list case-insensitively", async () => {
@@ -107,6 +109,7 @@ describe("GuidePage with mocked data", () => {
     expect(screen.queryByText("Spanish Latte")).toBeNull();
     expect(screen.queryByText("Matcha Latte")).toBeNull();
     expect(screen.getByRole("button", { name: "Dark Mocha" })).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Dark Mocha" }));
     expect(await screen.findByText("D. Mocha base — 15 ml")).toBeDefined();
   });
 
@@ -126,8 +129,75 @@ describe("GuidePage with mocked data", () => {
     renderGuide();
     await screen.findByRole("button", { name: "Spanish Latte" });
 
+    fireEvent.click(screen.getByRole("button", { name: "Spanish Latte" }));
+    expect(await screen.findByText("Condensed Milk — 40 ml")).toBeDefined();
+
     fireEvent.click(screen.getByRole("button", { name: "Matcha Latte" }));
     expect(await screen.findByText("Mat. powder — 15 g")).toBeDefined();
     expect(screen.queryByText("Condensed Milk — 40 ml")).toBeNull();
+  });
+});
+
+describe("GuidePage recipe modal", () => {
+  it("clicking a drink opens a dialog showing its steps + ingredients", async () => {
+    stubFetch();
+    renderGuide();
+    await screen.findByRole("button", { name: "Spanish Latte" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Dark Mocha" }));
+    await screen.findByText("D. Mocha base — 15 ml");
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.textContent).toContain("Dark Mocha");
+    expect(dialog.textContent).toContain("1. Mocha");
+    expect(dialog.textContent).toContain("D. Mocha base — 15 ml");
+    // List stays behind the modal.
+    expect(screen.getByRole("button", { name: "Spanish Latte" })).toBeDefined();
+  });
+
+  it("close button dismisses the dialog back to the list", async () => {
+    stubFetch();
+    renderGuide();
+    await screen.findByRole("button", { name: "Spanish Latte" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Dark Mocha" }));
+    await screen.findByRole("dialog");
+    await screen.findByText("D. Mocha base — 15 ml");
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("button", { name: "Spanish Latte" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Dark Mocha" })).toBeDefined();
+  });
+
+  it("backdrop click and Escape dismiss the dialog", async () => {
+    stubFetch();
+    renderGuide();
+    await screen.findByRole("button", { name: "Spanish Latte" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Dark Mocha" }));
+    await screen.findByRole("dialog");
+    fireEvent.click(screen.getByTestId("guide-dialog-backdrop"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Dark Mocha" }));
+    await screen.findByRole("dialog");
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("a second drink's click swaps the dialog content (no stale recipe)", async () => {
+    stubFetch();
+    renderGuide();
+    await screen.findByRole("button", { name: "Spanish Latte" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Spanish Latte" }));
+    await screen.findByText("Condensed Milk — 40 ml");
+    const first = await screen.findByRole("dialog");
+    expect(first.textContent).toContain("Condensed Milk — 40 ml");
+
+    fireEvent.click(screen.getByRole("button", { name: "Matcha Latte" }));
+    await screen.findByText("Mat. powder — 15 g");
+    const swapped = await screen.findByRole("dialog");
+    expect(swapped.textContent).toContain("Mat. powder — 15 g");
+    expect(swapped.textContent).not.toContain("Condensed Milk — 40 ml");
   });
 });
