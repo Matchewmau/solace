@@ -102,15 +102,50 @@ afterEach(() => {
 });
 
 describe("POS checkout flow", () => {
-  it("disables Finalize on an empty cart", async () => {
+  it("disables Done on an empty cart", async () => {
     globalThis.fetch = vi.fn(menuFetch()) as typeof fetch;
 
     renderPos();
     await screen.findByText("Cortado");
     expect(
-      (screen.getByRole("button", { name: "Finalize" }) as HTMLButtonElement)
+      (screen.getByRole("button", { name: "Done" }) as HTMLButtonElement)
         .disabled,
     ).toBe(true);
+  });
+
+  it("open-order button reads Done with Saving… pending", async () => {
+    let release!: (res: Response) => void;
+    const gate = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    globalThis.fetch = vi.fn(
+      menuFetch(async (u) => {
+        if (u === "/api/sales") return gate;
+        throw new Error(`unexpected fetch ${u}`);
+      }),
+    ) as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Cortado");
+
+    // Idle label reads Done (not Finalize).
+    expect(
+      (screen.getByRole("button", { name: "Done" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: /Cortado/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+
+    // Pending label reads Saving….
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Saving…" })).toBeDefined();
+    });
+    release(ok(sale(99, 7000, "cash", [{ menu_item_id: 1, qty: 1 }]), 201));
+
+    await waitFor(() => {
+      expect(screen.getByText("Sale complete")).toBeDefined();
+    });
   });
 
   it("posts {payment, items, paid} with no ref field and shows the server-computed total", async () => {
@@ -132,7 +167,7 @@ describe("POS checkout flow", () => {
     fireEvent.click(screen.getByRole("button", { name: /Cortado/ }));
     fireEvent.click(screen.getByRole("button", { name: /Latte/ }));
     fireEvent.click(screen.getByRole("button", { name: "GCash" }));
-    fireEvent.click(screen.getByRole("button", { name: "Finalize" }));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
 
     await waitFor(() => {
       expect(screen.getByText("Sale complete")).toBeDefined();
@@ -175,7 +210,7 @@ describe("POS checkout flow", () => {
     await screen.findByText("Cortado");
 
     fireEvent.click(screen.getByRole("button", { name: /Cortado/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Finalize" }));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
 
     await waitFor(() => {
       expect(screen.getByRole("alert")).toBeDefined();
@@ -307,7 +342,7 @@ describe("Today panel + daily summary", () => {
     fireEvent.click(screen.getByRole("button", { name: "Remove Cortado from cart" }));
     expect(screen.queryByLabelText("Cortado quantity")).toBeNull();
     expect(
-      (screen.getByRole("button", { name: "Finalize" }) as HTMLButtonElement)
+      (screen.getByRole("button", { name: "Done" }) as HTMLButtonElement)
         .disabled,
     ).toBe(true);
   });
@@ -402,7 +437,7 @@ describe("POS order tabs", () => {
     expect(selected("Order #2 (0)")).toBe("true");
     expect(screen.getByText("Order is empty. Tap an item to add it.")).toBeDefined();
     expect(
-      (screen.getByRole("button", { name: "Finalize" }) as HTMLButtonElement)
+      (screen.getByRole("button", { name: "Done" }) as HTMLButtonElement)
         .disabled,
     ).toBe(true);
   });
@@ -431,7 +466,7 @@ describe("POS per-order checkout", () => {
     fireEvent.click(screen.getByRole("button", { name: /Cortado/ }));
     fireEvent.click(screen.getByRole("button", { name: "New order" }));
     fireEvent.click(screen.getByRole("button", { name: /Latte/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Finalize" }));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
 
     await waitFor(() => {
       expect(screen.getByText("Sale complete")).toBeDefined();
@@ -444,15 +479,15 @@ describe("POS per-order checkout", () => {
     expect(screen.getByText("Order #2 · Sale #9")).toBeDefined();
     expect(screen.getByText("₱155")).toBeDefined();
 
-    // Receipt lock: no second Finalize to double-post with.
-    expect(screen.queryByRole("button", { name: "Finalize" })).toBeNull();
+    // Receipt lock: no second Done to double-post with.
+    expect(screen.queryByRole("button", { name: "Done" })).toBeNull();
     expect(posts).toBe(1);
 
     // The other tab is untouched and still editable.
     fireEvent.click(screen.getByRole("tab", { name: "Order #1 (1)" }));
     expect(screen.getByLabelText("Cortado quantity").textContent).toBe("1");
     expect(
-      (screen.getByRole("button", { name: "Finalize" }) as HTMLButtonElement)
+      (screen.getByRole("button", { name: "Done" }) as HTMLButtonElement)
         .disabled,
     ).toBe(false);
 
@@ -462,13 +497,13 @@ describe("POS per-order checkout", () => {
     expect(screen.getByText("Order is empty. Tap an item to add it.")).toBeDefined();
     expect(selected("Order #2 (0)")).toBe("true");
     expect(
-      (screen.getByRole("button", { name: "Finalize" }) as HTMLButtonElement)
+      (screen.getByRole("button", { name: "Done" }) as HTMLButtonElement)
         .disabled,
     ).toBe(true);
     expect(posts).toBe(1);
   });
 
-  it("double-clicking Finalize posts only once", async () => {
+  it("double-clicking Done posts only once", async () => {
     let posts = 0;
     let release!: (res: Response) => void;
     const gate = new Promise<Response>((resolve) => {
@@ -488,7 +523,7 @@ describe("POS per-order checkout", () => {
     await screen.findByText("Cortado");
 
     fireEvent.click(screen.getByRole("button", { name: /Cortado/ }));
-    const checkout = screen.getByRole("button", { name: "Finalize" });
+    const checkout = screen.getByRole("button", { name: "Done" });
     fireEvent.click(checkout);
     fireEvent.click(checkout);
     release(ok(sale(10, 7000, "cash", [{ menu_item_id: 1, qty: 1 }]), 201));
@@ -553,7 +588,7 @@ describe("POS paid flow with history", () => {
     await screen.findByText("Cortado");
 
     fireEvent.click(screen.getByRole("button", { name: /Cortado/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Finalize" }));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
 
     await waitFor(() => {
       expect(screen.getByText("UNPAID")).toBeDefined();
@@ -600,7 +635,7 @@ describe("POS paid flow with history", () => {
     await screen.findByText("Cortado");
 
     fireEvent.click(screen.getByRole("button", { name: /Cortado/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Finalize" }));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
     await waitFor(() => {
       expect(screen.getByText("UNPAID")).toBeDefined();
     });
@@ -662,7 +697,7 @@ describe("POS paid flow with history", () => {
     await screen.findByText("Cortado");
 
     fireEvent.click(screen.getByRole("button", { name: /Cortado/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Finalize" }));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
     await waitFor(() => {
       expect(screen.getByText("UNPAID")).toBeDefined();
     });
@@ -727,7 +762,7 @@ describe("POS paid flow with history", () => {
     await screen.findByText("Cortado");
 
     fireEvent.click(screen.getByRole("button", { name: /Cortado/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Finalize" }));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
     await waitFor(() => {
       expect(screen.getByText("UNPAID")).toBeDefined();
     });
@@ -856,7 +891,7 @@ describe("POS order/sale label linking", () => {
     await screen.findByText("Cortado");
 
     fireEvent.click(screen.getByRole("button", { name: /Cortado/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Finalize" }));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
 
     await waitFor(() => {
       expect(screen.getByText("Sale complete")).toBeDefined();
@@ -903,7 +938,7 @@ describe("POS order/sale label linking", () => {
     await screen.findByText("Cortado");
 
     fireEvent.click(screen.getByRole("button", { name: /Cortado/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Finalize" }));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
 
     await waitFor(() => {
       expect(screen.getByText("Sale complete")).toBeDefined();

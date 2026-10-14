@@ -557,7 +557,7 @@ export default function PosPage() {
                     disabled={active.lines.length === 0 || pending}
                     className="bg-ink px-4 py-3 text-base font-semibold text-paper disabled:opacity-40"
                   >
-                    {pending ? "Finalizing…" : "Finalize"}
+                    {pending ? "Saving…" : "Done"}
                   </button>
                   {error !== "" ? (
                     <div className="flex flex-col items-start gap-2">
