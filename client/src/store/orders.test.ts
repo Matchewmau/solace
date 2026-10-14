@@ -173,6 +173,7 @@ describe("orders store", () => {
       total_cents: 7000,
       payment: "cash" as const,
       voided: 0,
+      paid: 0,
       created_at: "2026-10-13 10:00:00",
       items: [],
     };
@@ -189,6 +190,7 @@ describe("orders store", () => {
       total_cents: 7000,
       payment: "cash" as const,
       voided: 0,
+      paid: 0,
       created_at: "2026-10-13 10:00:00",
       items: [],
     };

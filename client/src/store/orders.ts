@@ -5,9 +5,11 @@
  * labels are UI-only and in-memory-only — never posted to /api/sales,
  * never shown in the Today panel, lost on reload.
  *
- * Checkout payload stays exactly {payment, items} — order lines hold
+ * Checkout payload stays exactly {payment, items, paid} — order lines hold
  * only menu_item_id + qty. completeOrder is the single open→done
  * transition (locks the receipt); it never overwrites a done order.
+ * updateSale refreshes the locked receipt after unpaid edits (PUT items)
+ * or Mark unpaid (PATCH paid) — paid-off never reopens the tab.
  */
 import { create } from "zustand";
 import type { MenuItem } from "../api/menu";
@@ -42,6 +44,7 @@ interface OrdersState {
   setPayment: (key: string, payment: PaymentMethod) => void;
   clearOrder: (key: string) => void;
   completeOrder: (key: string, sale: Sale) => void;
+  updateSale: (key: string, sale: Sale) => void;
 }
 
 function createOrder(number: number): Order {
@@ -171,6 +174,12 @@ export const useOrders = create<OrdersState>()((set) => ({
     set((state) => ({
       orders: editOrder(state.orders, key, (order) =>
         order.status === "open" ? { ...order, status: "done", sale } : order,
+      ),
+    })),
+  updateSale: (key, sale) =>
+    set((state) => ({
+      orders: editOrder(state.orders, key, (order) =>
+        order.status === "done" ? { ...order, sale } : order,
       ),
     })),
 }));
