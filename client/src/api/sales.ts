@@ -3,10 +3,10 @@
  * Payload is exactly {payment, items} — no ref field anywhere,
  * per the spec ruling on GCash (open item #2: method + total only).
  * Relative URLs only — no CDN, no runtime fetches outside /api.
- * POST /api/sales is PIN-exempt so the register keeps flowing; the void
- * PATCH attaches the manager PIN when one is stored or entered (Task 15).
+ * Every call sends the login credential (x-solace-auth header) and a 401
+ * clears the session so the route guard lands on /login.
  */
-import { pinHeaders } from "../lib/pin";
+import { authFetch } from "../lib/auth";
 
 export type PaymentMethod = "cash" | "gcash";
 
@@ -57,7 +57,7 @@ export function utcToday(): string {
 }
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init);
+  const res = await authFetch(url, init);
   if (!res.ok) {
     let message = `Request failed: ${res.status} ${url}`;
     try {
@@ -85,10 +85,10 @@ export function fetchSummary(date: string): Promise<SaleSummary> {
   );
 }
 
-export function patchSaleVoid(id: number, voided: 0 | 1, pin?: string): Promise<Sale> {
+export function patchSaleVoid(id: number, voided: 0 | 1): Promise<Sale> {
   return requestJson<Sale>(`/api/sales/${id}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json", ...pinHeaders(pin ?? null) },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ voided }),
   });
 }
@@ -97,7 +97,7 @@ export async function postSale(
   payment: PaymentMethod,
   items: SaleItemPayload[],
 ): Promise<Sale> {
-  const res = await fetch("/api/sales", {
+  const res = await authFetch("/api/sales", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ payment, items }),

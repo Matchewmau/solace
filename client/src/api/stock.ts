@@ -1,10 +1,10 @@
 /**
  * Same-origin stock API fetchers for the /inventory page.
  * Relative URLs only — no CDN, no runtime fetches outside /api.
- * Mutating calls attach the stored manager PIN (Task 15 x-solace-pin
- * header; empty when the server has no PIN configured).
+ * Every call sends the login credential (x-solace-auth header) and a 401
+ * clears the session so the route guard lands on /login.
  */
-import { pinHeaders } from "../lib/pin";
+import { authFetch } from "../lib/auth";
 
 export interface StockItem {
   id: number;
@@ -44,7 +44,7 @@ export function adjustmentDelta(
 }
 
 async function getJson<T>(url: string): Promise<T> {
-  const res = await fetch(url);
+  const res = await authFetch(url);
   if (!res.ok) {
     throw new Error(`Request failed: ${res.status} ${url}`);
   }
@@ -52,9 +52,9 @@ async function getJson<T>(url: string): Promise<T> {
 }
 
 async function postJson<T>(url: string, body: unknown): Promise<T> {
-  const res = await fetch(url, {
+  const res = await authFetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...pinHeaders() },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
   if (!res.ok) {

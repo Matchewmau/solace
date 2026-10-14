@@ -1,8 +1,11 @@
 import { Suspense, lazy, type ReactNode } from "react";
 import type { RouteObject } from "react-router-dom";
-import { Navigate } from "react-router-dom";
+import { Navigate, Outlet } from "react-router-dom";
 import InventoryPage from "./pages/InventoryPage";
 import PosPage from "./pages/PosPage";
+import LoginPage from "./pages/LoginPage";
+import { AuthedLayout } from "./components/AppHeader";
+import { useAuth } from "./components/AuthProvider";
 
 /**
  * Binding route table for Tasks 7, 9–14.
@@ -92,25 +95,45 @@ const ShowcaseFallbackRoute = (
 );
 
 export const routes: RouteObject[] = [
-  { path: "/", element: <Navigate to="/dashboard" replace /> },
+  { path: "/login", element: <LoginPage /> },
   {
-    path: "/dashboard",
-    element: withBrandFallback(<DashboardPage />, DashboardFallback),
+    element: <RequireAuth />,
+    children: [
+      {
+        element: <AuthedLayout />,
+        children: [
+          { path: "/", element: <Navigate to="/dashboard" replace /> },
+          {
+            path: "/dashboard",
+            element: withBrandFallback(<DashboardPage />, DashboardFallback),
+          },
+          { path: "/menu", element: withBrandFallback(<MenuPage />, MenuFallback) },
+          { path: "/pos", element: <PosPage /> },
+          {
+            path: "/guide",
+            element: withBrandFallback(<GuidePage />, GuideFallback),
+          },
+          { path: "/inventory", element: <InventoryPage /> },
+          {
+            path: "/finance",
+            element: withBrandFallback(<FinancePage />, FinanceFallback),
+          },
+          {
+            path: "/showcase",
+            element: withBrandFallback(<ShowcasePage />, ShowcaseFallbackRoute),
+          },
+          { path: "*", element: <Navigate to="/dashboard" replace /> },
+        ],
+      },
+    ],
   },
-  { path: "/menu", element: withBrandFallback(<MenuPage />, MenuFallback) },
-  { path: "/pos", element: <PosPage /> },
-  {
-    path: "/guide",
-    element: withBrandFallback(<GuidePage />, GuideFallback),
-  },
-  { path: "/inventory", element: <InventoryPage /> },
-  {
-    path: "/finance",
-    element: withBrandFallback(<FinancePage />, FinanceFallback),
-  },
-  {
-    path: "/showcase",
-    element: withBrandFallback(<ShowcasePage />, ShowcaseFallbackRoute),
-  },
-  { path: "*", element: <Navigate to="/dashboard" replace /> },
 ];
+
+/** Logged-out visits bounce to /login; post-login always lands /dashboard. */
+function RequireAuth() {
+  const { loggedIn } = useAuth();
+  if (!loggedIn) {
+    return <Navigate to="/login" replace />;
+  }
+  return <Outlet />;
+}

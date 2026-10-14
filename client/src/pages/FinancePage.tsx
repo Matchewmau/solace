@@ -21,7 +21,6 @@ import {
   type Payable,
 } from "../api/finance";
 import { formatPeso } from "../lib/formatPeso";
-import { PinLockScreen, usePinGate } from "../components/PinGate";
 import { Reveal, StaggerItem, StaggerList } from "../components/motion";
 
 function LoadingSkeleton() {
@@ -620,7 +619,6 @@ function LoansSection({
 
 export default function FinancePage() {
   const queryClient = useQueryClient();
-  const gate = usePinGate();
   const [expenseError, setExpenseError] = useState<string | null>(null);
   const [billError, setBillError] = useState<string | null>(null);
   const [payableError, setPayableError] = useState<string | null>(null);
@@ -632,27 +630,23 @@ export default function FinancePage() {
   const payableFormRef = useRef<HTMLFormElement | null>(null);
   const loanAddFormRef = useRef<HTMLFormElement | null>(null);
 
-  const queryEnabled = gate.state === "open";
-  const billsQuery = useQuery({ queryKey: ["bills"], queryFn: fetchBills, enabled: queryEnabled });
+  const billsQuery = useQuery({ queryKey: ["bills"], queryFn: fetchBills });
   const expensesQuery = useQuery({
     queryKey: ["expenses"],
     queryFn: fetchExpenses,
-    enabled: queryEnabled,
   });
   const payablesQuery = useQuery({
     queryKey: ["payables"],
     queryFn: fetchPayables,
-    enabled: queryEnabled,
   });
   const loansQuery = useQuery({
     queryKey: ["loans"],
     queryFn: () => fetchLoans(),
-    enabled: queryEnabled,
   });
   const paymentsQuery = useQuery({
     queryKey: ["loan-payments", selectedLoanId],
     queryFn: () => fetchLoanPayments(selectedLoanId as number),
-    enabled: queryEnabled && selectedLoanId !== null,
+    enabled: selectedLoanId !== null,
   });
 
   const billMutation = useMutation({
@@ -768,12 +762,6 @@ export default function FinancePage() {
     payablesQuery.isError ||
     loansQuery.isError;
 
-  // PIN lock (Task 15): block finance content until verified. Early return
-  // keeps the lock screen a top-level landmark (no nested <main>).
-  if (gate.state === "locked") {
-    return <PinLockScreen page="Finance" onUnlock={gate.unlock} />;
-  }
-
   return (
     <main className="min-h-screen bg-paper text-ink">
       <div className="mx-auto flex max-w-4xl flex-col gap-10 px-6 py-12">
@@ -782,7 +770,7 @@ export default function FinancePage() {
           <h1 className="text-4xl font-semibold">Finance</h1>
           <p className="text-sm text-muted">Bills, expenses, and payables.</p>
         </Reveal>
-        {gate.state === "checking" || isLoading ? (
+        {isLoading ? (
           <LoadingSkeleton />
         ) : isError ? (
           <div className="flex flex-col items-start gap-4 py-16">

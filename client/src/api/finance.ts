@@ -1,10 +1,10 @@
 /**
  * Same-origin finance API fetchers for the /finance page.
  * Relative URLs only — no CDN, no runtime fetches outside /api.
- * Mutating calls attach the stored manager PIN (Task 15 x-solace-pin
- * header; empty when the server has no PIN configured).
+ * Every call sends the login credential (x-solace-auth header) and a 401
+ * clears the session so the route guard lands on /login.
  */
-import { pinHeaders } from "../lib/pin";
+import { authFetch } from "../lib/auth";
 
 export interface Bill {
   id: number;
@@ -63,7 +63,7 @@ export function isOverdue(
 }
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init);
+  const res = await authFetch(url, init);
   if (!res.ok) {
     let message = `Request failed: ${res.status} ${url}`;
     try {
@@ -82,7 +82,7 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
 function postJson<T>(url: string, body: unknown): Promise<T> {
   return requestJson<T>(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...pinHeaders() },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
 }
@@ -90,7 +90,7 @@ function postJson<T>(url: string, body: unknown): Promise<T> {
 function patchJson<T>(url: string, body: unknown): Promise<T> {
   return requestJson<T>(url, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json", ...pinHeaders() },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
 }

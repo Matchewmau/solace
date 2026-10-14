@@ -1,7 +1,10 @@
 /**
  * Same-origin dashboard API fetcher for the /dashboard page.
  * Relative URL only — no CDN, no runtime fetches outside /api.
+ * Sends the login credential (x-solace-auth header); a 401 clears the
+ * session so the route guard lands on /login.
  */
+import { authFetch } from "../lib/auth";
 
 export interface IncomeSlice {
   cash_cents: number;
@@ -48,7 +51,7 @@ export interface Dashboard {
 }
 
 async function requestJson<T>(url: string): Promise<T> {
-  const res = await fetch(url);
+  const res = await authFetch(url);
   if (!res.ok) {
     let message = `Request failed: ${res.status} ${url}`;
     try {

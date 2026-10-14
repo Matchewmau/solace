@@ -10,7 +10,6 @@ import {
   type MovementReason,
   type StockItem,
 } from "../api/stock";
-import { PinLockScreen, usePinGate } from "../components/PinGate";
 
 function LoadingSkeleton() {
   return (
@@ -137,7 +136,6 @@ function RowControls({ item, onMove, pending, formError }: RowControlsProps) {
 
 export default function InventoryPage() {
   const queryClient = useQueryClient();
-  const gate = usePinGate();
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
   const [addError, setAddError] = useState<string | null>(null);
@@ -146,12 +144,11 @@ export default function InventoryPage() {
   const itemsQuery = useQuery({
     queryKey: ["stock-items"],
     queryFn: fetchStockItems,
-    enabled: gate.state === "open",
   });
   const movementsQuery = useQuery({
     queryKey: ["stock-movements", selectedId],
     queryFn: () => fetchMovements(selectedId as number),
-    enabled: gate.state === "open" && selectedId !== null,
+    enabled: selectedId !== null,
   });
 
   const moveMutation = useMutation({
@@ -199,11 +196,6 @@ export default function InventoryPage() {
   const lowItems = items.filter(isLowStock);
   const selected = items.find((item) => item.id === selectedId) ?? null;
 
-  // PIN lock (Task 15): block inventory content until verified.
-  if (gate.state === "locked") {
-    return <PinLockScreen page="Inventory" onUnlock={gate.unlock} />;
-  }
-
   return (
     <main className="min-h-screen bg-paper text-ink">
       <div className="mx-auto flex max-w-4xl flex-col gap-10 px-6 py-12">
@@ -212,7 +204,7 @@ export default function InventoryPage() {
           <h1 className="text-4xl font-semibold">Inventory</h1>
           <p className="text-sm text-muted">Stock counts and movements.</p>
         </header>
-        {gate.state === "checking" || itemsQuery.isLoading ? (
+        {itemsQuery.isLoading ? (
           <LoadingSkeleton />
         ) : itemsQuery.isError ? (
           <div className="flex flex-col items-start gap-4 py-16">

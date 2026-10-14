@@ -3,14 +3,14 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import FinancePage from "./FinancePage";
 import { isOverdue } from "../api/finance";
-import { clearStoredPin, setStoredPin } from "../lib/pin";
+import { clearStoredAuth, setStoredAuth } from "../lib/auth";
 import type { Bill, Expense, Loan, LoanPayment, Payable } from "../api/finance";
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
-  clearStoredPin();
-  sessionStorage.clear();
+  clearStoredAuth();
+  localStorage.clear();
 });
 
 const bills: Bill[] = [
@@ -353,7 +353,7 @@ describe("FinancePage create forms (review fix wave)", () => {
 
   function stubCreate() {
     created.length = 0;
-    setStoredPin("1234");
+    setStoredAuth("solace123");
     globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
       const u = String(url);
       if (
@@ -379,7 +379,7 @@ describe("FinancePage create forms (review fix wave)", () => {
     }) as typeof fetch;
   }
 
-  it("add-bill form POSTs name/amount_cents/due_day with the PIN header", async () => {
+  it("add-bill form POSTs name/amount_cents/due_day with the auth header", async () => {
     stubCreate();
     renderFinance();
     await screen.findByText("Bills");
@@ -409,10 +409,10 @@ describe("FinancePage create forms (review fix wave)", () => {
       amount_cents: 25000,
       due_day: 15,
     });
-    expect(created[0].headers).toMatchObject({ "x-solace-pin": "1234" });
+    expect(created[0].headers).toMatchObject({ "x-solace-auth": "solace123" });
   });
 
-  it("add-payable form POSTs label/amount_cents/due_date with the PIN header", async () => {
+  it("add-payable form POSTs label/amount_cents/due_date with the auth header", async () => {
     stubCreate();
     renderFinance();
     await screen.findByText("Payables");
@@ -443,10 +443,10 @@ describe("FinancePage create forms (review fix wave)", () => {
       amount_cents: 80000,
       due_date: "2026-10-20",
     });
-    expect(created[0].headers).toMatchObject({ "x-solace-pin": "1234" });
+    expect(created[0].headers).toMatchObject({ "x-solace-auth": "solace123" });
   });
 
-  it("add-loan form POSTs lender/principal/installment/due_day (no balance) with the PIN header", async () => {
+  it("add-loan form POSTs lender/principal/installment/due_day (no balance) with the auth header", async () => {
     stubCreate();
     renderFinance();
     await screen.findByText("Loans");
@@ -482,6 +482,6 @@ describe("FinancePage create forms (review fix wave)", () => {
       installment_cents: 10000,
       due_day: 15,
     });
-    expect(created[0].headers).toMatchObject({ "x-solace-pin": "1234" });
+    expect(created[0].headers).toMatchObject({ "x-solace-auth": "solace123" });
   });
 });

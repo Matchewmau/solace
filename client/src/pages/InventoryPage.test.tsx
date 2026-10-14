@@ -3,14 +3,14 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import InventoryPage from "./InventoryPage";
 import { adjustmentDelta, isLowStock } from "../api/stock";
-import { clearStoredPin, setStoredPin } from "../lib/pin";
+import { clearStoredAuth, setStoredAuth } from "../lib/auth";
 import type { StockItem, StockMovement } from "../api/stock";
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
-  clearStoredPin();
-  sessionStorage.clear();
+  clearStoredAuth();
+  localStorage.clear();
 });
 
 const items: StockItem[] = [
@@ -125,9 +125,9 @@ describe("InventoryPage with mocked data", () => {
 });
 
 describe("InventoryPage create form (review fix wave)", () => {
-  it("add-stock-item form POSTs name/unit/qty/threshold with the PIN header", async () => {
+  it("add-stock-item form POSTs name/unit/qty/threshold with the auth header", async () => {
     const created: Array<{ url: string; body: unknown; headers: unknown }> = [];
-    setStoredPin("1234");
+    setStoredAuth("solace123");
     globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
       const u = String(url);
       if (u === "/api/stock_items" && (!init || init.method === undefined)) {
@@ -176,7 +176,7 @@ describe("InventoryPage create form (review fix wave)", () => {
       qty: 500,
       low_threshold: 50,
     });
-    expect(created[0].headers).toMatchObject({ "x-solace-pin": "1234" });
+    expect(created[0].headers).toMatchObject({ "x-solace-auth": "solace123" });
   });
 
   it("add-stock-item form shows on an empty list (fresh DB)", async () => {
