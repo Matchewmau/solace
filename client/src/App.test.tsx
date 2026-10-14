@@ -16,7 +16,7 @@ describe("Solace shell", () => {
   it("renders the branded shell page", () => {
     render(<App />);
     expect(
-      screen.getByRole("heading", { name: "Solace" }).textContent,
-    ).toBe("Solace");
+      screen.getByRole("heading", { name: "Dashboard" }).textContent,
+    ).toBe("Dashboard");
   });
 });

@@ -92,7 +92,7 @@ const ShowcaseFallbackRoute = (
 );
 
 export const routes: RouteObject[] = [
-  { path: "/", element: <Navigate to="/menu" replace /> },
+  { path: "/", element: <Navigate to="/dashboard" replace /> },
   {
     path: "/dashboard",
     element: withBrandFallback(<DashboardPage />, DashboardFallback),
@@ -112,5 +112,5 @@ export const routes: RouteObject[] = [
     path: "/showcase",
     element: withBrandFallback(<ShowcasePage />, ShowcaseFallbackRoute),
   },
-  { path: "*", element: <Navigate to="/menu" replace /> },
+  { path: "*", element: <Navigate to="/dashboard" replace /> },
 ];
