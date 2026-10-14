@@ -6,6 +6,7 @@ import { AuthProvider } from "./AuthProvider";
 import { routes } from "../routes";
 import {
   AUTH_STORAGE_KEY,
+  authFetch,
   authHeaders,
   clearStoredAuth,
   getStoredAuth,
@@ -82,6 +83,21 @@ describe("auth lib", () => {
       username: "solace",
       password: "solace123",
     });
+  });
+
+  it("authFetch keeps the credential when callers pass a Headers instance", async () => {
+    setStoredAuth("solace123");
+    let sent: string | null = null;
+    globalThis.fetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      const h = new Headers(init?.headers);
+      sent = h.get("x-solace-auth");
+      return ok({ ok: true });
+    }) as typeof fetch;
+
+    await authFetch("/api/stock_items", {
+      headers: new Headers({ "Content-Type": "application/json" }),
+    });
+    expect(sent).toBe("solace123");
   });
 });
 

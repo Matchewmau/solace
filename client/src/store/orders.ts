@@ -121,30 +121,41 @@ export const useOrders = create<OrdersState>()((set) => ({
     ),
   addItem: (key, menuItemId) =>
     set((state) => ({
-      orders: editOrder(state.orders, key, (order) => ({
-        ...order,
-        lines: updateLines(order.lines, menuItemId, (qty) => (qty ?? 0) + 1),
-      })),
+      orders: editOrder(state.orders, key, (order) => {
+        if (order.status !== "open") return order;
+        return {
+          ...order,
+          lines: updateLines(order.lines, menuItemId, (qty) => (qty ?? 0) + 1),
+        };
+      }),
     })),
   setQty: (key, menuItemId, qty) =>
     set((state) => ({
-      orders: editOrder(state.orders, key, (order) => ({
-        ...order,
-        lines: updateLines(order.lines, menuItemId, () =>
-          !Number.isInteger(qty) || qty < 1 ? undefined : qty,
-        ),
-      })),
+      orders: editOrder(state.orders, key, (order) => {
+        if (order.status !== "open") return order;
+        return {
+          ...order,
+          lines: updateLines(order.lines, menuItemId, () =>
+            !Number.isInteger(qty) || qty < 1 ? undefined : qty,
+          ),
+        };
+      }),
     })),
   removeLine: (key, menuItemId) =>
     set((state) => ({
-      orders: editOrder(state.orders, key, (order) => ({
-        ...order,
-        lines: order.lines.filter((line) => line.menu_item_id !== menuItemId),
-      })),
+      orders: editOrder(state.orders, key, (order) => {
+        if (order.status !== "open") return order;
+        return {
+          ...order,
+          lines: order.lines.filter((line) => line.menu_item_id !== menuItemId),
+        };
+      }),
     })),
   setPayment: (key, payment) =>
     set((state) => ({
-      orders: editOrder(state.orders, key, (order) => ({ ...order, payment })),
+      orders: editOrder(state.orders, key, (order) =>
+        order.status !== "open" ? order : { ...order, payment },
+      ),
     })),
   clearOrder: (key) =>
     set((state) => ({

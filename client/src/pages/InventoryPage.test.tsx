@@ -174,7 +174,9 @@ describe("InventoryPage create form (review fix wave)", () => {
       qty: 500,
       low_threshold: 50,
     });
-    expect(created[0].headers).toMatchObject({ "x-solace-auth": "solace123" });
+    expect(new Headers(created[0].headers as HeadersInit).get("x-solace-auth")).toBe(
+      "solace123",
+    );
   });
 
   it("add-stock-item form shows on an empty list (fresh DB)", async () => {
@@ -188,6 +190,50 @@ describe("InventoryPage create form (review fix wave)", () => {
     renderInventory();
     await screen.findByText("No stock items yet");
     expect(screen.getByLabelText("Add stock item")).toBeDefined();
+  });
+
+  it("add-stock-item form succeeds with an empty unit", async () => {
+    const created: Array<{ url: string; body: unknown }> = [];
+    globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
+      const u = String(url);
+      if (u === "/api/stock_items" && (!init || init.method === undefined)) {
+        return ok(items);
+      }
+      if (u === "/api/stock_items" && init?.method === "POST") {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+        created.push({ url: u, body });
+        return ok({ id: 99, ...body }, 201);
+      }
+      if (u.startsWith("/api/stock_movements?stock_item_id=")) {
+        return ok([]);
+      }
+      throw new Error(`unexpected fetch ${u} ${init?.method ?? "GET"}`);
+    }) as typeof fetch;
+    renderInventory();
+    await screen.findByText("Milk");
+
+    const form = screen.getByLabelText("Add stock item").closest(
+      "form",
+    ) as HTMLFormElement;
+    // Unit is optional on add, matching the edit dialog and server.
+    expect(
+      (form.querySelector('input[name="unit"]') as HTMLInputElement).required,
+    ).toBe(false);
+    fireEvent.change(
+      form.querySelector('input[name="name"]') as HTMLInputElement,
+      { target: { value: "Beans" } },
+    );
+    fireEvent.submit(form);
+
+    await vi.waitFor(() => {
+      expect(created).toHaveLength(1);
+    });
+    expect(created[0].body).toEqual({
+      name: "Beans",
+      unit: "",
+      qty: 0,
+      low_threshold: 0,
+    });
   });
 });
 

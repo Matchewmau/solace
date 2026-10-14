@@ -95,9 +95,12 @@ export async function authFetch(
   url: string,
   init?: RequestInit,
 ): Promise<Response> {
+  const h = new Headers(init?.headers);
+  const credential = getStoredAuth();
+  if (credential) h.set("x-solace-auth", credential);
   const res = await fetch(url, {
     ...init,
-    headers: { ...authHeaders(), ...(init?.headers ?? {}) },
+    headers: h,
   });
   if (res.status === 401 && url.startsWith("/api/")) {
     notifyUnauthorized();

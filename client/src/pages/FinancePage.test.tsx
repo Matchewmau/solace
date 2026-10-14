@@ -409,7 +409,7 @@ describe("FinancePage create forms (review fix wave)", () => {
       amount_cents: 25000,
       due_day: 15,
     });
-    expect(created[0].headers).toMatchObject({ "x-solace-auth": "solace123" });
+    expect(new Headers(created[0].headers as HeadersInit).get("x-solace-auth")).toBe("solace123");
   });
 
   it("add-payable form POSTs label/amount_cents/due_date with the auth header", async () => {
@@ -443,7 +443,7 @@ describe("FinancePage create forms (review fix wave)", () => {
       amount_cents: 80000,
       due_date: "2026-10-20",
     });
-    expect(created[0].headers).toMatchObject({ "x-solace-auth": "solace123" });
+    expect(new Headers(created[0].headers as HeadersInit).get("x-solace-auth")).toBe("solace123");
   });
 
   it("add-loan form POSTs lender/principal/installment/due_day (no balance) with the auth header", async () => {
@@ -482,6 +482,6 @@ describe("FinancePage create forms (review fix wave)", () => {
       installment_cents: 10000,
       due_day: 15,
     });
-    expect(created[0].headers).toMatchObject({ "x-solace-auth": "solace123" });
+    expect(new Headers(created[0].headers as HeadersInit).get("x-solace-auth")).toBe("solace123");
   });
 });

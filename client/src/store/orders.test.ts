@@ -182,6 +182,28 @@ describe("orders store", () => {
     expect(order("order-1").sale).toMatchObject({ id: 7 });
   });
 
+  it("edits on a done order are no-ops (open guard)", () => {
+    useOrders.getState().addItem("order-1", 1);
+    const sale = {
+      id: 7,
+      total_cents: 7000,
+      payment: "cash" as const,
+      voided: 0,
+      created_at: "2026-10-13 10:00:00",
+      items: [],
+    };
+    useOrders.getState().completeOrder("order-1", sale);
+    const before = order("order-1");
+
+    useOrders.getState().addItem("order-1", 2);
+    useOrders.getState().setQty("order-1", 1, 9);
+    useOrders.getState().removeLine("order-1", 1);
+    useOrders.getState().setPayment("order-1", "gcash");
+
+    expect(order("order-1")).toEqual(before);
+    expect(order("order-1").status).toBe("done");
+  });
+
   it("derives each order total from menu prices", () => {
     useOrders.getState().addItem("order-1", 1);
     useOrders.getState().addItem("order-1", 1);

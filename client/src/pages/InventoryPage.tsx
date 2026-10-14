@@ -433,7 +433,6 @@ export default function InventoryPage() {
                 <input
                   name="unit"
                   type="text"
-                  required
                   placeholder="Unit"
                   aria-label="Stock item unit"
                   className="w-24 border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
