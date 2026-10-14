@@ -1,12 +1,10 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchActiveMenuItems, fetchCategories } from "../api/menu";
-import { fetchSalesForDate, fetchSummary, patchSaleVoid, postSale, utcToday, type PaymentMethod, type Sale, type SaleRow } from "../api/sales";
+import { fetchSalesForDate, fetchSummary, patchSaleVoid, postSale, utcToday, type SaleRow } from "../api/sales";
 import { formatPeso } from "../lib/formatPeso";
-import { cartTotalCents, useCart } from "../store/cart";
+import { cartTotalCents, useOrders } from "../store/orders";
 import { sortCategories } from "../lib/sortCategories";
-
-type CheckoutStatus = "idle" | "pending" | "success" | "error";
 
 const methodButton = (pressed: boolean) =>
   pressed
@@ -14,18 +12,27 @@ const methodButton = (pressed: boolean) =>
     : "flex-1 border border-ink px-4 py-4 text-lg font-semibold";
 
 export default function PosPage() {
-  const lines = useCart((s) => s.lines);
-  const add = useCart((s) => s.add);
-  const setQty = useCart((s) => s.setQty);
-  const remove = useCart((s) => s.remove);
-  const clear = useCart((s) => s.clear);
+  const orders = useOrders((s) => s.orders);
+  const activeKey = useOrders((s) => s.activeKey);
+  const addOrder = useOrders((s) => s.addOrder);
+  const closeOrder = useOrders((s) => s.closeOrder);
+  const setActive = useOrders((s) => s.setActive);
+  const addItem = useOrders((s) => s.addItem);
+  const setQty = useOrders((s) => s.setQty);
+  const removeLine = useOrders((s) => s.removeLine);
+  const setPayment = useOrders((s) => s.setPayment);
+  const clearOrder = useOrders((s) => s.clearOrder);
+  const completeOrder = useOrders((s) => s.completeOrder);
+
+  const active = orders.find((order) => order.key === activeKey) ?? orders[0];
 
   const [activeCategory, setActiveCategory] = useState<number | "all">("all");
-  const [payment, setPayment] = useState<PaymentMethod>("cash");
-  const [status, setStatus] = useState<CheckoutStatus>("idle");
-  const [sale, setSale] = useState<Sale | null>(null);
+  const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [todayError, setTodayError] = useState("");
+  // Sync re-entry guard: two clicks before the pending re-render still
+  // post only once. The done-status check below blocks any later click.
+  const checkoutBusy = useRef(false);
 
   // UTC-date "Today" panel (Task 8): the day boundary is the UTC calendar
   // date, matching GET /api/sales/summary. Shop hours 2pm-10pm PHT always
@@ -73,32 +80,51 @@ export default function PosPage() {
     activeCategory === "all"
       ? items
       : items.filter((item) => item.category_id === activeCategory);
-  const totalCents = cartTotalCents(lines, items);
+  const totalCents = cartTotalCents(active.lines, items);
+
+  function switchTab(key: string) {
+    setActive(key);
+    setError("");
+  }
+
+  function newTab() {
+    addOrder();
+    setError("");
+  }
+
+  function closeTab(key: string) {
+    closeOrder(key);
+    setError("");
+  }
 
   async function checkout() {
-    if (lines.length === 0) return;
-    setStatus("pending");
+    // Read fresh state: only the active order posts, and a locked
+    // (done) tab never posts again.
+    const order = useOrders.getState().orders.find((o) => o.key === active.key);
+    if (!order || order.status === "done" || order.lines.length === 0) return;
+    if (checkoutBusy.current) return;
+    checkoutBusy.current = true;
+    setPending(true);
     setError("");
     try {
       const completed = await postSale(
-        payment,
-        lines.map((line) => ({ menu_item_id: line.menu_item_id, qty: line.qty })),
+        order.payment,
+        order.lines.map((line) => ({ menu_item_id: line.menu_item_id, qty: line.qty })),
       );
-      setSale(completed);
-      setStatus("success");
-      clear();
+      completeOrder(order.key, completed);
       // A fresh sale belongs to today's panel — refresh summary + list.
       void queryClient.invalidateQueries({ queryKey: ["sales"] });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Checkout failed.");
-      setStatus("error");
+    } finally {
+      checkoutBusy.current = false;
+      setPending(false);
     }
   }
 
   function newSale() {
-    setSale(null);
+    clearOrder(active.key);
     setError("");
-    setStatus("idle");
   }
 
   const isLoading = categoriesQuery.isLoading || itemsQuery.isLoading;
@@ -134,6 +160,44 @@ export default function PosPage() {
           </div>
         ) : (
           <>
+          <div role="tablist" aria-label="Orders" className="flex flex-wrap items-center gap-2">
+            {orders.map((order) => {
+              const count = order.lines.reduce((sum, line) => sum + line.qty, 0);
+              const selected = order.key === active.key;
+              return (
+                <span key={order.key} className="flex items-stretch">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={selected}
+                    onClick={() => switchTab(order.key)}
+                    className={
+                      selected
+                        ? "bg-ink px-4 py-2 text-sm font-semibold text-paper"
+                        : "border border-ink px-4 py-2 text-sm font-semibold"
+                    }
+                  >
+                    {order.label} ({count})
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Close ${order.label}`}
+                    onClick={() => closeTab(order.key)}
+                    className="border border-ink border-l-0 px-2 py-2 text-sm font-semibold text-muted"
+                  >
+                    ×
+                  </button>
+                </span>
+              );
+            })}
+            <button
+              type="button"
+              onClick={newTab}
+              className="border border-dashed border-ink px-4 py-2 text-sm font-semibold"
+            >
+              New order
+            </button>
+          </div>
           <div className="grid gap-10 lg:grid-cols-[1fr_320px]">
             <section aria-label="Menu items" className="flex flex-col gap-6">
               <div className="flex flex-wrap gap-2" role="group" aria-label="Category filter">
@@ -173,7 +237,9 @@ export default function PosPage() {
                     <li key={item.id}>
                       <button
                         type="button"
-                        onClick={() => add(item.id)}
+                        onClick={() => {
+                          if (active.status === "open") addItem(active.key, item.id);
+                        }}
                         className="flex h-full w-full flex-col items-start gap-1 border border-ink px-4 py-3 text-left"
                       >
                         <span className="text-base font-semibold">{item.name}</span>
@@ -185,14 +251,14 @@ export default function PosPage() {
               )}
             </section>
             <section aria-label="Cart" className="flex flex-col gap-6">
-              {status === "success" && sale ? (
+              {active.status === "done" && active.sale ? (
                 <div className="flex flex-col gap-3 border border-ink p-6">
                   <h2 className="text-2xl font-semibold">Sale complete</h2>
-                  <p className="text-lg">Sale #{sale.id}</p>
+                  <p className="text-lg">Sale #{active.sale.id}</p>
                   <p className="text-lg font-semibold text-accent">
-                    {formatPeso(sale.total_cents)}
+                    {formatPeso(active.sale.total_cents)}
                   </p>
-                  <p className="text-lg">{sale.payment === "cash" ? "Cash" : "GCash"}</p>
+                  <p className="text-lg">{active.sale.payment === "cash" ? "Cash" : "GCash"}</p>
                   <button
                     type="button"
                     onClick={newSale}
@@ -204,11 +270,11 @@ export default function PosPage() {
               ) : (
                 <>
                   <h2 className="text-2xl font-semibold">Cart</h2>
-                  {lines.length === 0 ? (
+                  {active.lines.length === 0 ? (
                     <p className="text-muted">Cart is empty. Tap an item to add it.</p>
                   ) : (
                     <ul className="flex flex-col gap-4">
-                      {lines.map((line) => {
+                      {active.lines.map((line) => {
                         const item = byId.get(line.menu_item_id);
                         const name = item?.name ?? `Item #${line.menu_item_id}`;
                         return (
@@ -223,7 +289,7 @@ export default function PosPage() {
                               <button
                                 type="button"
                                 aria-label={`Decrease ${name} quantity`}
-                                onClick={() => setQty(line.menu_item_id, line.qty - 1)}
+                                onClick={() => setQty(active.key, line.menu_item_id, line.qty - 1)}
                                 className="border border-ink px-3 py-1 text-base font-semibold"
                               >
                                 −
@@ -234,7 +300,7 @@ export default function PosPage() {
                               <button
                                 type="button"
                                 aria-label={`Increase ${name} quantity`}
-                                onClick={() => setQty(line.menu_item_id, line.qty + 1)}
+                                onClick={() => setQty(active.key, line.menu_item_id, line.qty + 1)}
                                 className="border border-ink px-3 py-1 text-base font-semibold"
                               >
                                 +
@@ -242,7 +308,7 @@ export default function PosPage() {
                               <button
                                 type="button"
                                 aria-label={`Remove ${name} from cart`}
-                                onClick={() => remove(line.menu_item_id)}
+                                onClick={() => removeLine(active.key, line.menu_item_id)}
                                 className="ml-auto px-2 py-1 text-sm text-muted underline"
                               >
                                 Remove
@@ -259,17 +325,17 @@ export default function PosPage() {
                   <div className="flex gap-3">
                     <button
                       type="button"
-                      aria-pressed={payment === "cash"}
-                      onClick={() => setPayment("cash")}
-                      className={methodButton(payment === "cash")}
+                      aria-pressed={active.payment === "cash"}
+                      onClick={() => setPayment(active.key, "cash")}
+                      className={methodButton(active.payment === "cash")}
                     >
                       Cash
                     </button>
                     <button
                       type="button"
-                      aria-pressed={payment === "gcash"}
-                      onClick={() => setPayment("gcash")}
-                      className={methodButton(payment === "gcash")}
+                      aria-pressed={active.payment === "gcash"}
+                      onClick={() => setPayment(active.key, "gcash")}
+                      className={methodButton(active.payment === "gcash")}
                     >
                       GCash
                     </button>
@@ -277,12 +343,12 @@ export default function PosPage() {
                   <button
                     type="button"
                     onClick={() => void checkout()}
-                    disabled={lines.length === 0 || status === "pending"}
+                    disabled={active.lines.length === 0 || pending}
                     className="bg-ink px-4 py-3 text-base font-semibold text-paper disabled:opacity-40"
                   >
-                    {status === "pending" ? "Checking out…" : "Checkout"}
+                    {pending ? "Checking out…" : "Checkout"}
                   </button>
-                  {status === "error" ? (
+                  {error !== "" ? (
                     <div className="flex flex-col items-start gap-2">
                       <p role="alert" className="text-base">
                         {error}

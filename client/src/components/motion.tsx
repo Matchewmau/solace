@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 /**
  * Brand-quiet motion primitives for non-POS routes ONLY.
  *
- * POS stays boring and instant: PosPage, store/cart, api/*,
+ * POS stays boring and instant: PosPage, store/orders, api/*,
  * lib/formatPeso, and lib/sortCategories must NEVER import this
  * module (source-grep enforced).
  *

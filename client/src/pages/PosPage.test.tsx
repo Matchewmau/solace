@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import PosPage from "./PosPage";
-import { useCart } from "../store/cart";
+import { useOrders } from "../store/orders";
 import type { Category, MenuItem } from "../api/menu";
 
 const categories: Category[] = [
@@ -16,8 +16,54 @@ const items: MenuItem[] = [
   { id: 3, category_id: 2, name: "Calamansi Cooler", price_cents: 5000, cost_cents: 1200, active: 1 },
 ];
 
+const emptySummary = {
+  date: "2026-10-13",
+  cash_total_cents: 0,
+  gcash_total_cents: 0,
+  sale_count: 0,
+  voided_count: 0,
+};
+
 function ok(data: unknown, status = 200): Response {
   return { ok: status >= 200 && status < 300, status, json: async () => data } as Response;
+}
+
+function sale(
+  id: number,
+  totalCents: number,
+  payment: string,
+  lines: { menu_item_id: number; qty: number }[],
+) {
+  return {
+    id,
+    total_cents: totalCents,
+    payment,
+    voided: 0,
+    created_at: "2026-10-13 10:00:00",
+    items: lines.map((line, index) => ({
+      id: index + 1,
+      menu_item_id: line.menu_item_id,
+      qty: line.qty,
+      unit_price_cents: 7000,
+    })),
+  };
+}
+
+/** Menu + empty Today panel; sales POST/PATCH fall through to onSale. */
+function menuFetch(
+  onSale?: (u: string, init?: RequestInit) => Promise<Response>,
+) {
+  return async (url: unknown, init?: RequestInit) => {
+    const u = String(url);
+    if (u === "/api/categories") return ok(categories);
+    if (u === "/api/menu_items?active=1") return ok(items);
+    if (u.startsWith("/api/sales/summary")) return ok(emptySummary);
+    if (u.startsWith("/api/sales?")) return ok([]);
+    if (onSale && (u === "/api/sales" || u.startsWith("/api/sales/"))) {
+      return onSale(u, init);
+    }
+    throw new Error(`unexpected fetch ${u}`);
+  };
 }
 
 function renderPos() {
@@ -31,8 +77,22 @@ function renderPos() {
   );
 }
 
+function resetOrders() {
+  useOrders.setState({
+    orders: [
+      { key: "order-1", label: "Order #1", lines: [], payment: "cash", status: "open", sale: null },
+    ],
+    activeKey: "order-1",
+    nextNumber: 2,
+  });
+}
+
+function selected(name: string): string | null {
+  return screen.getByRole("tab", { name }).getAttribute("aria-selected");
+}
+
 beforeEach(() => {
-  useCart.getState().clear();
+  resetOrders();
 });
 
 afterEach(() => {
@@ -42,12 +102,7 @@ afterEach(() => {
 
 describe("POS checkout flow", () => {
   it("disables Checkout on an empty cart", async () => {
-    globalThis.fetch = vi.fn(async (url: unknown) => {
-      const u = String(url);
-      if (u === "/api/categories") return ok(categories);
-      if (u === "/api/menu_items?active=1") return ok(items);
-      throw new Error(`unexpected fetch ${u}`);
-    }) as typeof fetch;
+    globalThis.fetch = vi.fn(menuFetch()) as typeof fetch;
 
     renderPos();
     await screen.findByText("Cortado");
@@ -59,32 +114,16 @@ describe("POS checkout flow", () => {
 
   it("posts {payment, items} with no ref field and shows the server-computed total", async () => {
     let payload: unknown;
-    globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
-      const u = String(url);
-      if (u === "/api/categories") return ok(categories);
-      if (u === "/api/menu_items?active=1") return ok(items);
-      if (u === "/api/sales") {
-        payload = JSON.parse(String(init?.body));
-        const body = payload as { payment: string; items: { menu_item_id: number; qty: number }[] };
-        return ok(
-          {
-            id: 7,
-            total_cents: 22000,
-            payment: body.payment,
-            voided: 0,
-            created_at: "2026-10-13 10:00:00",
-            items: body.items.map((line, index) => ({
-              id: index + 1,
-              menu_item_id: line.menu_item_id,
-              qty: line.qty,
-              unit_price_cents: 7000,
-            })),
-          },
-          201,
-        );
-      }
-      throw new Error(`unexpected fetch ${u}`);
-    }) as typeof fetch;
+    globalThis.fetch = vi.fn(
+      menuFetch(async (u, init) => {
+        if (u === "/api/sales") {
+          payload = JSON.parse(String(init?.body));
+          const body = payload as { payment: string; items: { menu_item_id: number; qty: number }[] };
+          return ok(sale(7, 22000, body.payment, body.items), 201);
+        }
+        throw new Error(`unexpected fetch ${u}`);
+      }),
+    ) as typeof fetch;
 
     renderPos();
     await screen.findByText("Cortado");
@@ -118,27 +157,16 @@ describe("POS checkout flow", () => {
 
   it("shows an error with retry and recovers on the next attempt", async () => {
     let attempts = 0;
-    globalThis.fetch = vi.fn(async (url: unknown) => {
-      const u = String(url);
-      if (u === "/api/categories") return ok(categories);
-      if (u === "/api/menu_items?active=1") return ok(items);
-      if (u === "/api/sales") {
-        attempts += 1;
-        if (attempts === 1) return ok({ error: "boom" }, 500);
-        return ok(
-          {
-            id: 8,
-            total_cents: 7000,
-            payment: "cash",
-            voided: 0,
-            created_at: "2026-10-13 10:00:00",
-            items: [{ id: 1, menu_item_id: 1, qty: 1, unit_price_cents: 7000 }],
-          },
-          201,
-        );
-      }
-      throw new Error(`unexpected fetch ${u}`);
-    }) as typeof fetch;
+    globalThis.fetch = vi.fn(
+      menuFetch(async (u) => {
+        if (u === "/api/sales") {
+          attempts += 1;
+          if (attempts === 1) return ok({ error: "boom" }, 500);
+          return ok(sale(8, 7000, "cash", [{ menu_item_id: 1, qty: 1 }]), 201);
+        }
+        throw new Error(`unexpected fetch ${u}`);
+      }),
+    ) as typeof fetch;
 
     renderPos();
     await screen.findByText("Cortado");
@@ -261,12 +289,7 @@ describe("Today panel + daily summary", () => {
 });
 
   it("steppers adjust quantities and remove lines", async () => {
-    globalThis.fetch = vi.fn(async (url: unknown) => {
-      const u = String(url);
-      if (u === "/api/categories") return ok(categories);
-      if (u === "/api/menu_items?active=1") return ok(items);
-      throw new Error(`unexpected fetch ${u}`);
-    }) as typeof fetch;
+    globalThis.fetch = vi.fn(menuFetch()) as typeof fetch;
 
     renderPos();
     await screen.findByText("Cortado");
@@ -282,5 +305,192 @@ describe("Today panel + daily summary", () => {
       (screen.getByRole("button", { name: "Checkout" }) as HTMLButtonElement)
         .disabled,
     ).toBe(true);
+  });
+});
+
+describe("POS order tabs", () => {
+  it("adds, switches, and closes tabs with monotonic labels", async () => {
+    globalThis.fetch = vi.fn(menuFetch()) as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Cortado");
+
+    expect(selected("Order #1 (0)")).toBe("true");
+
+    fireEvent.click(screen.getByRole("button", { name: "New order" }));
+    expect(selected("Order #2 (0)")).toBe("true");
+    expect(selected("Order #1 (0)")).toBe("false");
+
+    fireEvent.click(screen.getByRole("tab", { name: "Order #1 (0)" }));
+    expect(selected("Order #1 (0)")).toBe("true");
+
+    // Numbers never reuse: closing #3 after adding it yields #4 next.
+    fireEvent.click(screen.getByRole("button", { name: "New order" }));
+    expect(selected("Order #3 (0)")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Close Order #3" }));
+    expect(screen.queryByRole("tab", { name: "Order #3 (0)" })).toBeNull();
+    expect(selected("Order #2 (0)")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "New order" }));
+    expect(selected("Order #4 (0)")).toBe("true");
+  });
+
+  it("item grid adds to the active order only", async () => {
+    globalThis.fetch = vi.fn(menuFetch()) as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Cortado");
+
+    fireEvent.click(screen.getByRole("button", { name: /Cortado/ }));
+    expect(selected("Order #1 (1)")).toBe("true");
+
+    fireEvent.click(screen.getByRole("button", { name: "New order" }));
+    expect(screen.getByText("Cart is empty. Tap an item to add it.")).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: /Latte/ }));
+    expect(selected("Order #2 (1)")).toBe("true");
+
+    fireEvent.click(screen.getByRole("tab", { name: "Order #1 (1)" }));
+    expect(screen.getByLabelText("Cortado quantity").textContent).toBe("1");
+    expect(screen.queryByLabelText("Latte quantity")).toBeNull();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Order #2 (1)" }));
+    expect(screen.getByLabelText("Latte quantity").textContent).toBe("1");
+    expect(screen.queryByLabelText("Cortado quantity")).toBeNull();
+  });
+
+  it("each order keeps its own payment method", async () => {
+    globalThis.fetch = vi.fn(menuFetch()) as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Cortado");
+
+    fireEvent.click(screen.getByRole("button", { name: "New order" }));
+    fireEvent.click(screen.getByRole("button", { name: "GCash" }));
+    expect(
+      screen.getByRole("button", { name: "GCash" }).getAttribute("aria-pressed"),
+    ).toBe("true");
+
+    fireEvent.click(screen.getByRole("tab", { name: "Order #1 (0)" }));
+    expect(
+      screen.getByRole("button", { name: "Cash" }).getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(
+      screen.getByRole("button", { name: "GCash" }).getAttribute("aria-pressed"),
+    ).toBe("false");
+
+    fireEvent.click(screen.getByRole("tab", { name: "Order #2 (0)" }));
+    expect(
+      screen.getByRole("button", { name: "GCash" }).getAttribute("aria-pressed"),
+    ).toBe("true");
+  });
+
+  it("closing the last tab creates a fresh empty order", async () => {
+    globalThis.fetch = vi.fn(menuFetch()) as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Cortado");
+
+    fireEvent.click(screen.getByRole("button", { name: /Cortado/ }));
+    expect(selected("Order #1 (1)")).toBe("true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Close Order #1" }));
+    expect(screen.queryByRole("tab", { name: "Order #1 (1)" })).toBeNull();
+    expect(selected("Order #2 (0)")).toBe("true");
+    expect(screen.getByText("Cart is empty. Tap an item to add it.")).toBeDefined();
+    expect(
+      (screen.getByRole("button", { name: "Checkout" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
+});
+
+describe("POS per-order checkout", () => {
+  it("posts the active order only, locks the receipt, and clears via New sale", async () => {
+    let payload: unknown;
+    let posts = 0;
+    globalThis.fetch = vi.fn(
+      menuFetch(async (u, init) => {
+        if (u === "/api/sales") {
+          posts += 1;
+          payload = JSON.parse(String(init?.body));
+          const body = payload as { payment: string; items: { menu_item_id: number; qty: number }[] };
+          return ok(sale(9, 15500, body.payment, body.items), 201);
+        }
+        throw new Error(`unexpected fetch ${u}`);
+      }),
+    ) as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Cortado");
+
+    // Cortado on Order #1, Latte on Order #2; checkout posts #2 only.
+    fireEvent.click(screen.getByRole("button", { name: /Cortado/ }));
+    fireEvent.click(screen.getByRole("button", { name: "New order" }));
+    fireEvent.click(screen.getByRole("button", { name: /Latte/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Sale complete")).toBeDefined();
+    });
+    expect(payload).toEqual({
+      payment: "cash",
+      items: [{ menu_item_id: 2, qty: 1 }],
+    });
+    expect(screen.getByText("Sale #9")).toBeDefined();
+    expect(screen.getByText("₱155")).toBeDefined();
+
+    // Receipt lock: no second Checkout to double-post with.
+    expect(screen.queryByRole("button", { name: "Checkout" })).toBeNull();
+    expect(posts).toBe(1);
+
+    // The other tab is untouched and still editable.
+    fireEvent.click(screen.getByRole("tab", { name: "Order #1 (1)" }));
+    expect(screen.getByLabelText("Cortado quantity").textContent).toBe("1");
+    expect(
+      (screen.getByRole("button", { name: "Checkout" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+
+    // New sale clears the locked tab back to an open, empty order.
+    fireEvent.click(screen.getByRole("tab", { name: "Order #2 (1)" }));
+    fireEvent.click(screen.getByRole("button", { name: "New sale" }));
+    expect(screen.getByText("Cart is empty. Tap an item to add it.")).toBeDefined();
+    expect(selected("Order #2 (0)")).toBe("true");
+    expect(
+      (screen.getByRole("button", { name: "Checkout" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(posts).toBe(1);
+  });
+
+  it("double-clicking Checkout posts only once", async () => {
+    let posts = 0;
+    let release!: (res: Response) => void;
+    const gate = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    globalThis.fetch = vi.fn(
+      menuFetch(async (u) => {
+        if (u === "/api/sales") {
+          posts += 1;
+          return gate;
+        }
+        throw new Error(`unexpected fetch ${u}`);
+      }),
+    ) as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Cortado");
+
+    fireEvent.click(screen.getByRole("button", { name: /Cortado/ }));
+    const checkout = screen.getByRole("button", { name: "Checkout" });
+    fireEvent.click(checkout);
+    fireEvent.click(checkout);
+    release(ok(sale(10, 7000, "cash", [{ menu_item_id: 1, qty: 1 }]), 201));
+
+    await waitFor(() => {
+      expect(screen.getByText("Sale complete")).toBeDefined();
+    });
+    expect(screen.getByText("Sale #10")).toBeDefined();
+    expect(posts).toBe(1);
   });
 });

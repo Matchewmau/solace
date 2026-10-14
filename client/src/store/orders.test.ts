@@ -166,6 +166,22 @@ describe("orders store", () => {
     });
   });
 
+  it("completeOrder locks the receipt once and never overwrites a done order", () => {
+    useOrders.getState().addItem("order-1", 1);
+    const first = {
+      id: 7,
+      total_cents: 7000,
+      payment: "cash" as const,
+      voided: 0,
+      created_at: "2026-10-13 10:00:00",
+      items: [],
+    };
+    useOrders.getState().completeOrder("order-1", first);
+    expect(order("order-1")).toMatchObject({ status: "done", sale: first });
+    useOrders.getState().completeOrder("order-1", { ...first, id: 8 });
+    expect(order("order-1").sale).toMatchObject({ id: 7 });
+  });
+
   it("derives each order total from menu prices", () => {
     useOrders.getState().addItem("order-1", 1);
     useOrders.getState().addItem("order-1", 1);

@@ -6,7 +6,8 @@
  * never shown in the Today panel, lost on reload.
  *
  * Checkout payload stays exactly {payment, items} — order lines hold
- * only menu_item_id + qty.
+ * only menu_item_id + qty. completeOrder is the single open→done
+ * transition (locks the receipt); it never overwrites a done order.
  */
 import { create } from "zustand";
 import type { MenuItem } from "../api/menu";
@@ -40,6 +41,7 @@ interface OrdersState {
   removeLine: (key: string, menuItemId: number) => void;
   setPayment: (key: string, payment: PaymentMethod) => void;
   clearOrder: (key: string) => void;
+  completeOrder: (key: string, sale: Sale) => void;
 }
 
 function createOrder(number: number): Order {
@@ -153,6 +155,12 @@ export const useOrders = create<OrdersState>()((set) => ({
         status: "open",
         sale: null,
       })),
+    })),
+  completeOrder: (key, sale) =>
+    set((state) => ({
+      orders: editOrder(state.orders, key, (order) =>
+        order.status === "open" ? { ...order, status: "done", sale } : order,
+      ),
     })),
 }));
 
