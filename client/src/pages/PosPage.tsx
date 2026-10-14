@@ -217,6 +217,9 @@ export default function PosPage() {
   // never collide with the tab's Mark paid / Mark unpaid buttons.
   // void/unvoid stays on every today row, paid or not.
   function todayRow(row: SaleRow, markPaid: boolean) {
+    const holder = orders.find(
+      (order) => order.status === "done" && order.sale?.id === row.id,
+    );
     return (
       <li
         key={row.id}
@@ -226,7 +229,7 @@ export default function PosPage() {
             : "flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-ink/10 pb-2 text-red-600"
         }
       >
-        <span className="font-semibold">Sale #{row.id}</span>
+        <span className="font-semibold">Sale #{row.id}{holder ? ` (${holder.label})` : ""}</span>
         <span className="text-muted">{row.created_at.slice(11, 16)}</span>
         <span>{row.payment === "cash" ? "Cash" : "GCash"}</span>
         <span className="text-accent">{formatPeso(row.total_cents)}</span>
@@ -392,7 +395,7 @@ export default function PosPage() {
               {doneSale ? (
                 <div className="flex flex-col gap-3 border border-ink p-6">
                   <p className="text-lg font-semibold">Sale complete</p>
-                  <p className="text-lg">Sale #{doneSale.id}</p>
+                  <p className="text-lg">{active.label} · Sale #{doneSale.id}</p>
                   <p className="text-sm text-muted">{doneSale.created_at}</p>
                   {doneSale.paid === 1 ? (
                     <span className="text-base font-semibold text-accent">PAID</span>

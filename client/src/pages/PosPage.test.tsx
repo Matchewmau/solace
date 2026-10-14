@@ -137,7 +137,7 @@ describe("POS checkout flow", () => {
     await waitFor(() => {
       expect(screen.getByText("Sale complete")).toBeDefined();
     });
-    expect(screen.getByText("Sale #7")).toBeDefined();
+    expect(screen.getByText("Order #1 · Sale #7")).toBeDefined();
     expect(screen.getByText("₱220")).toBeDefined();
     expect(screen.getByText("GCash")).toBeDefined();
 
@@ -185,7 +185,7 @@ describe("POS checkout flow", () => {
     await waitFor(() => {
       expect(screen.getByText("Sale complete")).toBeDefined();
     });
-    expect(screen.getByText("Sale #8")).toBeDefined();
+    expect(screen.getByText("Order #1 · Sale #8")).toBeDefined();
   });
 
 describe("Today panel + daily summary", () => {
@@ -441,7 +441,7 @@ describe("POS per-order checkout", () => {
       items: [{ menu_item_id: 2, qty: 1 }],
       paid: 0,
     });
-    expect(screen.getByText("Sale #9")).toBeDefined();
+    expect(screen.getByText("Order #2 · Sale #9")).toBeDefined();
     expect(screen.getByText("₱155")).toBeDefined();
 
     // Receipt lock: no second Finalize to double-post with.
@@ -496,7 +496,7 @@ describe("POS per-order checkout", () => {
     await waitFor(() => {
       expect(screen.getByText("Sale complete")).toBeDefined();
     });
-    expect(screen.getByText("Sale #10")).toBeDefined();
+    expect(screen.getByText("Order #1 · Sale #10")).toBeDefined();
     expect(posts).toBe(1);
   });
 });
@@ -832,5 +832,165 @@ describe("POS paid flow with history", () => {
     });
     const li = within(unpaidList).getByText("Sale #41").closest("li");
     expect(li?.className).toMatch(/red/);
+  });
+});
+
+describe("POS order/sale label linking", () => {
+  const today = new Date().toISOString().slice(0, 10);
+
+  it("finalized tab receipt header reads Order #N · Sale #M", async () => {
+    globalThis.fetch = vi.fn(
+      menuFetch(async (u, init) => {
+        if (u === "/api/sales") {
+          const body = JSON.parse(String(init?.body)) as {
+            payment: string;
+            items: { menu_item_id: number; qty: number }[];
+          };
+          return ok(sale(4, 7000, body.payment, body.items), 201);
+        }
+        throw new Error(`unexpected fetch ${u}`);
+      }),
+    ) as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Cortado");
+
+    fireEvent.click(screen.getByRole("button", { name: /Cortado/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Finalize" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Sale complete")).toBeDefined();
+    });
+    expect(screen.getByText("Order #1 · Sale #4")).toBeDefined();
+  });
+
+  it("unpaid row held by an open tab appends the order label", async () => {
+    globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
+      const u = String(url);
+      if (u === "/api/categories") return ok(categories);
+      if (u === "/api/menu_items?active=1") return ok(items);
+      if (u.startsWith("/api/sales/summary")) return ok(emptySummary);
+      if (u === "/api/sales" && init?.method === "POST") {
+        const body = JSON.parse(String(init.body)) as {
+          payment: string;
+          items: { menu_item_id: number; qty: number }[];
+        };
+        return ok(
+          {
+            ...sale(4, 7000, body.payment, body.items),
+            id: 4,
+            created_at: `${today} 10:00:00`,
+          },
+          201,
+        );
+      }
+      if (u.startsWith("/api/sales?") && u.includes("since="))
+        return ok([
+          {
+            id: 4,
+            total_cents: 7000,
+            payment: "cash",
+            voided: 0,
+            paid: 0,
+            created_at: `${today} 10:00:00`,
+          },
+        ]);
+      if (u.startsWith("/api/sales?")) return ok([]);
+      throw new Error(`unexpected fetch ${u} ${init?.method}`);
+    }) as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Cortado");
+
+    fireEvent.click(screen.getByRole("button", { name: /Cortado/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Finalize" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Sale complete")).toBeDefined();
+    });
+    const unpaidList = await screen.findByRole("list", { name: "Unpaid sales" });
+    await waitFor(() => {
+      expect(within(unpaidList).getByText("Sale #4 (Order #1)")).toBeDefined();
+    });
+  });
+
+  it("paid-today row held by an open tab appends the order label", async () => {
+    useOrders.setState({
+      orders: [
+        {
+          key: "order-3",
+          label: "Order #3",
+          lines: [{ menu_item_id: 1, qty: 1 }],
+          payment: "cash",
+          status: "done",
+          sale: {
+            id: 4,
+            total_cents: 7000,
+            payment: "cash",
+            voided: 0,
+            paid: 1,
+            created_at: `${today} 10:00:00`,
+            items: [{ id: 1, menu_item_id: 1, qty: 1, unit_price_cents: 7000 }],
+          },
+        },
+      ],
+      activeKey: "order-3",
+      nextNumber: 4,
+    });
+    globalThis.fetch = vi.fn(async (url: unknown) => {
+      const u = String(url);
+      if (u === "/api/categories") return ok(categories);
+      if (u === "/api/menu_items?active=1") return ok(items);
+      if (u.startsWith("/api/sales/summary")) return ok(emptySummary);
+      if (u.startsWith("/api/sales?") && u.includes("since="))
+        return ok([
+          {
+            id: 4,
+            total_cents: 7000,
+            payment: "cash",
+            voided: 0,
+            paid: 1,
+            created_at: `${today} 10:00:00`,
+          },
+        ]);
+      if (u.startsWith("/api/sales?")) return ok([]);
+      throw new Error(`unexpected fetch ${u}`);
+    }) as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Cortado");
+
+    const paidList = await screen.findByRole("list", { name: "Paid today sales" });
+    expect(within(paidList).getByText("Sale #4 (Order #3)")).toBeDefined();
+  });
+
+  it("row with no open tab shows the sale label only", async () => {
+    globalThis.fetch = vi.fn(async (url: unknown) => {
+      const u = String(url);
+      if (u === "/api/categories") return ok(categories);
+      if (u === "/api/menu_items?active=1") return ok(items);
+      if (u.startsWith("/api/sales/summary")) return ok(emptySummary);
+      if (u.startsWith("/api/sales?") && u.includes("since="))
+        return ok([
+          {
+            id: 99,
+            total_cents: 7000,
+            payment: "cash",
+            voided: 0,
+            paid: 0,
+            created_at: `${today} 10:00:00`,
+          },
+        ]);
+      if (u.startsWith("/api/sales?")) return ok([]);
+      throw new Error(`unexpected fetch ${u}`);
+    }) as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Cortado");
+
+    const unpaidList = await screen.findByRole("list", { name: "Unpaid sales" });
+    const label = within(unpaidList).getByText("Sale #99");
+    expect(label).toBeDefined();
+    expect(label.closest("li")?.textContent).not.toMatch(/Order #/);
   });
 });
