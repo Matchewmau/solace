@@ -11,14 +11,16 @@ import { useAuth } from "./components/AuthProvider";
 /**
  * Binding route table for Tasks 7, 9–14.
  * /menu (Task 6) + /pos (Task 7) + /guide (Task 9) + /inventory (Task 10)
- * + /finance (Task 11) + /dashboard (Task 13) + /showcase (Task 14).
+ * + /finance (Task 11) + /dashboard (Task 13) + /showcase (Task 14)
+ * + /inventory/history (eager) + /finance/history (lazy with finance).
  * YAGNI — no placeholder pages for future routes.
  *
  * Chunk split (Task 14): motion/three weight must NOT land in the entry
  * chunk. The four motion routes (/menu, /guide, /finance, /dashboard)
  * and /showcase (which owns the lazy three.js scene) are React.lazy
- * route chunks; /pos and /inventory stay eager so POS is boring and
- * instant. Every lazy boundary falls back to meaningful brand content,
+ * route chunks; /finance/history rides the lazy finance chunk too.
+ * /pos, /inventory, and /inventory/history stay eager so POS is boring
+ * and instant. Every lazy boundary falls back to meaningful brand content,
  * never a spinner. This module (and everything it eagerly imports)
  * must stay motion/three-free — source-grep enforced.
  */
