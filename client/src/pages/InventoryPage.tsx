@@ -1,9 +1,9 @@
 import { useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   adjustmentDelta,
   deleteStockItem,
-  fetchMovements,
   fetchStockItems,
   isLowStock,
   patchStockItem,
@@ -274,7 +274,6 @@ function EditDialog({ item, pending, error, onClose, onSave }: EditDialogProps) 
 
 export default function InventoryPage() {
   const queryClient = useQueryClient();
-  const [selectedId, setSelectedId] = useState<number | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
   const [addError, setAddError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -292,11 +291,6 @@ export default function InventoryPage() {
     queryKey: ["stock-items"],
     queryFn: fetchStockItems,
   });
-  const movementsQuery = useQuery({
-    queryKey: ["stock-movements", selectedId],
-    queryFn: () => fetchMovements(selectedId as number),
-    enabled: selectedId !== null,
-  });
 
   const moveMutation = useMutation({
     mutationFn: ({
@@ -308,14 +302,9 @@ export default function InventoryPage() {
       delta: number;
       reason: MovementReason;
     }) => postStockMovement(item.id, delta, reason),
-    onSuccess: (_data, variables) => {
+    onSuccess: () => {
       setMoveError(null);
       void queryClient.invalidateQueries({ queryKey: ["stock-items"] });
-      if (selectedId === variables.item.id) {
-        void queryClient.invalidateQueries({
-          queryKey: ["stock-movements", selectedId],
-        });
-      }
     },
     onError: () => {
       setMoveError("Could not record that movement.");
@@ -357,7 +346,6 @@ export default function InventoryPage() {
     onSuccess: (_data, item) => {
       setDeleteError(null);
       setConfirmingDeleteId(null);
-      if (selectedId === item.id) setSelectedId(null);
       if (editingId === item.id) setEditingId(null);
       void queryClient.invalidateQueries({ queryKey: ["stock-items"] });
     },
@@ -369,7 +357,6 @@ export default function InventoryPage() {
 
   const items = itemsQuery.data ?? [];
   const lowItems = items.filter(isLowStock);
-  const selected = items.find((item) => item.id === selectedId) ?? null;
 
   return (
     <main className="min-h-screen bg-paper text-ink">
@@ -515,21 +502,13 @@ export default function InventoryPage() {
                         </span>
                       ) : null}
                       <span className="ml-auto flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setSelectedId(selectedId === item.id ? null : item.id)
-                          }
-                          aria-pressed={selectedId === item.id}
-                          aria-label={
-                            selectedId === item.id
-                              ? `Hide history for ${item.name}`
-                              : `Show history for ${item.name}`
-                          }
+                        <Link
+                          to={`/inventory/history?item=${item.id}`}
+                          aria-label={`Show history for ${item.name}`}
                           className="border border-ink/20 px-3 py-1 text-sm"
                         >
-                          {selectedId === item.id ? "Hide history" : "History"}
-                        </button>
+                          History
+                        </Link>
                         <button
                           type="button"
                           aria-label={`Edit ${item.name}`}
@@ -607,45 +586,6 @@ export default function InventoryPage() {
                 ))}
               </ul>
             </section>
-            {selected !== null ? (
-              <section aria-label={`History for ${selected.name}`}>
-                <p className="label text-xs text-muted">Solace &middot; History</p>
-                <h2 className="mt-2 text-2xl font-semibold">
-                  History — {selected.name}
-                </h2>
-                {movementsQuery.isLoading ? (
-                  <p className="mt-4 text-muted" aria-busy="true">
-                    Loading history…
-                  </p>
-                ) : movementsQuery.isError ? (
-                  <div className="mt-4 flex flex-col items-start gap-4">
-                    <p role="alert" className="text-lg">
-                      Could not load history.
-                    </p>
-                    <button
-                      type="button"
-                      className="border border-ink px-4 py-2 text-sm font-semibold"
-                      onClick={() => {
-                        void movementsQuery.refetch();
-                      }}
-                    >
-                      Retry
-                    </button>
-                  </div>
-                ) : (movementsQuery.data ?? []).length === 0 ? (
-                  <p className="mt-4 text-muted">No movements recorded.</p>
-                ) : (
-                  <ul className="mt-4 flex flex-col gap-2">
-                    {(movementsQuery.data ?? []).map((movement) => (
-                      <li key={movement.id} className="text-base">
-                        {movement.reason} {movement.delta} —{" "}
-                        {movement.created_at}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </section>
-            ) : null}
           </div>
             )}
           </div>

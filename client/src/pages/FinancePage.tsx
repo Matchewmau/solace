@@ -1,9 +1,9 @@
 import { useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   fetchBills,
   fetchExpenses,
-  fetchLoanPayments,
   fetchLoans,
   fetchPayables,
   isOverdue,
@@ -17,7 +17,6 @@ import {
   type Bill,
   type Expense,
   type Loan,
-  type LoanPayment,
   type Payable,
 } from "../api/finance";
 import { formatPeso } from "../lib/formatPeso";
@@ -398,8 +397,6 @@ function PayablesSection({
 function LoansSection({
   loans,
   selectedId,
-  payments,
-  historyLoading,
   payPending,
   payError,
   onSelect,
@@ -411,8 +408,6 @@ function LoansSection({
 }: {
   loans: Loan[];
   selectedId: number | null;
-  payments: LoanPayment[] | undefined;
-  historyLoading: boolean;
   payPending: boolean;
   payError: string | null;
   onSelect: (id: number) => void;
@@ -537,16 +532,23 @@ function LoansSection({
                     PAID
                   </span>
                 )}
-                <span className="ml-auto">
+                <span className="ml-auto flex flex-wrap gap-2">
                   <button
                     type="button"
-                    aria-label={`View payments for ${loan.lender}`}
+                    aria-label={`Pay ${loan.lender}`}
                     aria-pressed={selectedId === loan.id}
                     onClick={() => onSelect(loan.id)}
                     className="border border-ink/20 px-3 py-1 text-sm"
                   >
-                    {selectedId === loan.id ? "Selected" : "Pay / history"}
+                    Pay
                   </button>
+                  <Link
+                    to={`/finance/history?loan=${loan.id}`}
+                    aria-label={`View history for ${loan.lender}`}
+                    className="border border-ink/20 px-3 py-1 text-sm"
+                  >
+                    History
+                  </Link>
                 </span>
               </div>
             </StaggerItem>
@@ -592,25 +594,6 @@ function LoansSection({
               {payError}
             </p>
           ) : null}
-          <div>
-            <h3 className="text-lg font-semibold">Payment history</h3>
-            {historyLoading ? (
-              <p className="mt-2 text-sm text-muted">Loading history…</p>
-            ) : !payments || payments.length === 0 ? (
-              <p className="mt-2 text-muted">No payments yet.</p>
-            ) : (
-              <StaggerList
-                ariaLabel="Payment history"
-                className="mt-2 flex flex-col gap-2"
-              >
-                {payments.map((payment) => (
-                  <StaggerItem key={payment.id} className="text-base">
-                    {formatPeso(payment.amount_cents)} — {payment.paid_at}
-                  </StaggerItem>
-                ))}
-              </StaggerList>
-            )}
-          </div>
         </div>
       ) : null}
     </section>
@@ -642,11 +625,6 @@ export default function FinancePage() {
   const loansQuery = useQuery({
     queryKey: ["loans"],
     queryFn: () => fetchLoans(),
-  });
-  const paymentsQuery = useQuery({
-    queryKey: ["loan-payments", selectedLoanId],
-    queryFn: () => fetchLoanPayments(selectedLoanId as number),
-    enabled: selectedLoanId !== null,
   });
 
   const billMutation = useMutation({
@@ -824,8 +802,6 @@ export default function FinancePage() {
             <LoansSection
               loans={loansQuery.data ?? []}
               selectedId={selectedLoanId}
-              payments={paymentsQuery.data}
-              historyLoading={paymentsQuery.isLoading}
               payPending={payMutation.isPending}
               payError={payError}
               onSelect={(id) => {

@@ -2,6 +2,7 @@ import { Suspense, lazy, type ReactNode } from "react";
 import type { RouteObject } from "react-router-dom";
 import { Navigate, Outlet } from "react-router-dom";
 import InventoryPage from "./pages/InventoryPage";
+import InventoryHistoryPage from "./pages/InventoryHistoryPage";
 import PosPage from "./pages/PosPage";
 import LoginPage from "./pages/LoginPage";
 import { AuthedLayout } from "./components/AppHeader";
@@ -25,6 +26,7 @@ import { useAuth } from "./components/AuthProvider";
 const MenuPage = lazy(() => import("./pages/MenuPage"));
 const GuidePage = lazy(() => import("./pages/GuidePage"));
 const FinancePage = lazy(() => import("./pages/FinancePage"));
+const FinanceHistoryPage = lazy(() => import("./pages/FinanceHistoryPage"));
 const DashboardPage = lazy(() => import("./pages/DashboardPage"));
 const ShowcasePage = lazy(() => import("./pages/ShowcasePage"));
 
@@ -114,9 +116,17 @@ export const routes: RouteObject[] = [
             element: withBrandFallback(<GuidePage />, GuideFallback),
           },
           { path: "/inventory", element: <InventoryPage /> },
+          { path: "/inventory/history", element: <InventoryHistoryPage /> },
           {
             path: "/finance",
             element: withBrandFallback(<FinancePage />, FinanceFallback),
+          },
+          {
+            path: "/finance/history",
+            element: withBrandFallback(
+              <FinanceHistoryPage />,
+              FinanceFallback,
+            ),
           },
           {
             path: "/showcase",

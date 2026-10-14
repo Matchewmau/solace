@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import FinancePage from "./FinancePage";
 import { isOverdue } from "../api/finance";
@@ -180,9 +181,11 @@ function renderFinance() {
     defaultOptions: { queries: { retry: false } },
   });
   return render(
-    <QueryClientProvider client={client}>
-      <FinancePage />
-    </QueryClientProvider>,
+    <MemoryRouter>
+      <QueryClientProvider client={client}>
+        <FinancePage />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
 }
 
@@ -309,7 +312,7 @@ describe("FinancePage loans (Task 12)", () => {
     renderFinance();
     await screen.findByText("BDO");
 
-    fireEvent.click(screen.getByLabelText("View payments for BDO"));
+    fireEvent.click(screen.getByLabelText("Pay BDO"));
     const form = screen.getByLabelText("Pay loan").closest(
       "form",
     ) as HTMLFormElement;
@@ -337,14 +340,19 @@ describe("FinancePage loans (Task 12)", () => {
     });
   });
 
-  it("shows payment history for the selected loan", async () => {
+  it("history lives on the dedicated route, linked from the row", async () => {
     stubFetch();
     renderFinance();
     await screen.findByText("BDO");
 
-    fireEvent.click(screen.getByLabelText("View payments for BDO"));
-    const history = await screen.findByLabelText("Payment history");
-    expect(history.textContent).toContain("2026-10-12 10:00:00");
+    // The inline payment history moved to /finance/history (own page);
+    // the row keeps a plain link there while Pay stays inline.
+    const link = screen
+      .getByRole("link", { name: "View history for BDO" })
+      .getAttribute("href");
+    expect(link).toBe("/finance/history?loan=1");
+    expect(screen.getByLabelText("Pay BDO")).toBeDefined();
+    expect(screen.queryByLabelText("Payment history")).toBeNull();
   });
 });
 

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import InventoryPage from "./InventoryPage";
 import { adjustmentDelta, isLowStock } from "../api/stock";
@@ -59,9 +60,11 @@ function renderInventory() {
     defaultOptions: { queries: { retry: false } },
   });
   return render(
-    <QueryClientProvider client={client}>
-      <InventoryPage />
-    </QueryClientProvider>,
+    <MemoryRouter>
+      <QueryClientProvider client={client}>
+        <InventoryPage />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
 }
 
@@ -112,13 +115,18 @@ describe("InventoryPage with mocked data", () => {
     });
   });
 
-  it("shows movement history for the selected item", async () => {
+  it("row History link points at the dedicated history route", async () => {
     stubFetch();
     renderInventory();
     await screen.findByText("Milk");
 
-    fireEvent.click(screen.getByLabelText("Show history for Milk"));
-    expect(await screen.findByText(/waste -5/)).toBeDefined();
+    // The inline history section moved to /inventory/history (own page);
+    // the row keeps a plain link there.
+    const link = screen.getByRole("link", {
+      name: "Show history for Milk",
+    });
+    expect(link.getAttribute("href")).toBe("/inventory/history?item=1");
+    expect(screen.queryByLabelText("History for Milk")).toBeNull();
   });
 });
 
@@ -430,13 +438,10 @@ describe("InventoryPage price, edit, delete, restock (Task 8)", () => {
     expect(screen.getByRole("dialog", { name: "Edit Milk" })).toBeDefined();
   });
 
-  it("−1 posts waste and +1 posts delivery, both appearing in dated history", async () => {
+  it("−1 posts waste and +1 posts delivery", async () => {
     stubInventoryApi();
     renderInventory();
     await screen.findByText("Milk");
-
-    fireEvent.click(screen.getByLabelText("Show history for Milk"));
-    expect(await screen.findByText(/waste -5/)).toBeDefined();
 
     fireEvent.click(screen.getByLabelText("Waste one Milk"));
     await vi.waitFor(() => {
@@ -447,8 +452,6 @@ describe("InventoryPage price, edit, delete, restock (Task 8)", () => {
       delta: -1,
       reason: "waste",
     });
-    const wasteLine = await screen.findByText(/waste -1/);
-    expect(wasteLine.textContent).toContain("2026-10-14");
 
     fireEvent.click(screen.getByLabelText("Restock one Milk"));
     await vi.waitFor(() => {
@@ -459,7 +462,5 @@ describe("InventoryPage price, edit, delete, restock (Task 8)", () => {
       delta: 1,
       reason: "delivery",
     });
-    const deliveryLine = await screen.findByText(/delivery 1/);
-    expect(deliveryLine.textContent).toContain("2026-10-14");
   });
 });
