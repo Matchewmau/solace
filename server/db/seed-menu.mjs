@@ -14,13 +14,7 @@ import { MENU } from "./menu-data.mjs";
 
 const DB_DIR = dirname(fileURLToPath(import.meta.url));
 
-export function seedMenu(dbPath) {
-  const resolved = resolve(dbPath);
-  mkdirSync(dirname(resolved), { recursive: true });
-  const db = new Database(resolved);
-  db.pragma("foreign_keys = ON");
-  db.exec(readFileSync(join(DB_DIR, "schema.sql"), "utf8"));
-
+export function seedMenuDb(db) {
   const counts = {};
   const seed = db.transaction(() => {
     let sort = 0;
@@ -80,6 +74,17 @@ export function seedMenu(dbPath) {
   const totalActive = db
     .prepare("SELECT COUNT(*) AS n FROM menu_items WHERE active = 1")
     .get().n;
+  return { counts, totalActive };
+}
+
+export function seedMenu(dbPath) {
+  const resolved = resolve(dbPath);
+  mkdirSync(dirname(resolved), { recursive: true });
+  const db = new Database(resolved);
+  db.pragma("foreign_keys = ON");
+  db.exec(readFileSync(join(DB_DIR, "schema.sql"), "utf8"));
+
+  const { counts, totalActive } = seedMenuDb(db);
   for (const group of MENU) {
     const c = counts[group.category];
     console.log(`${group.category}: ${c.total} items (${c.active} active)`);

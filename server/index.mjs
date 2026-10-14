@@ -1,7 +1,8 @@
 // Entry: node server/index.mjs starts the one-process LAN server.
 // Env: SOLACE_PORT (default 3000), SOLACE_DB (default server/data/solace.db,
-// CWD-relative when CWD is the repo root). Never wipes or seeds menu data;
-// schema.sql is applied with IF NOT EXISTS on every boot.
+// CWD-relative when CWD is the repo root). Never wipes; createApp auto-seeds
+// menu + recipes when their tables are empty (schema.sql is applied with
+// IF NOT EXISTS on every boot).
 // Shared login: SOLACE_USER / SOLACE_PASS (defaults solace / solace123) gate
 // all /api except POST /api/auth/login (see app.mjs).
 // Boot backup (Task 15): SOLACE_BACKUP_DIR (default

@@ -19,11 +19,11 @@ describe("menu round-trip", () => {
   it("POST category -> POST item -> GET menu_items contains it with correct price_cents", async () => {
     const cat = await api
       .post("/api/categories")
-      .send({ name: "Coffee", sort: 1 })
+      .send({ name: "Coffee RT", sort: 1 })
       .expect(201)
       .expect("Content-Type", /application\/json/);
     expect(cat.body.id).toEqual(expect.any(Number));
-    expect(cat.body.name).toBe("Coffee");
+    expect(cat.body.name).toBe("Coffee RT");
 
     const item = await api
       .post("/api/menu_items")

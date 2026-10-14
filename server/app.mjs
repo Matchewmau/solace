@@ -8,6 +8,8 @@ import { timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { seedMenuDb } from "./db/seed-menu.mjs";
+import { seedRecipesDb } from "./db/seed-recipes.mjs";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = resolve(SERVER_DIR, "..", "client", "dist");
@@ -36,6 +38,14 @@ function parseId(raw) {
 
 export function createApp(dbPath, opts = {}) {
   const db = openDb(dbPath);
+  // Boot auto-seed: fill empty menu/recipes from the seed sources (upsert,
+  // never delete, never wipe — safe on a DB with sales).
+  if (db.prepare("SELECT COUNT(*) AS n FROM menu_items").get().n === 0) {
+    seedMenuDb(db);
+  }
+  if (db.prepare("SELECT COUNT(*) AS n FROM recipes").get().n === 0) {
+    seedRecipesDb(db);
+  }
   const app = express();
   app.locals.db = db;
   app.use(express.json());

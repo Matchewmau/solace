@@ -22,7 +22,7 @@ const MONTH = "2026-10";
 
 const seed = db.transaction(() => {
   const catId = db
-    .prepare("INSERT INTO categories (name, sort) VALUES ('Coffee', 1)")
+    .prepare("INSERT INTO categories (name, sort) VALUES ('Dashboard Coffee', 1)")
     .run().lastInsertRowid;
   const addItem = db.prepare(
     "INSERT INTO menu_items (category_id, name, price_cents, cost_cents, active) VALUES (?, ?, ?, 0, 1)",
