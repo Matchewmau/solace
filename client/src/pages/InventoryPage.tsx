@@ -201,7 +201,7 @@ function EditDialog({ item, pending, error, onClose, onSave }: EditDialogProps) 
             thresholdRaw === "" ? 0 : Number(thresholdRaw);
           if (name === "") return;
           if (!Number.isFinite(priceValue) || priceValue < 0) return;
-          if (!Number.isFinite(low_threshold) || low_threshold < 0) return;
+          if (!Number.isFinite(low_threshold) || !Number.isInteger(low_threshold) || low_threshold < 0) return;
           onSave(item.id, {
             name,
             unit,
@@ -233,7 +233,6 @@ function EditDialog({ item, pending, error, onClose, onSave }: EditDialogProps) 
         <input
           name="unit"
           type="text"
-          required
           defaultValue={item.unit}
           placeholder="Unit"
           aria-label="Unit"
@@ -243,7 +242,7 @@ function EditDialog({ item, pending, error, onClose, onSave }: EditDialogProps) 
           name="threshold"
           type="number"
           min="0"
-          step="any"
+          step="1"
           defaultValue={item.low_threshold}
           placeholder="Threshold"
           aria-label="Low threshold"
@@ -507,7 +506,9 @@ export default function InventoryPage() {
                         {formatPeso(item.price_cents)}
                       </span>
                       <span className="text-base">
-                        {item.qty} {item.unit} (threshold {item.low_threshold})
+                        {item.qty}
+                        {item.unit ? ` ${item.unit}` : ""} (threshold{" "}
+                        {item.low_threshold})
                       </span>
                       {isLowStock(item) ? (
                         <span className="border border-accent px-2 py-0.5 text-xs font-semibold text-accent">

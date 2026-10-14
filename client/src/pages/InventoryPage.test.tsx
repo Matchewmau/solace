@@ -340,6 +340,50 @@ describe("InventoryPage price, edit, delete, restock (Task 8)", () => {
     expect(screen.getByText("Milk")).toBeDefined();
   });
 
+  it("edit saves a row with empty unit without requiring one", async () => {
+    stubInventoryApi();
+    renderInventory();
+    await screen.findByText("Ice");
+
+    fireEvent.click(screen.getByLabelText("Edit Ice"));
+    const dialog = await screen.findByRole("dialog", { name: "Edit Ice" });
+    // Unit is optional: empty value submits fine.
+    expect((within(dialog).getByLabelText("Unit") as HTMLInputElement).required).toBe(false);
+    fireEvent.change(within(dialog).getByLabelText("Item name"), {
+      target: { value: "Crushed Ice" },
+    });
+    fireEvent.submit(within(dialog).getByLabelText("Edit Ice form").closest("form") as HTMLFormElement);
+
+    await vi.waitFor(() => {
+      expect(requests).toHaveLength(1);
+    });
+    expect(requests[0]).toEqual({
+      method: "PATCH",
+      url: "/api/stock_items/2",
+      body: { name: "Crushed Ice", unit: "", low_threshold: 0, price_cents: 7000 },
+    });
+    expect(await screen.findByText("Crushed Ice")).toBeDefined();
+  });
+
+  it("edit rejects a fractional threshold without PATCHing", async () => {
+    stubInventoryApi();
+    renderInventory();
+    await screen.findByText("Milk");
+
+    fireEvent.click(screen.getByLabelText("Edit Milk"));
+    const dialog = await screen.findByRole("dialog", { name: "Edit Milk" });
+    fireEvent.change(within(dialog).getByLabelText("Low threshold"), {
+      target: { value: "5.5" },
+    });
+    fireEvent.submit(within(dialog).getByLabelText("Edit Milk form").closest("form") as HTMLFormElement);
+
+    // Give the mutation a tick to (not) fire.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(requests).toHaveLength(0);
+    // Dialog stays open for correction.
+    expect(screen.getByRole("dialog", { name: "Edit Milk" })).toBeDefined();
+  });
+
   it("−1 posts waste and +1 posts delivery, both appearing in dated history", async () => {
     stubInventoryApi();
     renderInventory();
