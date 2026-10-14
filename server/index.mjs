@@ -2,8 +2,9 @@
 // Env: SOLACE_PORT (default 3000), SOLACE_DB (default server/data/solace.db,
 // CWD-relative when CWD is the repo root). Never wipes or seeds menu data;
 // schema.sql is applied with IF NOT EXISTS on every boot.
-// Optional PIN lock (Task 15): SOLACE_PIN=4-8 digits gates mutating /api
-// endpoints (see app.mjs). Boot backup (Task 15): SOLACE_BACKUP_DIR (default
+// Shared login: SOLACE_USER / SOLACE_PASS (defaults solace / solace123) gate
+// all /api except POST /api/auth/login (see app.mjs).
+// Boot backup (Task 15): SOLACE_BACKUP_DIR (default
 // server/backups/), SOLACE_BACKUP_KEEP (default 14).
 import { createApp } from "./app.mjs";
 import {

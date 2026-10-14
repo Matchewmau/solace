@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import request from "supertest";
+import { authed } from "../test-auth.mjs";
 import { createApp } from "../app.mjs";
 import { MENU } from "./menu-data.mjs";
 import { seedDb } from "./seed.mjs";
@@ -39,6 +39,7 @@ const dbPath = join(dir, "menu-test.db");
 const first = seedMenu(dbPath);
 const second = seedMenu(dbPath);
 const app = createApp(dbPath);
+const api = authed(app);
 
 afterAll(() => {
   app.locals.db.close();
@@ -70,13 +71,13 @@ describe("menu seed data", () => {
   });
 
   it("re-running seed-menu creates no dupes", async () => {
-    const all = await request(app).get("/api/menu_items").expect(200);
+    const all = await api.get("/api/menu_items").expect(200);
     const names = all.body.map((r) => r.name);
     expect(new Set(names).size).toBe(names.length);
   });
 
   it("GET /api/menu_items?active=1 returns exactly the 20 names+prices", async () => {
-    const res = await request(app).get("/api/menu_items?active=1").expect(200);
+    const res = await api.get("/api/menu_items?active=1").expect(200);
     expect(res.body).toHaveLength(20);
     const got = new Map(res.body.map((r) => [r.name, r.price_cents]));
     for (const [name, price] of EXPECTED) {
@@ -88,7 +89,7 @@ describe("menu seed data", () => {
   });
 
   it("Dark Mocha exists but is inactive", async () => {
-    const res = await request(app).get("/api/menu_items?active=0").expect(200);
+    const res = await api.get("/api/menu_items?active=0").expect(200);
     const dark = res.body.find((r) => r.name === "Dark Mocha");
     expect(dark).toBeDefined();
     expect(dark.active).toBe(0);
@@ -102,8 +103,9 @@ describe("menu seed data", () => {
     const result = seedMenu(chainDbPath);
     expect(result.totalActive).toBe(21); // 20 MENU + preserved Smoke Drink
     const chainApp = createApp(chainDbPath);
+    const chainApi = authed(chainApp);
     try {
-      const res = await request(chainApp)
+      const res = await chainApi
         .get("/api/menu_items?active=1")
         .expect(200);
       const got = new Map(res.body.map((r) => [r.name, r.price_cents]));
@@ -113,7 +115,7 @@ describe("menu seed data", () => {
       const smoke = res.body.find((r) => r.name === "Smoke Drink");
       expect(smoke, "smoke fixture preserved").toBeDefined();
       expect(smoke.active).toBe(1);
-      const inactive = await request(chainApp)
+      const inactive = await chainApi
         .get("/api/menu_items?active=0")
         .expect(200);
       const dark = inactive.body.find((r) => r.name === "Dark Mocha");
@@ -127,11 +129,11 @@ describe("menu seed data", () => {
 
 describe("admin CRUD proof on real menu data", () => {
   it("POST seasonal -> PATCH price -> PATCH active toggle -> DELETE", async () => {
-    const cats = await request(app).get("/api/categories").expect(200);
+    const cats = await api.get("/api/categories").expect(200);
     const coffee = cats.body.find((c) => c.name === "Coffee");
     expect(coffee).toBeDefined();
 
-    const created = await request(app)
+    const created = await api
       .post("/api/menu_items")
       .send({
         category_id: coffee.id,
@@ -145,60 +147,60 @@ describe("admin CRUD proof on real menu data", () => {
       active: 1,
     });
 
-    const repatched = await request(app)
+    const repatched = await api
       .patch(`/api/menu_items/${created.body.id}`)
       .send({ price_cents: 8000 })
       .expect(200);
     expect(repatched.body.price_cents).toBe(8000);
 
-    const deactivated = await request(app)
+    const deactivated = await api
       .patch(`/api/menu_items/${created.body.id}`)
       .send({ active: 0 })
       .expect(200);
     expect(deactivated.body.active).toBe(0);
 
-    await request(app).delete(`/api/menu_items/${created.body.id}`).expect(204);
-    await request(app).get(`/api/menu_items/${created.body.id}`).expect(404);
+    await api.delete(`/api/menu_items/${created.body.id}`).expect(204);
+    await api.get(`/api/menu_items/${created.body.id}`).expect(404);
   });
 
   it("re-run applies price corrections, preserves flags, keeps sales, forces Dark Mocha inactive", async () => {
-    const list = await request(app).get("/api/menu_items?active=1").expect(200);
+    const list = await api.get("/api/menu_items?active=1").expect(200);
     const mango = list.body.find((r) => r.name === "Mango Soda");
     const matcha = list.body.find((r) => r.name === "Matcha Latte");
     // Operator reprices + deactivates; sale booked before the re-run.
-    await request(app)
+    await api
       .patch(`/api/menu_items/${mango.id}`)
       .send({ active: 0, price_cents: 9999 })
       .expect(200);
-    const sale = await request(app)
+    const sale = await api
       .post("/api/sales")
       .send({ payment: "cash", items: [{ menu_item_id: matcha.id, qty: 1 }] })
       .expect(201);
     expect(sale.body.total_cents).toBe(7000);
-    const all = await request(app).get("/api/menu_items").expect(200);
+    const all = await api.get("/api/menu_items").expect(200);
     const dark = all.body.find((r) => r.name === "Dark Mocha");
-    await request(app)
+    await api
       .patch(`/api/menu_items/${dark.id}`)
       .send({ active: 1 })
       .expect(200);
 
     seedMenu(dbPath);
 
-    const mangoAfter = await request(app)
+    const mangoAfter = await api
       .get(`/api/menu_items/${mango.id}`)
       .expect(200);
     expect(mangoAfter.body.price_cents).toBe(5000);
     expect(mangoAfter.body.active).toBe(0);
-    const darkAfter = await request(app)
+    const darkAfter = await api
       .get(`/api/menu_items/${dark.id}`)
       .expect(200);
     expect(darkAfter.body.active).toBe(0);
-    const saleAfter = await request(app)
+    const saleAfter = await api
       .get(`/api/sales/${sale.body.id}`)
       .expect(200);
     expect(saleAfter.body.total_cents).toBe(7000);
     // Restore shared state.
-    await request(app)
+    await api
       .patch(`/api/menu_items/${mango.id}`)
       .send({ active: 1 })
       .expect(200);

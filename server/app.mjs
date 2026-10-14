@@ -34,17 +34,6 @@ function parseId(raw) {
   return isInt(id) && id > 0 ? id : null;
 }
 
-// PIN parsing (Task 15 fix round 1): empty/missing means "no lock".
-// A non-empty value that fails the 4-8 digit rule is NOT a lock either
-// (fail-open, brief-consistent: unset = no lock, LAN-only) — but it is
-// almost certainly an operator typo, so callers must warn.
-export function parsePin(raw) {
-  const value = String(raw ?? "");
-  if (value === "") return { pin: "", invalid: false };
-  if (/^\d{4,8}$/.test(value)) return { pin: value, invalid: false };
-  return { pin: "", invalid: true };
-}
-
 export function createApp(dbPath, opts = {}) {
   const db = openDb(dbPath);
   const app = express();
@@ -54,48 +43,42 @@ export function createApp(dbPath, opts = {}) {
   const sendError = (res, status, message) =>
     res.status(status).json({ error: message });
 
-  // --- PIN lock (Task 15; LAN-only single admin) ---
-  // Env SOLACE_PIN (4-8 digits; optional). When UNSET: no lock, no 401s.
-  // Threat model is a trusted LAN (no public internet): the PIN is a casual
-  // lock against curious taps, not a security boundary — hence plaintext env
-  // compare and no brute-force machinery (documented, YAGNI).
-  const rawPin = opts.pin ?? process.env.SOLACE_PIN ?? "";
-  const parsedPin = parsePin(rawPin);
-  const serverPin = parsedPin.pin;
-  if (parsedPin.invalid) {
-    console.warn("invalid SOLACE_PIN ignored — running unlocked");
-  }
-  app.locals.pinConfigured = serverPin !== "";
+  // --- shared login (replaces the old PIN lock; LAN-only single credential) ---
+  // Env SOLACE_USER / SOLACE_PASS (defaults solace / solace123). The client
+  // sends the password back as the x-solace-auth header on every other /api
+  // request. Threat model is a trusted LAN (no public internet): the password
+  // is a casual lock against curious taps, not a security boundary — hence
+  // plaintext env compare and no brute-force machinery (documented, YAGNI).
+  const serverUser = opts.user ?? process.env.SOLACE_USER ?? "solace";
+  const serverPass = opts.pass ?? process.env.SOLACE_PASS ?? "solace123";
 
   // Constant-time string compare (length-mismatch short-circuits false
   // without leaking prefix info through early exit).
-  function pinMatches(candidate) {
+  function authMatches(candidate, expected) {
     const a = Buffer.from(String(candidate ?? ""));
-    const b = Buffer.from(serverPin);
+    const b = Buffer.from(String(expected));
     if (a.length !== b.length) return false;
     return timingSafeEqual(a, b);
   }
 
-  // Gate: when a PIN is set, ALL mutating /api endpoints require the
-  // x-solace-pin header. EXEMPT so the register keeps flowing:
-  // POST /api/sales and POST /api/auth/verify. All GETs stay open.
+  // Gate: ALL /api endpoints except POST /api/auth/login require the
+  // x-solace-auth header matching the password — including GETs (stricter
+  // than the old PIN gate, which left GETs open).
   app.use("/api", (req, res, next) => {
-    if (serverPin === "") return next();
-    if (!["POST", "PATCH", "PUT", "DELETE"].includes(req.method)) {
-      return next();
-    }
-    if (req.method === "POST" && (req.path === "/sales" || req.path === "/auth/verify")) {
-      return next();
-    }
-    if (pinMatches(req.get("x-solace-pin") ?? "")) return next();
-    return sendError(res, 401, "pin required");
+    if (req.method === "POST" && req.path === "/auth/login") return next();
+    if (authMatches(req.get("x-solace-auth") ?? "", serverPass)) return next();
+    return sendError(res, 401, "auth required");
   });
 
-  app.post("/api/auth/verify", (req, res) => {
-    if (serverPin === "") return res.json({ ok: true });
-    const { pin } = req.body ?? {};
-    if (pinMatches(pin)) return res.json({ ok: true });
-    return res.status(401).json({ ok: false, error: "incorrect pin" });
+  app.post("/api/auth/login", (req, res) => {
+    const { username, password } = req.body ?? {};
+    if (
+      authMatches(username, serverUser) &&
+      authMatches(password, serverPass)
+    ) {
+      return res.json({ ok: true });
+    }
+    return res.status(401).json({ ok: false, error: "invalid credentials" });
   });
 
   // --- categories ---

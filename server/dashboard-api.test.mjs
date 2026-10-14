@@ -2,11 +2,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import request from "supertest";
+import { authed } from "./test-auth.mjs";
 import { createApp } from "./app.mjs";
 
 const dir = mkdtempSync(join(tmpdir(), "solace-dashboard-api-test-"));
 const app = createApp(join(dir, "dashboard-api-test.db"));
+const api = authed(app);
 const db = app.locals.db;
 
 afterAll(() => {
@@ -99,7 +100,7 @@ function scalar(sql, ...params) {
 
 describe("dashboard reconciliation (Task 13)", () => {
   it("GET /api/dashboard returns the verbatim shape with API == raw SQL on every line", async () => {
-    const res = await request(app)
+    const res = await api
       .get(`/api/dashboard?date=${DATE}&month=${MONTH}`)
       .expect(200);
     const body = res.body;
@@ -190,7 +191,7 @@ describe("dashboard reconciliation (Task 13)", () => {
   });
 
   it("upcoming dues: all unpaid bills (padded due_day) + unpaid payables within date+7, sorted by due", async () => {
-    const res = await request(app)
+    const res = await api
       .get(`/api/dashboard?date=${DATE}&month=${MONTH}`)
       .expect(200);
     // Cutoff 2026-10-20: Today Due (edge in), Week Due (edge in),
@@ -220,7 +221,7 @@ describe("dashboard reconciliation (Task 13)", () => {
   });
 
   it("loans list holds balance>0 only; paid-off loan excluded from list and sum", async () => {
-    const res = await request(app)
+    const res = await api
       .get(`/api/dashboard?date=${DATE}&month=${MONTH}`)
       .expect(200);
     expect(res.body.outstanding_loans_cents).toBe(90000);
@@ -238,7 +239,7 @@ describe("dashboard reconciliation (Task 13)", () => {
   });
 
   it("best sellers: top 5 by qty in month, voided + out-of-month excluded, qty ties by revenue desc", async () => {
-    const res = await request(app)
+    const res = await api
       .get(`/api/dashboard?date=${DATE}&month=${MONTH}`)
       .expect(200);
     // Item Six has 100 voided units (would rank #1 if counted) and only 1
@@ -254,7 +255,7 @@ describe("dashboard reconciliation (Task 13)", () => {
 
   it("defaults date+month to today UTC; 400 on malformed date or month", async () => {
     const today = new Date().toISOString().slice(0, 10);
-    const def = await request(app).get("/api/dashboard").expect(200);
+    const def = await api.get("/api/dashboard").expect(200);
     expect(def.body.date).toBe(today);
     expect(def.body.month).toBe(today.slice(0, 7));
     for (const qs of [
@@ -265,7 +266,7 @@ describe("dashboard reconciliation (Task 13)", () => {
       "date=2026-10-13&month=2026-13",
       "date=2026-10-13&month=2026-1",
     ]) {
-      const bad = await request(app).get(`/api/dashboard?${qs}`).expect(400);
+      const bad = await api.get(`/api/dashboard?${qs}`).expect(400);
       expect(bad.body.error).toEqual(expect.any(String));
     }
   });
