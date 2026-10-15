@@ -76,9 +76,18 @@ function createTempOrder(tempNo: number): Order {
   };
 }
 
-/** Next temp number derives from remaining tabs — no monotonic counter to persist. */
+/**
+ * Next temp number skips temp and bound numbers already in use, so a new
+ * open tab never duplicates a visible bound label (Done daily 2, then New
+ * order must not mint temp 2). No monotonic counter to persist.
+ */
 function nextTempNo(orders: Order[]): number {
-  return orders.reduce((max, order) => Math.max(max, order.tempNo), 0) + 1;
+  return (
+    orders.reduce(
+      (max, order) => Math.max(max, order.tempNo, order.dailySeq ?? 0),
+      0,
+    ) + 1
+  );
 }
 
 /** Never-posted empty tab: no lines and no sale. Never POSTed, safe to reap. */
@@ -144,10 +153,9 @@ function sanitizeOrder(raw: unknown): Order | null {
     typeof source.dailySeq === "number" && Number.isInteger(source.dailySeq)
       ? source.dailySeq
       : null;
-  const label =
-    typeof source.label === "string" && source.label !== ""
-      ? source.label
-      : `Order #${dailySeq ?? source.tempNo}`;
+  // Labels are fully derived (Order #<dailySeq|tempNo>); recompute so a
+  // stale or tampered stored label can never disagree with the numbers.
+  const label = `Order #${dailySeq ?? source.tempNo}`;
   return {
     key: source.key,
     label,
@@ -312,21 +320,25 @@ export const useOrders = create<OrdersState>()((set) => ({
         status: "open",
         sale: null,
         dailySeq: null,
+        label: `Order #${order.tempNo}`,
       })),
     })),
   completeOrder: (key, sale) =>
     set((state) => ({
-      orders: editOrder(state.orders, key, (order) =>
-        order.status === "open"
-          ? {
-              ...order,
-              status: "done",
-              sale,
-              dailySeq: sale.daily_seq,
-              label: `Order #${sale.daily_seq}`,
-            }
-          : order,
-      ),
+      orders: editOrder(state.orders, key, (order) => {
+        if (order.status !== "open") return order;
+        const seq = sale.daily_seq;
+        if (typeof seq !== "number" || !Number.isInteger(seq) || seq < 1) {
+          return order;
+        }
+        return {
+          ...order,
+          status: "done",
+          sale,
+          dailySeq: seq,
+          label: `Order #${seq}`,
+        };
+      }),
     })),
   updateSale: (key, sale) =>
     set((state) => ({

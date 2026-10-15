@@ -199,6 +199,41 @@ describe("orders store", () => {
     });
   });
 
+  it("clearOrder on a bound tab restores the temp label, not the stale bound one", () => {
+    useOrders.getState().addItem("order-1", 1);
+    useOrders.getState().completeOrder(
+      "order-1",
+      saleFixture({ id: 7, daily_seq: 5 }),
+    );
+    expect(order("order-1").label).toBe("Order #5");
+
+    useOrders.getState().clearOrder("order-1");
+    expect(order("order-1")).toMatchObject({
+      key: "order-1",
+      label: "Order #1",
+      lines: [],
+      payment: "cash",
+      status: "open",
+      sale: null,
+      dailySeq: null,
+      tempNo: 1,
+    });
+  });
+
+  it("new temp numbers skip bound numbers already in use", () => {
+    useOrders.getState().addItem("order-1", 1);
+    useOrders.getState().completeOrder(
+      "order-1",
+      saleFixture({ id: 7, daily_seq: 2 }),
+    );
+    expect(order("order-1").label).toBe("Order #2");
+
+    useOrders.getState().addOrder();
+    const second = useOrders.getState().activeKey;
+    expect(order(second)).toMatchObject({ tempNo: 3, label: "Order #3" });
+    expect(labels()).toEqual(["Order #2", "Order #3"]);
+  });
+
   it("completeOrder binds the daily number and never overwrites a done order", () => {
     useOrders.getState().addItem("order-1", 1);
     const first = saleFixture({ id: 7, daily_seq: 3 });
@@ -214,6 +249,23 @@ describe("orders store", () => {
       .completeOrder("order-1", saleFixture({ id: 8, daily_seq: 9 }));
     expect(order("order-1").sale).toMatchObject({ id: 7 });
     expect(order("order-1")).toMatchObject({ dailySeq: 3, label: "Order #3" });
+  });
+
+  it("completeOrder ignores a sale without a valid daily_seq", () => {
+    useOrders.getState().addItem("order-1", 1);
+    for (const seq of [undefined, 0, -2, 1.5] as unknown[]) {
+      useOrders.getState().completeOrder(
+        "order-1",
+        { ...saleFixture(), daily_seq: seq } as unknown as Sale,
+      );
+    }
+    expect(order("order-1")).toMatchObject({
+      status: "open",
+      sale: null,
+      dailySeq: null,
+      label: "Order #1",
+      tempNo: 1,
+    });
   });
 
   it("edits on a done order are no-ops (open guard)", () => {
@@ -376,6 +428,41 @@ describe("orders store", () => {
     expect(loaded?.orders.map((o) => o.key)).toEqual(["order-2", "order-3"]);
     expect(loaded?.activeKey).toBe("order-2");
     expect(loaded?.orders[1]).toMatchObject({ label: "Order #5", dailySeq: 5 });
+  });
+
+  it("loadOrdersSnapshot recomputes stored labels that disagree with the numbers", () => {
+    const raw = JSON.stringify({
+      version: 1,
+      utcDate: utcToday(),
+      activeKey: "order-3",
+      orders: [
+        {
+          key: "order-3",
+          label: "Order #99",
+          lines: [{ menu_item_id: 1, qty: 1 }],
+          payment: "cash",
+          status: "done",
+          sale: saleFixture({ id: 11, daily_seq: 5 }),
+          dailySeq: 5,
+          tempNo: 3,
+        },
+        {
+          key: "order-2",
+          label: "Bogus",
+          lines: [{ menu_item_id: 1, qty: 1 }],
+          payment: "cash",
+          status: "open",
+          sale: null,
+          dailySeq: null,
+          tempNo: 2,
+        },
+      ],
+    });
+    const loaded = loadOrdersSnapshot(raw, utcToday());
+    expect(loaded?.orders.map((o) => o.label)).toEqual([
+      "Order #5",
+      "Order #2",
+    ]);
   });
 
   it("loadOrdersSnapshot falls back when the stored active key is gone", () => {
