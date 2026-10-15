@@ -107,7 +107,7 @@ describe("FinanceHistoryPage (own route)", () => {
     expect(screen.queryByRole("table")).toBeNull();
   });
 
-  it("finance history link navigates to that route (Pay stays inline)", async () => {
+  it("finance history link navigates to that route (Pay stays inline, no back link)", async () => {
     setStoredAuth("solace123");
     stubFetch();
     renderAt("/finance");
@@ -121,8 +121,10 @@ describe("FinanceHistoryPage (own route)", () => {
     // Navigation lands on the dedicated history route with a real table.
     const table = await screen.findByRole("table", {}, { timeout: 5000 });
     expect(table.textContent).toContain("₱100");
+    // No back link: the global rail owns the way back to /finance.
+    expect(screen.queryByRole("link", { name: "Back to finance" })).toBeNull();
     expect(
-      screen.getByRole("link", { name: "Back to finance" }),
+      screen.getByRole("navigation", { name: "Pages" }),
     ).toBeDefined();
   });
 

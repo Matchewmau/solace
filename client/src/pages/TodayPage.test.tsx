@@ -344,6 +344,19 @@ describe("TodayPage", () => {
     expect(seen.filter((entry) => entry === "GET /api/sales/24")).toHaveLength(0);
   });
 
+  it("today page has no back link", async () => {
+    globalThis.fetch = vi.fn(async (url: unknown) => {
+      const u = String(url);
+      if (u.startsWith("/api/sales/summary")) return ok(summary());
+      if (u.startsWith("/api/sales?")) return ok([]);
+      throw new Error(`unexpected fetch ${u}`);
+    }) as typeof fetch;
+
+    renderAt("/today");
+    await screen.findByRole("heading", { name: /^Today/ });
+    expect(screen.queryByRole("link", { name: "Back to POS" })).toBeNull();
+  });
+
   it("logged-out visits bounce to /login", async () => {
     clearStoredAuth();
     globalThis.fetch = vi.fn(async () => ok([])) as typeof fetch;

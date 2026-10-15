@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   fetchSale,
@@ -206,15 +206,6 @@ export default function TodayPage() {
             </section>
           </>
         )}
-        <div>
-          <Link
-            to="/pos"
-            aria-label="Back to POS"
-            className="border border-ink px-3 py-1 text-sm font-semibold"
-          >
-            ← Back to POS
-          </Link>
-        </div>
       </div>
     </main>
   );

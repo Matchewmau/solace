@@ -1,4 +1,3 @@
-import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { fetchPastSales, utcToday } from "../api/sales";
 import SalesTable from "../components/SalesTable";
@@ -51,15 +50,6 @@ export default function HistoryPage() {
         ) : (
           <SalesTable rows={rows} label="Past sales" />
         )}
-        <div>
-          <Link
-            to="/pos"
-            aria-label="Back to POS"
-            className="border border-ink px-3 py-1 text-sm font-semibold"
-          >
-            ← Back to POS
-          </Link>
-        </div>
       </div>
     </main>
   );

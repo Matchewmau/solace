@@ -1,4 +1,4 @@
-import { Link, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { fetchLoanPayments } from "../api/finance";
 import { formatPeso } from "../lib/formatPeso";
@@ -85,15 +85,6 @@ export default function FinanceHistoryPage() {
             </tbody>
           </table>
         )}
-        <div>
-          <Link
-            to="/finance"
-            aria-label="Back to finance"
-            className="border border-ink px-3 py-1 text-sm font-semibold"
-          >
-            ← Back to finance
-          </Link>
-        </div>
       </div>
     </main>
   );

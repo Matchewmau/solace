@@ -1,5 +1,4 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
 import { fetchDashboard } from "../api/dashboard";
 import { formatPeso } from "../lib/formatPeso";
 import {
@@ -24,29 +23,6 @@ function LoadingSkeleton() {
   );
 }
 
-function DashboardNav() {
-  const links = [
-    { to: "/menu", label: "Menu" },
-    { to: "/pos", label: "POS" },
-    { to: "/finance", label: "Finance" },
-    { to: "/guide", label: "Guide" },
-    { to: "/inventory", label: "Inventory" },
-  ];
-  return (
-    <nav aria-label="Dashboard" className="flex flex-wrap gap-4">
-      {links.map((link) => (
-        <Link
-          key={link.to}
-          to={link.to}
-          className="text-sm font-semibold text-accent underline"
-        >
-          {link.label}
-        </Link>
-      ))}
-    </nav>
-  );
-}
-
 export default function DashboardPage() {
   const dashboardQuery = useQuery({
     queryKey: ["dashboard"],
@@ -63,7 +39,6 @@ export default function DashboardPage() {
             Net is POS income minus expenses. Unpaid bills, payables, and loans
             are separate lines, never subtracted into net.
           </p>
-          <DashboardNav />
         </Reveal>
         {dashboardQuery.isLoading ? (
           <LoadingSkeleton />

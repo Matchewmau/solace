@@ -84,13 +84,11 @@ describe("DashboardPage with mocked payload", () => {
     expect(screen.getByText(/Item One — 10 sold — ₱100/)).toBeTruthy();
     expect(screen.getByText(/Item Two — 8 sold — ₱160/)).toBeTruthy();
 
-    // Dashboard-only nav anchors.
+    // No duplicating inline nav: the global rail owns every tab.
+    expect(screen.queryByRole("navigation", { name: "Dashboard" })).toBeNull();
     for (const label of ["Menu", "POS", "Finance", "Guide", "Inventory"]) {
-      expect(screen.getByRole("link", { name: label })).toBeTruthy();
+      expect(screen.queryByRole("link", { name: label })).toBeNull();
     }
-    expect(
-      screen.getByRole("link", { name: "Menu" }).getAttribute("href"),
-    ).toBe("/menu");
   });
 
   it("shows empty states when dues, loans, and sellers are all clear", async () => {

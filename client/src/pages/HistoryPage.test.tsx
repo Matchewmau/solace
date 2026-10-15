@@ -65,7 +65,7 @@ describe("HistoryPage table", () => {
     expect(screen.queryByRole("button", { name: /Void sale/ })).toBeNull();
   });
 
-  it("table is sortable by date and links back to POS", async () => {
+  it("table is sortable by date and has no back link", async () => {
     renderHistory([row(31, 5000), row(32, 9000)]);
     const table = await screen.findByRole("table");
     expect(within(table).getByText("Sale #31")).toBeDefined();
@@ -75,7 +75,8 @@ describe("HistoryPage table", () => {
     // Second click flips to ascending: Sale #31 (01:00) leads.
     fireEvent.click(screen.getByRole("button", { name: /Date/ }));
     expect(firstRow()).toContain("Sale #31");
-    expect(screen.getByRole("link", { name: "Back to POS" })).toBeDefined();
+    // No back link: the global rail owns the way back to POS.
+    expect(screen.queryByRole("link", { name: "Back to POS" })).toBeNull();
   });
 
   it("logged-out visits bounce to /login", async () => {
