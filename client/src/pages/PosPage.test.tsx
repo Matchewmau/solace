@@ -33,9 +33,11 @@ function sale(
   totalCents: number,
   payment: string,
   lines: { menu_item_id: number; qty: number }[],
+  dailySeq = 1,
 ) {
   return {
     id,
+    daily_seq: dailySeq,
     total_cents: totalCents,
     payment,
     voided: 0,
@@ -81,10 +83,9 @@ function renderPos() {
 function resetOrders() {
   useOrders.setState({
     orders: [
-      { key: "order-1", label: "Order #1", lines: [], payment: "cash", status: "open", sale: null },
+      { key: "order-1", label: "Order #1", lines: [], payment: "cash", status: "open", sale: null, dailySeq: null, tempNo: 1 },
     ],
     activeKey: "order-1",
-    nextNumber: 2,
   });
 }
 
@@ -241,8 +242,8 @@ describe("Today panel + daily summary", () => {
         });
       if (u.startsWith("/api/sales?") && u.includes("since="))
         return ok([
-          { id: 1, total_cents: 16000, payment: "cash", voided: 0, paid: 0, created_at: `${today} 06:30:00` },
-          { id: 2, total_cents: 9000, payment: "gcash", voided: 1, paid: 1, created_at: `${today} 07:15:00` },
+          { id: 1, daily_seq: 1, total_cents: 16000, payment: "cash", voided: 0, paid: 0, created_at: `${today} 06:30:00` },
+          { id: 2, daily_seq: 2, total_cents: 9000, payment: "gcash", voided: 1, paid: 1, created_at: `${today} 07:15:00` },
         ]);
       if (u.startsWith("/api/sales?")) return ok([]);
       throw new Error(`unexpected fetch ${u}`);
@@ -269,7 +270,7 @@ describe("Today panel + daily summary", () => {
 
   it("void button issues PATCH {voided} and refreshes the list + summary", async () => {
     let rows = [
-      { id: 1, total_cents: 16000, payment: "cash", voided: 0, paid: 0, created_at: `${today} 06:30:00` },
+      { id: 1, daily_seq: 1, total_cents: 16000, payment: "cash", voided: 0, paid: 0, created_at: `${today} 06:30:00` },
     ];
     const patchBodies: unknown[] = [];
     const summary = () => {
@@ -349,7 +350,7 @@ describe("Today panel + daily summary", () => {
 });
 
 describe("POS order tabs", () => {
-  it("adds, switches, and closes tabs with monotonic labels", async () => {
+  it("adds and switches tabs; new order reaps empty temps without bumping numbers", async () => {
     globalThis.fetch = vi.fn(menuFetch()) as typeof fetch;
 
     renderPos();
@@ -357,21 +358,28 @@ describe("POS order tabs", () => {
 
     expect(selected("Order #1 (0)")).toBe("true");
 
+    // New order on an empty tab reaps and recreates it — no count bump.
     fireEvent.click(screen.getByRole("button", { name: "New order" }));
-    expect(selected("Order #2 (0)")).toBe("true");
-    expect(selected("Order #1 (0)")).toBe("false");
-
-    fireEvent.click(screen.getByRole("tab", { name: "Order #1 (0)" }));
     expect(selected("Order #1 (0)")).toBe("true");
+    expect(screen.getAllByRole("tab")).toHaveLength(1);
 
-    // Numbers never reuse: closing #3 after adding it yields #4 next.
+    // With lines on #1, New order stacks a second tab.
+    fireEvent.click(screen.getByRole("button", { name: /Cortado/ }));
+    expect(selected("Order #1 (1)")).toBe("true");
     fireEvent.click(screen.getByRole("button", { name: "New order" }));
-    expect(selected("Order #3 (0)")).toBe("true");
-    fireEvent.click(screen.getByRole("button", { name: "Close Order #3" }));
-    expect(screen.queryByRole("tab", { name: "Order #3 (0)" })).toBeNull();
     expect(selected("Order #2 (0)")).toBe("true");
+    expect(selected("Order #1 (1)")).toBe("false");
+
+    fireEvent.click(screen.getByRole("tab", { name: "Order #1 (1)" }));
+    expect(selected("Order #1 (1)")).toBe("true");
+
+    // The empty #2 is reaped by the next New order (temp number reused).
     fireEvent.click(screen.getByRole("button", { name: "New order" }));
-    expect(selected("Order #4 (0)")).toBe("true");
+    expect(selected("Order #2 (0)")).toBe("true");
+    expect(screen.getAllByRole("tab")).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "Close Order #2" }));
+    expect(screen.queryByRole("tab", { name: "Order #2 (0)" })).toBeNull();
+    expect(selected("Order #1 (1)")).toBe("true");
   });
 
   it("item grid adds to the active order only", async () => {
@@ -403,13 +411,15 @@ describe("POS order tabs", () => {
     renderPos();
     await screen.findByText("Cortado");
 
+    // Order #1 needs a line so the next New order keeps (not reaps) it.
+    fireEvent.click(screen.getByRole("button", { name: /Cortado/ }));
     fireEvent.click(screen.getByRole("button", { name: "New order" }));
     fireEvent.click(screen.getByRole("button", { name: "GCash" }));
     expect(
       screen.getByRole("button", { name: "GCash" }).getAttribute("aria-pressed"),
     ).toBe("true");
 
-    fireEvent.click(screen.getByRole("tab", { name: "Order #1 (0)" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Order #1 (1)" }));
     expect(
       screen.getByRole("button", { name: "Cash" }).getAttribute("aria-pressed"),
     ).toBe("true");
@@ -434,7 +444,7 @@ describe("POS order tabs", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Close Order #1" }));
     expect(screen.queryByRole("tab", { name: "Order #1 (1)" })).toBeNull();
-    expect(selected("Order #2 (0)")).toBe("true");
+    expect(selected("Order #1 (0)")).toBe("true");
     expect(screen.getByText("Order is empty. Tap an item to add it.")).toBeDefined();
     expect(
       (screen.getByRole("button", { name: "Done" }) as HTMLButtonElement)
@@ -453,7 +463,7 @@ describe("POS per-order checkout", () => {
           posts += 1;
           payload = JSON.parse(String(init?.body));
           const body = payload as { payment: string; items: { menu_item_id: number; qty: number }[] };
-          return ok(sale(9, 15500, body.payment, body.items), 201);
+          return ok(sale(9, 15500, body.payment, body.items, 2), 201);
         }
         throw new Error(`unexpected fetch ${u}`);
       }),
@@ -544,9 +554,10 @@ describe("POS paid flow with history", () => {
     totalCents: number,
     payment: string,
     lines: { menu_item_id: number; qty: number }[],
+    dailySeq = 1,
   ) {
     return {
-      ...sale(id, totalCents, payment, lines),
+      ...sale(id, totalCents, payment, lines, dailySeq),
       paid: 0,
       created_at: `${today} 10:00:00`,
     };
@@ -659,6 +670,7 @@ describe("POS paid flow with history", () => {
     let paid = 0;
     const row = () => ({
       id: 23,
+      daily_seq: 1,
       total_cents: 7000,
       payment: "cash",
       voided: 0,
@@ -724,6 +736,7 @@ describe("POS paid flow with history", () => {
     let paid = 0;
     const row = () => ({
       id: 24,
+      daily_seq: 1,
       total_cents: 7000,
       payment: "cash",
       voided: 0,
@@ -799,6 +812,7 @@ describe("POS paid flow with history", () => {
         return ok([
           {
             id: 31,
+            daily_seq: 1,
             total_cents: 5000,
             payment: "gcash",
             voided: 0,
@@ -824,6 +838,7 @@ describe("POS paid flow with history", () => {
     let paid = 1;
     const row = () => ({
       id: 41,
+      daily_seq: 1,
       total_cents: 9000,
       payment: "gcash",
       voided: 0,
@@ -923,6 +938,7 @@ describe("POS order/sale label linking", () => {
         return ok([
           {
             id: 4,
+            daily_seq: 1,
             total_cents: 7000,
             payment: "cash",
             voided: 0,
@@ -960,6 +976,7 @@ describe("POS order/sale label linking", () => {
           status: "done",
           sale: {
             id: 4,
+            daily_seq: 3,
             total_cents: 7000,
             payment: "cash",
             voided: 0,
@@ -967,10 +984,11 @@ describe("POS order/sale label linking", () => {
             created_at: `${today} 10:00:00`,
             items: [{ id: 1, menu_item_id: 1, qty: 1, unit_price_cents: 7000 }],
           },
+          dailySeq: 3,
+          tempNo: 3,
         },
       ],
       activeKey: "order-3",
-      nextNumber: 4,
     });
     globalThis.fetch = vi.fn(async (url: unknown) => {
       const u = String(url);
@@ -981,6 +999,7 @@ describe("POS order/sale label linking", () => {
         return ok([
           {
             id: 4,
+            daily_seq: 3,
             total_cents: 7000,
             payment: "cash",
             voided: 0,
@@ -1009,6 +1028,7 @@ describe("POS order/sale label linking", () => {
         return ok([
           {
             id: 99,
+            daily_seq: 5,
             total_cents: 7000,
             payment: "cash",
             voided: 0,

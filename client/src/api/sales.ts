@@ -24,6 +24,7 @@ export interface SaleItem {
 
 export interface Sale {
   id: number;
+  daily_seq: number;
   total_cents: number;
   payment: PaymentMethod;
   voided: number;
@@ -38,6 +39,7 @@ export interface Sale {
  */
 export interface SaleRow {
   id: number;
+  daily_seq: number;
   total_cents: number;
   payment: PaymentMethod;
   voided: number;
