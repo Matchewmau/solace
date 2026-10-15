@@ -234,7 +234,64 @@ export function createApp(dbPath, opts = {}) {
 
   // --- menu_items ---
   const MENU_COLS =
-    "id, category_id, name, price_cents, cost_cents, active";
+    "id, category_id, name, price_cents, cost_cents, active, variants";
+
+  function parseVariants(raw) {
+    try {
+      const parsed = JSON.parse(raw ?? "[]");
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function withVariants(row) {
+    if (!row) return row;
+    return { ...row, variants: parseVariants(row.variants) };
+  }
+
+  // Accept array or comma string; split commas, trim, drop empties,
+  // dedupe case-insensitively keeping first case, max 8 items each
+  // 1-30 chars else 400. Parens are literal characters inside an option.
+  function normalizeVariants(input) {
+    let parts;
+    if (typeof input === "string") {
+      parts = input.split(",");
+    } else if (Array.isArray(input)) {
+      parts = [];
+      for (const elem of input) {
+        if (typeof elem !== "string") {
+          return {
+            error: "variants must be an array of strings or a comma-separated string",
+          };
+        }
+        parts.push(...elem.split(","));
+      }
+    } else {
+      return {
+        error: "variants must be an array of strings or a comma-separated string",
+      };
+    }
+    const trimmed = parts.map((part) => part.trim()).filter((part) => part !== "");
+    const seen = new Set();
+    const variants = [];
+    for (const option of trimmed) {
+      const key = option.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        variants.push(option);
+      }
+    }
+    if (variants.length > 8) {
+      return { error: "variants must have at most 8 options" };
+    }
+    for (const option of variants) {
+      if (option.length < 1 || option.length > 30) {
+        return { error: "variant option must be 1-30 characters" };
+      }
+    }
+    return { variants };
+  }
 
   app.get("/api/menu_items", (req, res) => {
     const where = [];
@@ -259,7 +316,7 @@ export function createApp(dbPath, opts = {}) {
         `SELECT ${MENU_COLS} FROM menu_items${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY id`,
       )
       .all(...params);
-    res.json(rows);
+    res.json(rows.map(withVariants));
   });
 
   app.post("/api/menu_items", (req, res) => {
@@ -270,6 +327,7 @@ export function createApp(dbPath, opts = {}) {
       cost_cents = 0,
       active = 1,
     } = req.body ?? {};
+    const rawVariants = req.body?.variants;
     if (!isInt(category_id)) {
       return sendError(res, 400, "category_id must be an integer");
     }
@@ -292,6 +350,12 @@ export function createApp(dbPath, opts = {}) {
     if (active !== 0 && active !== 1) {
       return sendError(res, 400, "active must be 0 or 1");
     }
+    let variants = [];
+    if (rawVariants !== undefined) {
+      const normalized = normalizeVariants(rawVariants);
+      if (normalized.error) return sendError(res, 400, normalized.error);
+      variants = normalized.variants;
+    }
     // App-level duplicate guard: schema has no UNIQUE(category_id, name),
     // so check before insert (keeps POS buttons duplicate-free on prod DBs).
     const trimmedName = name.trim();
@@ -304,15 +368,24 @@ export function createApp(dbPath, opts = {}) {
     try {
       const info = db
         .prepare(
-          "INSERT INTO menu_items (category_id, name, price_cents, cost_cents, active) VALUES (?, ?, ?, ?, ?)",
+          "INSERT INTO menu_items (category_id, name, price_cents, cost_cents, active, variants) VALUES (?, ?, ?, ?, ?, ?)",
         )
-        .run(category_id, trimmedName, price_cents, cost_cents, active);
+        .run(
+          category_id,
+          trimmedName,
+          price_cents,
+          cost_cents,
+          active,
+          JSON.stringify(variants),
+        );
       res
         .status(201)
         .json(
-          db
-            .prepare(`SELECT ${MENU_COLS} FROM menu_items WHERE id = ?`)
-            .get(info.lastInsertRowid),
+          withVariants(
+            db
+              .prepare(`SELECT ${MENU_COLS} FROM menu_items WHERE id = ?`)
+              .get(info.lastInsertRowid),
+          ),
         );
     } catch (err) {
       if (String(err?.code).startsWith("SQLITE_CONSTRAINT")) {
@@ -330,7 +403,7 @@ export function createApp(dbPath, opts = {}) {
           .get(id)
       : undefined;
     if (!row) return sendError(res, 404, "menu item not found");
-    res.json(row);
+    res.json(withVariants(row));
   });
 
   app.patch("/api/menu_items/:id", (req, res) => {
@@ -341,6 +414,7 @@ export function createApp(dbPath, opts = {}) {
           .get(id)
       : undefined;
     if (!current) return sendError(res, 404, "menu item not found");
+    const currentVariants = parseVariants(current.variants);
     const {
       category_id = current.category_id,
       name = current.name,
@@ -348,6 +422,7 @@ export function createApp(dbPath, opts = {}) {
       cost_cents = current.cost_cents,
       active = current.active,
     } = req.body ?? {};
+    const rawVariants = req.body?.variants;
     if (!isInt(category_id)) {
       return sendError(res, 400, "category_id must be an integer");
     }
@@ -370,6 +445,30 @@ export function createApp(dbPath, opts = {}) {
     if (active !== 0 && active !== 1) {
       return sendError(res, 400, "active must be 0 or 1");
     }
+    let variants = currentVariants;
+    if (rawVariants !== undefined) {
+      const normalized = normalizeVariants(rawVariants);
+      if (normalized.error) return sendError(res, 400, normalized.error);
+      variants = normalized.variants;
+      const used = db
+        .prepare(
+          "SELECT DISTINCT variant FROM sale_items WHERE menu_item_id = ? AND variant IS NOT NULL",
+        )
+        .all(id)
+        .map((row) => row.variant);
+      const nextKeys = new Set(variants.map((option) => option.toLowerCase()));
+      for (const historic of used) {
+        const key = String(historic).trim().toLowerCase();
+        if (key === "") continue;
+        if (!nextKeys.has(key)) {
+          return sendError(
+            res,
+            400,
+            `cannot remove variant in use: ${historic}`,
+          );
+        }
+      }
+    }
     // App-level rename-clash guard (same reason as the POST pre-check).
     const trimmedName = name.trim();
     const clash = db
@@ -382,8 +481,16 @@ export function createApp(dbPath, opts = {}) {
     }
     try {
       db.prepare(
-        "UPDATE menu_items SET category_id = ?, name = ?, price_cents = ?, cost_cents = ?, active = ? WHERE id = ?",
-      ).run(category_id, trimmedName, price_cents, cost_cents, active, id);
+        "UPDATE menu_items SET category_id = ?, name = ?, price_cents = ?, cost_cents = ?, active = ?, variants = ? WHERE id = ?",
+      ).run(
+        category_id,
+        trimmedName,
+        price_cents,
+        cost_cents,
+        active,
+        JSON.stringify(variants),
+        id,
+      );
     } catch (err) {
       if (String(err?.code).startsWith("SQLITE_CONSTRAINT")) {
         return sendError(res, 400, "menu item already exists");
@@ -391,7 +498,9 @@ export function createApp(dbPath, opts = {}) {
       throw err;
     }
     res.json(
-      db.prepare(`SELECT ${MENU_COLS} FROM menu_items WHERE id = ?`).get(id),
+      withVariants(
+        db.prepare(`SELECT ${MENU_COLS} FROM menu_items WHERE id = ?`).get(id),
+      ),
     );
   });
 

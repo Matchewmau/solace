@@ -697,3 +697,104 @@ describe("static frontend", () => {
     }
   });
 });
+
+describe("menu item variants (Task 2)", () => {
+  it("POST menu item with variants round-trips normalized options", async () => {
+    const res = await api.post("/api/menu_items").send({ category_id: 1, name: "Ube Latte", price_cents: 7000, variants: ["Hot", " Iced ", "Hot"] });
+    expect(res.status).toBe(201);
+    expect(res.body.variants).toEqual(["Hot", "Iced"]);
+  });
+
+  // Isolated DB so variant history setup never leaks into other suites.
+  const dirV = mkdtempSync(join(tmpdir(), "solace-variants-test-"));
+  const appV = createApp(join(dirV, "variants-test.db"));
+  const apiV = authed(appV);
+  afterAll(() => {
+    appV.locals.db.close();
+    rmSync(dirV, { recursive: true, force: true });
+  });
+
+  it("POST with empty options saves []", async () => {
+    const cat = await apiV
+      .post("/api/categories")
+      .send({ name: "Variants Empty" })
+      .expect(201);
+    const res = await apiV
+      .post("/api/menu_items")
+      .send({
+        category_id: cat.body.id,
+        name: "Plain Drink",
+        price_cents: 5000,
+        variants: ", , ",
+      })
+      .expect(201);
+    expect(res.body.variants).toEqual([]);
+  });
+
+  it('POST with comma string "Fried, Steamed" saves ["Fried","Steamed"]', async () => {
+    const cat = await apiV
+      .post("/api/categories")
+      .send({ name: "Variants Comma" })
+      .expect(201);
+    const res = await apiV
+      .post("/api/menu_items")
+      .send({
+        category_id: cat.body.id,
+        name: "Comma Item",
+        price_cents: 5000,
+        variants: "Fried, Steamed",
+      })
+      .expect(201);
+    expect(res.body.variants).toEqual(["Fried", "Steamed"]);
+  });
+
+  it("PATCH removing a variant present in sale_items history returns 400 with history unchanged", async () => {
+    const cat = await apiV
+      .post("/api/categories")
+      .send({ name: "Variants History" })
+      .expect(201);
+    const item = (
+      await apiV
+        .post("/api/menu_items")
+        .send({
+          category_id: cat.body.id,
+          name: "History Siomai",
+          price_cents: 5000,
+          variants: ["Fried", "Steamed"],
+        })
+        .expect(201)
+    ).body;
+    const saleId = appV.locals.db
+      .prepare(
+        "INSERT INTO sales (total_cents, payment, created_at) VALUES (?, ?, ?)",
+      )
+      .run(5000, "cash", "2026-10-15 10:00:00").lastInsertRowid;
+    appV.locals.db
+      .prepare(
+        "INSERT INTO sale_items (sale_id, menu_item_id, qty, unit_price_cents, variant) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run(saleId, item.id, 1, 5000, "Fried");
+    const res = await apiV
+      .patch(`/api/menu_items/${item.id}`)
+      .send({ variants: ["Steamed"] })
+      .expect(400);
+    expect(res.body.error).toEqual(expect.any(String));
+    const history = appV.locals.db
+      .prepare("SELECT variant FROM sale_items WHERE menu_item_id = ?")
+      .all(item.id);
+    expect(history.map((row) => row.variant)).toEqual(["Fried"]);
+    const fetched = await apiV.get(`/api/menu_items/${item.id}`).expect(200);
+    expect(fetched.body.variants).toEqual(["Fried", "Steamed"]);
+  });
+
+  it("GET list and GET by id return variants arrays (Siomai Fried/Steamed)", async () => {
+    const list = await apiV.get("/api/menu_items").expect(200);
+    const siomai = list.body.find((row) => row.name === "Siomai");
+    expect(siomai).toBeDefined();
+    expect(siomai.variants).toEqual(["Fried", "Steamed"]);
+    const fetched = await apiV
+      .get(`/api/menu_items/${siomai.id}`)
+      .expect(200);
+    expect(fetched.body.variants).toEqual(["Fried", "Steamed"]);
+  });
+});
