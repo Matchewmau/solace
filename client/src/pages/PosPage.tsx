@@ -1,5 +1,4 @@
 import { useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchActiveMenuItems, fetchCategories } from "../api/menu";
 import { patchSalePaid, postSale, putSaleItems, utcToday } from "../api/sales";
@@ -164,32 +163,6 @@ export default function PosPage() {
   return (
     <main className="min-h-screen bg-paper text-ink">
       <div className="flex min-h-screen">
-        {/* Far-left page nav: Menu is the POS shell; Today + History are
-            their own pages (Task 4). Guide/Tables/Settings stay visual stubs. */}
-        <nav aria-label="Pages" className="flex w-24 shrink-0 flex-col items-center gap-3 bg-ink py-6 text-paper">
-          <span className="px-2 text-center text-xs font-bold tracking-widest">SOLACE</span>
-          <button type="button" aria-current="page" className="w-full bg-accent px-2 py-2 text-sm font-semibold text-paper">
-            Menu
-          </button>
-          <button type="button" className="w-full px-2 py-2 text-sm font-semibold text-paper/80">
-            Guide
-          </button>
-          <button type="button" className="w-full px-2 py-2 text-sm font-semibold text-paper/80">
-            Tables
-          </button>
-          <button type="button" className="w-full px-2 py-2 text-sm font-semibold text-paper/80">
-            Settings
-          </button>
-          <Link to="/today" className="w-full px-2 py-2 text-center text-sm font-semibold text-paper/80">
-            Today
-          </Link>
-          <Link to="/history" className="w-full px-2 py-2 text-center text-sm font-semibold text-paper/80">
-            History
-          </Link>
-          <span className="mt-auto w-full px-2 py-2 text-center text-sm font-semibold text-paper/60">
-            Logout
-          </span>
-        </nav>
         {/* Order rail: New order first, then vertical tabs, zero close buttons. */}
         <div className="flex w-36 shrink-0 flex-col gap-2 border-r border-ink/10 bg-white p-3">
           <h2 className="text-xs font-semibold tracking-widest text-muted">ORDERS</h2>

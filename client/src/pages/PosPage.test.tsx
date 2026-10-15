@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import PosPage from "./PosPage";
+import { AuthedLayout } from "../components/AppHeader";
+import { AuthProvider } from "../components/AuthProvider";
 import { useOrders } from "../store/orders";
 import type { Category, MenuItem } from "../api/menu";
 
@@ -74,9 +76,9 @@ function renderPos() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  // MemoryRouter supplies context for the Today/History nav links; the
-  // POS shell itself renders standalone (route wiring is covered by the
-  // Today/History page tests).
+  // MemoryRouter keeps the standalone render route-safe; page tabs live
+  // in the global rail (route wiring is covered by the dedup test below
+  // and the AppHeader shell tests).
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
@@ -230,27 +232,42 @@ describe("POS checkout flow", () => {
     expect(screen.getByText("Order #1 · Sale #8")).toBeDefined();
   });
 
-describe("POS nav to Today + History pages", () => {
-  it("far-left nav links to the Today and History pages", async () => {
+describe("POS nav dedup (global rail owns Pages)", () => {
+  it("shows exactly one page nav with no local Today link", async () => {
     globalThis.fetch = vi.fn(menuFetch()) as typeof fetch;
 
-    renderPos();
+    // Real /pos route shape: global SideNav shell + PosPage content.
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={["/pos"]}>
+          <AuthProvider>
+            <Routes>
+              <Route element={<AuthedLayout />}>
+                <Route path="/pos" element={<PosPage />} />
+              </Route>
+            </Routes>
+          </AuthProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
     await screen.findByText("Cortado");
 
-    // The inline Today/History sections are gone — the nav owns the links.
+    // One Pages nav total (the global rail); the local far-left nav is gone,
+    // so the only Today link is the rail's.
     expect(
-      screen.queryByRole("heading", { name: "Today" }),
-    ).toBeNull();
+      screen
+        .getAllByRole("navigation")
+        .filter((n) => n.getAttribute("aria-label") === "Pages"),
+    ).toHaveLength(1);
     expect(
-      screen.queryByRole("heading", { name: "History" }),
-    ).toBeNull();
-    const nav = screen.getByRole("navigation", { name: "Pages" });
-    expect(
-      within(nav).getByRole("link", { name: "Today" }).getAttribute("href"),
-    ).toBe("/today");
-    expect(
-      within(nav).getByRole("link", { name: "History" }).getAttribute("href"),
-    ).toBe("/history");
+      within(screen.getByRole("navigation", { name: "Pages" })).getByRole(
+        "link",
+        { name: "Today" },
+      ),
+    ).toBeDefined();
   });
 });
 
