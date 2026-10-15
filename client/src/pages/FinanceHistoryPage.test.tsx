@@ -126,14 +126,17 @@ describe("FinanceHistoryPage (own route)", () => {
     ).toBeDefined();
   });
 
-  it("renders inside the authed layout (back button present)", async () => {
+  it("renders inside the authed layout (global rail present)", async () => {
     setStoredAuth("solace123");
     stubFetch();
     renderAt("/finance/history?loan=1");
 
     await screen.findByRole("table");
     expect(
-      screen.getByRole("link", { name: "Back to dashboard" }),
+      screen.getByRole("navigation", { name: "Pages" }),
+    ).toBeDefined();
+    expect(
+      screen.getByRole("button", { name: "Log out" }),
     ).toBeDefined();
   });
 });
