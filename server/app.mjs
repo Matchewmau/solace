@@ -530,7 +530,7 @@ export function createApp(dbPath, opts = {}) {
     if (!sale) return undefined;
     sale.items = db
       .prepare(
-        "SELECT id, menu_item_id, qty, unit_price_cents FROM sale_items WHERE sale_id = ? ORDER BY id",
+        "SELECT id, menu_item_id, qty, unit_price_cents, variant FROM sale_items WHERE sale_id = ? ORDER BY id",
       )
       .all(saleId);
     return sale;
@@ -554,15 +554,30 @@ export function createApp(dbPath, opts = {}) {
         return { error: "qty must be an integer of at least 1" };
       }
       const menuItem = db
-        .prepare("SELECT id, price_cents FROM menu_items WHERE id = ? AND active = 1")
+        .prepare("SELECT id, price_cents, variants FROM menu_items WHERE id = ? AND active = 1")
         .get(menuItemId);
       if (!menuItem) {
         return { error: `unknown or inactive menu_item_id: ${menuItemId}` };
+      }
+      const allowed = parseVariants(menuItem.variants);
+      const variant = line?.variant ?? null;
+      if (variant === null) {
+        lines.push({
+          menu_item_id: menuItem.id,
+          qty,
+          unit_price_cents: menuItem.price_cents,
+          variant: null,
+        });
+        continue;
+      }
+      if (typeof variant !== "string" || !allowed.includes(variant)) {
+        return { error: `unknown variant: ${variant}` };
       }
       lines.push({
         menu_item_id: menuItem.id,
         qty,
         unit_price_cents: menuItem.price_cents,
+        variant,
       });
     }
     return { lines };
@@ -601,7 +616,7 @@ export function createApp(dbPath, opts = {}) {
         )
         .run(total, payment, paid, dailySeq, stamp).lastInsertRowid;
       const addLine = db.prepare(
-        "INSERT INTO sale_items (sale_id, menu_item_id, qty, unit_price_cents) VALUES (?, ?, ?, ?)",
+        "INSERT INTO sale_items (sale_id, menu_item_id, qty, unit_price_cents, variant) VALUES (?, ?, ?, ?, ?)",
       );
       for (const line of lines) {
         addLine.run(
@@ -609,6 +624,7 @@ export function createApp(dbPath, opts = {}) {
           line.menu_item_id,
           line.qty,
           line.unit_price_cents,
+          line.variant,
         );
       }
       return saleId;
@@ -747,7 +763,7 @@ export function createApp(dbPath, opts = {}) {
     const replace = db.transaction(() => {
       db.prepare("DELETE FROM sale_items WHERE sale_id = ?").run(id);
       const addLine = db.prepare(
-        "INSERT INTO sale_items (sale_id, menu_item_id, qty, unit_price_cents) VALUES (?, ?, ?, ?)",
+        "INSERT INTO sale_items (sale_id, menu_item_id, qty, unit_price_cents, variant) VALUES (?, ?, ?, ?, ?)",
       );
       for (const line of lines) {
         addLine.run(
@@ -755,6 +771,7 @@ export function createApp(dbPath, opts = {}) {
           line.menu_item_id,
           line.qty,
           line.unit_price_cents,
+          line.variant,
         );
       }
       db.prepare("UPDATE sales SET total_cents = ? WHERE id = ?").run(total, id);

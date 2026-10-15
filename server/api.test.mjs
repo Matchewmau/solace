@@ -798,3 +798,103 @@ describe("menu item variants (Task 2)", () => {
     expect(fetched.body.variants).toEqual(["Fried", "Steamed"]);
   });
 });
+
+describe("sale line variants (Task 3)", () => {
+  async function foodSiomaiId() {
+    const list = await api.get("/api/menu_items").expect(200);
+    const siomai = list.body.find((row) => row.name === "Siomai");
+    expect(siomai).toBeDefined();
+    expect(siomai.price_cents).toBe(5000);
+    expect(siomai.variants).toEqual(["Fried", "Steamed"]);
+    return siomai.id;
+  }
+
+  async function plainItemId(name) {
+    const cat = await api
+      .post("/api/categories")
+      .send({ name: `Task3 ${name}` })
+      .expect(201);
+    const item = await api
+      .post("/api/menu_items")
+      .send({ category_id: cat.body.id, name, price_cents: 5000 })
+      .expect(201);
+    expect(item.body.variants).toEqual([]);
+    return item.body.id;
+  }
+
+  it("POST sale stores the chosen variant per line", async () => {
+    const siomaiId = await foodSiomaiId();
+    const res = await api.post("/api/sales").send({ payment: "cash", items: [{ menu_item_id: siomaiId, qty: 1, variant: "Fried" }] }).expect(201);
+    expect(res.body.items[0].variant).toBe("Fried");
+    const fetched = await api.get(`/api/sales/${res.body.id}`).expect(200);
+    expect(fetched.body.items[0].variant).toBe("Fried");
+  });
+
+  it("POST sale with a variant for an item without variants returns 400", async () => {
+    const plainId = await plainItemId("Plain Coffee");
+    const res = await api
+      .post("/api/sales")
+      .send({
+        payment: "cash",
+        items: [{ menu_item_id: plainId, qty: 1, variant: "Hot" }],
+      })
+      .expect(400);
+    expect(res.body.error).toEqual(expect.any(String));
+  });
+
+  it("POST sale with an unknown variant string returns 400", async () => {
+    const siomaiId = await foodSiomaiId();
+    const res = await api
+      .post("/api/sales")
+      .send({
+        payment: "cash",
+        items: [{ menu_item_id: siomaiId, qty: 1, variant: "Boiled" }],
+      })
+      .expect(400);
+    expect(res.body.error).toEqual(expect.any(String));
+  });
+
+  it("POST sale with omitted variant stores NULL and returns null", async () => {
+    const siomaiId = await foodSiomaiId();
+    const res = await api
+      .post("/api/sales")
+      .send({ payment: "cash", items: [{ menu_item_id: siomaiId, qty: 1 }] })
+      .expect(201);
+    expect(res.body.items[0].variant).toBeNull();
+    const fetched = await api.get(`/api/sales/${res.body.id}`).expect(200);
+    expect(fetched.body.items[0].variant).toBeNull();
+  });
+
+  it("PUT /api/sales/:id/items preserves the same rules", async () => {
+    const siomaiId = await foodSiomaiId();
+    const plainId = await plainItemId("Plain Tea");
+    const sale = await api
+      .post("/api/sales")
+      .send({ payment: "cash", items: [{ menu_item_id: siomaiId, qty: 1 }] })
+      .expect(201);
+
+    const valid = await api
+      .put(`/api/sales/${sale.body.id}/items`)
+      .send({ items: [{ menu_item_id: siomaiId, qty: 1, variant: "Steamed" }] })
+      .expect(200);
+    expect(valid.body.items[0].variant).toBe("Steamed");
+
+    const unknown = await api
+      .put(`/api/sales/${sale.body.id}/items`)
+      .send({ items: [{ menu_item_id: siomaiId, qty: 1, variant: "Boiled" }] })
+      .expect(400);
+    expect(unknown.body.error).toEqual(expect.any(String));
+
+    const noVariants = await api
+      .put(`/api/sales/${sale.body.id}/items`)
+      .send({ items: [{ menu_item_id: plainId, qty: 1, variant: "Hot" }] })
+      .expect(400);
+    expect(noVariants.body.error).toEqual(expect.any(String));
+
+    const omitted = await api
+      .put(`/api/sales/${sale.body.id}/items`)
+      .send({ items: [{ menu_item_id: siomaiId, qty: 2 }] })
+      .expect(200);
+    expect(omitted.body.items[0].variant).toBeNull();
+  });
+});
