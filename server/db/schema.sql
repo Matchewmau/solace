@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS sales (
   payment TEXT NOT NULL CHECK (payment IN ('cash', 'gcash')),
   voided INTEGER NOT NULL DEFAULT 0,
   paid INTEGER NOT NULL DEFAULT 0,
+  daily_seq INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL
 );
 

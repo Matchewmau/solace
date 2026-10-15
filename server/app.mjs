@@ -43,6 +43,9 @@ function openDb(dbPath) {
   if (!salesCols.includes("paid")) {
     db.exec("ALTER TABLE sales ADD COLUMN paid INTEGER NOT NULL DEFAULT 0");
   }
+  if (!salesCols.includes("daily_seq")) {
+    db.exec("ALTER TABLE sales ADD COLUMN daily_seq INTEGER NOT NULL DEFAULT 1");
+  }
   return db;
 }
 
@@ -381,7 +384,8 @@ export function createApp(dbPath, opts = {}) {
   });
 
   // --- sales ---
-  const SALE_COLS = "id, total_cents, payment, voided, paid, created_at";
+  const SALE_COLS =
+    "id, total_cents, payment, voided, paid, daily_seq, created_at";
 
   function saleWithItems(saleId) {
     const sale = db
@@ -447,11 +451,19 @@ export function createApp(dbPath, opts = {}) {
       0,
     );
     const insert = db.transaction(() => {
+      // Server owns the daily Order # sequence: COUNT of today's UTC-date
+      // sales + 1, allocated here inside the sale transaction so Done taps
+      // can never duplicate numbers. Abandoned tabs never POST, so no gaps.
+      const stamp = nowStamp();
+      const dailySeq =
+        db
+          .prepare("SELECT COUNT(*) AS n FROM sales WHERE created_at LIKE ?")
+          .get(`${stamp.slice(0, 10)}%`).n + 1;
       const saleId = db
         .prepare(
-          "INSERT INTO sales (total_cents, payment, paid, created_at) VALUES (?, ?, ?, ?)",
+          "INSERT INTO sales (total_cents, payment, paid, daily_seq, created_at) VALUES (?, ?, ?, ?, ?)",
         )
-        .run(total, payment, paid, nowStamp()).lastInsertRowid;
+        .run(total, payment, paid, dailySeq, stamp).lastInsertRowid;
       const addLine = db.prepare(
         "INSERT INTO sale_items (sale_id, menu_item_id, qty, unit_price_cents) VALUES (?, ?, ?, ?)",
       );
@@ -523,7 +535,8 @@ export function createApp(dbPath, opts = {}) {
            COALESCE(SUM(CASE WHEN payment = 'cash' AND voided = 0 THEN total_cents ELSE 0 END), 0) AS cash_total_cents,
            COALESCE(SUM(CASE WHEN payment = 'gcash' AND voided = 0 THEN total_cents ELSE 0 END), 0) AS gcash_total_cents,
            COALESCE(SUM(CASE WHEN voided = 0 THEN 1 ELSE 0 END), 0) AS sale_count,
-           COALESCE(SUM(CASE WHEN voided = 1 THEN 1 ELSE 0 END), 0) AS voided_count
+           COALESCE(SUM(CASE WHEN voided = 1 THEN 1 ELSE 0 END), 0) AS voided_count,
+           COUNT(*) AS day_count
          FROM sales WHERE created_at LIKE ?`,
       )
       .get(`${date}%`);
@@ -533,6 +546,9 @@ export function createApp(dbPath, opts = {}) {
       gcash_total_cents: row.gcash_total_cents,
       sale_count: row.sale_count,
       voided_count: row.voided_count,
+      // Counts ALL rows for the UTC date (including voided) so this always
+      // equals the next allocated daily_seq (POST uses COUNT(all)+1).
+      next_order_number: row.day_count + 1,
     });
   });
 

@@ -436,6 +436,92 @@ describe("sales void/edit + daily summary (Task 8)", () => {
   });
 });
 
+describe("daily order numbers", () => {
+  // Isolated DB so the daily sequence starts at 1.
+  const dir3 = mkdtempSync(join(tmpdir(), "solace-daily-seq-test-"));
+  const app3 = createApp(join(dir3, "daily-seq-test.db"));
+  const api3 = authed(app3);
+  afterAll(() => {
+    app3.locals.db.close();
+    rmSync(dir3, { recursive: true, force: true });
+  });
+
+  it("POST assigns daily_seq 1,2 per UTC day", async () => {
+    const cat = await api3
+      .post("/api/categories")
+      .send({ name: "DailySeq" })
+      .expect(201);
+    const item = (
+      await api3
+        .post("/api/menu_items")
+        .send({ category_id: cat.body.id, name: "Seq Drink", price_cents: 5000 })
+        .expect(201)
+    ).body;
+    const a = await api3
+      .post("/api/sales")
+      .send({ payment: "cash", items: [{ menu_item_id: item.id, qty: 1 }] })
+      .expect(201);
+    const b = await api3
+      .post("/api/sales")
+      .send({ payment: "cash", items: [{ menu_item_id: item.id, qty: 1 }] })
+      .expect(201);
+    expect(a.body.daily_seq).toBe(1);
+    expect(b.body.daily_seq).toBe(2);
+    const summary = await api3.get("/api/sales/summary").expect(200);
+    expect(summary.body.next_order_number).toBe(3);
+  });
+
+  it("voided sales still consume numbers: summary and next POST agree", async () => {
+    // Own isolated DB so the sequence is literally 1, 2, void, next = 3.
+    const dir4 = mkdtempSync(join(tmpdir(), "solace-daily-seq-void-"));
+    const app4 = createApp(join(dir4, "daily-seq-void.db"));
+    const api4 = authed(app4);
+    try {
+      const cat = await api4
+        .post("/api/categories")
+        .send({ name: "DailySeqVoid" })
+        .expect(201);
+      const item = (
+        await api4
+          .post("/api/menu_items")
+          .send({
+            category_id: cat.body.id,
+            name: "Void Drink",
+            price_cents: 5000,
+          })
+          .expect(201)
+      ).body;
+      const s1 = (
+        await api4
+          .post("/api/sales")
+          .send({ payment: "cash", items: [{ menu_item_id: item.id, qty: 1 }] })
+          .expect(201)
+      ).body;
+      const s2 = (
+        await api4
+          .post("/api/sales")
+          .send({ payment: "cash", items: [{ menu_item_id: item.id, qty: 1 }] })
+          .expect(201)
+      ).body;
+      expect(s1.daily_seq).toBe(1);
+      expect(s2.daily_seq).toBe(2);
+      await api4.patch(`/api/sales/${s1.id}`).send({ voided: 1 }).expect(200);
+      const during = await api4.get("/api/sales/summary").expect(200);
+      expect(during.body.next_order_number).toBe(3);
+      const s3 = (
+        await api4
+          .post("/api/sales")
+          .send({ payment: "cash", items: [{ menu_item_id: item.id, qty: 1 }] })
+          .expect(201)
+      ).body;
+      expect(s3.daily_seq).toBe(3);
+    } finally {
+      app4.locals.db.close();
+      rmSync(dir4, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("static frontend", () => {
   it("GET / returns HTML (or 503 JSON when dist is missing), never crashes", async () => {
     const res = await api.get("/");
