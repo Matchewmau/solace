@@ -45,6 +45,14 @@ function openDb(dbPath) {
   }
   if (!salesCols.includes("daily_seq")) {
     db.exec("ALTER TABLE sales ADD COLUMN daily_seq INTEGER NOT NULL DEFAULT 1");
+    // Backfill old rows: the DEFAULT 1 above stamps every pre-existing row
+    // as Order #1, so same-UTC-date rows would collide. Recompute dense
+    // per-UTC-date ROW_NUMBER() ORDER BY id. Safe for new-code rows too:
+    // allocation is COUNT+1 including voided and sales are never deleted,
+    // so recompute is identity for them.
+    db.exec(
+      "UPDATE sales SET daily_seq = (SELECT COUNT(*) FROM sales s2 WHERE substr(s2.created_at, 1, 10) = substr(sales.created_at, 1, 10) AND s2.id <= sales.id)",
+    );
   }
   return db;
 }

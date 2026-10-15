@@ -69,8 +69,12 @@ describe("HistoryPage table", () => {
     renderHistory([row(31, 5000), row(32, 9000)]);
     const table = await screen.findByRole("table");
     expect(within(table).getByText("Sale #31")).toBeDefined();
+    // First click sorts descending (newest first): Sale #32 (02:00) leads.
     fireEvent.click(screen.getByRole("button", { name: /Date/ }));
-    expect(firstRow()).not.toBe("");
+    expect(firstRow()).toContain("Sale #32");
+    // Second click flips to ascending: Sale #31 (01:00) leads.
+    fireEvent.click(screen.getByRole("button", { name: /Date/ }));
+    expect(firstRow()).toContain("Sale #31");
     expect(screen.getByRole("link", { name: "Back to POS" })).toBeDefined();
   });
 

@@ -306,6 +306,26 @@ describe("POS order tabs", () => {
     expect(screen.queryByRole("button", { name: /Close Order/ })).toBeNull();
   });
 
+  it("New order on an empty active tab replaces it via discardEmpty rather than stacking", async () => {
+    globalThis.fetch = vi.fn(menuFetch()) as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Cortado");
+
+    // Explicit wiring lock: newTab() calls discardEmpty on the empty
+    // active tab before addOrder (whose internal reap stays as backstop).
+    const spy = vi.spyOn(useOrders.getState(), "discardEmpty");
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "New order" }));
+      expect(spy).toHaveBeenCalledWith("order-1");
+    } finally {
+      spy.mockRestore();
+    }
+    // Replaced, not stacked: still exactly one tab.
+    expect(screen.getAllByRole("tab")).toHaveLength(1);
+    expect(selected("Order #1 (0)")).toBe("true");
+  });
+
   it("item grid adds to the active order only", async () => {
     globalThis.fetch = vi.fn(menuFetch()) as typeof fetch;
 
@@ -775,6 +795,54 @@ describe("POS paid flow with history", () => {
     expect(screen.getByRole("button", { name: "Edit" })).toBeDefined();
     expect(screen.queryByRole("button", { name: /Mark sale/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Void sale/ })).toBeNull();
+  });
+
+  it("paid receipt disables Edit; unpaid receipt keeps Edit enabled", async () => {
+    function doneOrder(paid: 0 | 1) {
+      return {
+        key: "order-9",
+        label: "Order #9",
+        lines: [{ menu_item_id: 1, qty: 1 }],
+        payment: "cash" as const,
+        status: "done" as const,
+        sale: {
+          id: 41,
+          daily_seq: 9,
+          total_cents: 7000,
+          payment: "cash" as const,
+          voided: 0,
+          paid,
+          created_at: `${today} 07:15:00`,
+          items: [{ id: 1, menu_item_id: 1, qty: 1, unit_price_cents: 7000 }],
+        },
+        dailySeq: 9,
+        tempNo: 9,
+      };
+    }
+
+    // Paid: reopenForEdit would no-op, so Edit must read disabled.
+    useOrders.setState({ orders: [doneOrder(1)], activeKey: "order-9" });
+    globalThis.fetch = vi.fn(menuFetch()) as typeof fetch;
+    const first = renderPos();
+    await screen.findByText("Sale complete");
+    expect(screen.getByText("PAID")).toBeDefined();
+    expect(
+      (screen.getByRole("button", { name: "Edit" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    first.unmount();
+    cleanup();
+
+    // Unpaid: Edit stays enabled and reopens the tab.
+    useOrders.setState({ orders: [doneOrder(0)], activeKey: "order-9" });
+    globalThis.fetch = vi.fn(menuFetch()) as typeof fetch;
+    renderPos();
+    await screen.findByText("Sale complete");
+    expect(screen.getByText("UNPAID")).toBeDefined();
+    expect(
+      (screen.getByRole("button", { name: "Edit" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
   });
 });
 

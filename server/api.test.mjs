@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import Database from "better-sqlite3";
 import { afterAll, describe, expect, it } from "vitest";
 import { authed } from "./test-auth.mjs";
 import { createApp } from "./app.mjs";
@@ -518,6 +519,115 @@ describe("daily order numbers", () => {
     } finally {
       app4.locals.db.close();
       rmSync(dir4, { recursive: true, force: true });
+    }
+  });
+
+  it("UTC day rollover resets daily_seq: prior-day rows never consume today's numbers", async () => {
+    // Own isolated DB so today's sequence starts empty.
+    const dirRoll = mkdtempSync(join(tmpdir(), "solace-daily-seq-roll-"));
+    const appRoll = createApp(join(dirRoll, "daily-seq-roll.db"));
+    const apiRoll = authed(appRoll);
+    try {
+      const cat = await apiRoll
+        .post("/api/categories")
+        .send({ name: "DailySeqRollover" })
+        .expect(201);
+      const item = (
+        await apiRoll
+          .post("/api/menu_items")
+          .send({
+            category_id: cat.body.id,
+            name: "Rollover Drink",
+            price_cents: 5000,
+          })
+          .expect(201)
+      ).body;
+      const oldDate = new Date(Date.now() - 86400000)
+        .toISOString()
+        .slice(0, 10);
+      const today = new Date().toISOString().slice(0, 10);
+      appRoll.locals.db
+        .prepare(
+          "INSERT INTO sales (total_cents, payment, created_at) VALUES (?, ?, ?)",
+        )
+        .run(4200, "cash", `${oldDate} 10:00:00`);
+      const posted = (
+        await apiRoll
+          .post("/api/sales")
+          .send({ payment: "cash", items: [{ menu_item_id: item.id, qty: 1 }] })
+          .expect(201)
+      ).body;
+      expect(posted.daily_seq).toBe(1);
+      const current = await apiRoll
+        .get(`/api/sales/summary?date=${today}`)
+        .expect(200);
+      expect(current.body.sale_count).toBe(1);
+      expect(current.body.next_order_number).toBe(2);
+      // The prior-day summary is unaffected by today's POST.
+      const scoped = await apiRoll
+        .get(`/api/sales/summary?date=${oldDate}`)
+        .expect(200);
+      expect(scoped.body).toMatchObject({
+        date: oldDate,
+        cash_total_cents: 4200,
+        sale_count: 1,
+        voided_count: 0,
+        next_order_number: 2,
+      });
+    } finally {
+      appRoll.locals.db.close();
+      rmSync(dirRoll, { recursive: true, force: true });
+    }
+  });
+
+  it("boot migration backfills dense per-day daily_seq for pre-existing rows", async () => {
+    // Build an old-schema DB: sales table WITHOUT daily_seq (pre-feature),
+    // two same-UTC-day rows plus one other-day row.
+    const dirOld = mkdtempSync(join(tmpdir(), "solace-daily-seq-migrate-"));
+    const oldDbPath = join(dirOld, "old-schema.db");
+    const today = new Date().toISOString().slice(0, 10);
+    const legacy = new Database(oldDbPath);
+    try {
+      legacy.exec(
+        "CREATE TABLE sales (id INTEGER PRIMARY KEY, total_cents INTEGER NOT NULL, payment TEXT NOT NULL, voided INTEGER NOT NULL DEFAULT 0, paid INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)",
+      );
+      const add = legacy.prepare(
+        "INSERT INTO sales (total_cents, payment, created_at) VALUES (?, ?, ?)",
+      );
+      add.run(5000, "cash", `${today} 10:00:00`);
+      add.run(6000, "gcash", `${today} 11:00:00`);
+      add.run(4200, "cash", "2000-01-05 10:00:00");
+    } finally {
+      legacy.close();
+    }
+    // Opening via createApp runs the boot migration (ALTER + backfill).
+    const migrated = createApp(oldDbPath);
+    const apiMigrated = authed(migrated);
+    try {
+      const todayRows = migrated.locals.db
+        .prepare(
+          "SELECT daily_seq FROM sales WHERE substr(created_at, 1, 10) = ? ORDER BY id",
+        )
+        .all(today);
+      expect(todayRows.map((row) => row.daily_seq)).toEqual([1, 2]);
+      const oldRows = migrated.locals.db
+        .prepare(
+          "SELECT daily_seq FROM sales WHERE substr(created_at, 1, 10) = ? ORDER BY id",
+        )
+        .all("2000-01-05");
+      expect(oldRows.map((row) => row.daily_seq)).toEqual([1]);
+      const summaryToday = await apiMigrated
+        .get(`/api/sales/summary?date=${today}`)
+        .expect(200);
+      expect(summaryToday.body.sale_count).toBe(2);
+      expect(summaryToday.body.next_order_number).toBe(3);
+      const summaryOld = await apiMigrated
+        .get("/api/sales/summary?date=2000-01-05")
+        .expect(200);
+      expect(summaryOld.body.next_order_number).toBe(2);
+    } finally {
+      migrated.locals.db.close();
+      rmSync(dirOld, { recursive: true, force: true });
     }
   });
 });

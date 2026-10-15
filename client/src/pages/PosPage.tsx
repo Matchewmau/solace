@@ -101,6 +101,14 @@ export default function PosPage() {
   }
 
   function newTab() {
+    // Wire discardEmpty explicitly: an empty-and-unposted active tab is
+    // replaced rather than stacked (addOrder's internal reap stays as
+    // backstop for any other empty temps).
+    const state = useOrders.getState();
+    const current = state.orders.find((order) => order.key === state.activeKey);
+    if (current && current.lines.length === 0 && current.sale === null) {
+      state.discardEmpty(current.key);
+    }
     addOrder();
     setError("");
   }
@@ -355,7 +363,8 @@ export default function PosPage() {
                     <button
                       type="button"
                       onClick={editOrder}
-                      className="flex-1 border border-ink px-4 py-3 text-base font-semibold"
+                      disabled={doneSale.paid === 1}
+                      className="flex-1 border border-ink px-4 py-3 text-base font-semibold disabled:opacity-40"
                     >
                       Edit
                     </button>
