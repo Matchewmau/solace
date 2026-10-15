@@ -779,6 +779,52 @@ describe("POS paid flow with history", () => {
 });
 
 describe("POS theme lock", () => {
+  // Verbatim token hexes (paper #faf8f4, ink #141210, accent #8a5a2b,
+  // muted #6f6a61) are asserted in client/src/App.test.tsx:14-21 against
+  // client/src/brand.ts — not duplicated here. These tests lock how the
+  // POS shell *applies* those tokens. UNPAID red is already locked by
+  // "finalize posts paid 0 and the finalized order shows UNPAID in red".
+  it("shell uses paper/ink, rail-active tab uses coffee fill", async () => {
+    globalThis.fetch = vi.fn(menuFetch()) as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Cortado");
+
+    const shell = screen.getByRole("main");
+    expect(shell.className).toContain("bg-paper");
+    expect(shell.className).toContain("text-ink");
+
+    // Rail-active tab carries the coffee fill; inactive tabs do not.
+    expect(
+      screen.getByRole("tab", { name: "Order #1 (0)" }).className,
+    ).toContain("bg-accent");
+    fireEvent.click(screen.getByRole("button", { name: /Cortado/ }));
+    fireEvent.click(screen.getByRole("button", { name: "New order" }));
+    expect(
+      screen.getByRole("tab", { name: "Order #2 (0)" }).className,
+    ).toContain("bg-accent");
+    expect(
+      screen.getByRole("tab", { name: "Order #1 (1)" }).className,
+    ).not.toContain("bg-accent");
+  });
+
+  it("category pills render above the menu item grid", async () => {
+    globalThis.fetch = vi.fn(menuFetch()) as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Cortado");
+
+    const menu = screen.getByRole("region", { name: "Menu items" });
+    const pills = within(menu).getByRole("group", {
+      name: "Category filter",
+    });
+    const grid = within(menu).getByRole("list");
+    expect(
+      pills.compareDocumentPosition(grid) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   it("done receipt Delete reads destructive red", async () => {
     globalThis.fetch = vi.fn(
       menuFetch(async (u, init) => {
@@ -802,10 +848,14 @@ describe("POS theme lock", () => {
       expect(screen.getByText("Sale complete")).toBeDefined();
     });
 
-    // Destructive-action lock: Delete is red, Edit stays ink-outline.
+    // Destructive-action lock: Delete is explicitly red-bordered red
+    // text; Edit stays ink-outline.
+    const del = screen.getByRole("button", { name: "Delete" }).className;
+    expect(del).toContain("border-red-600");
+    expect(del).toContain("text-red-600");
     expect(
-      screen.getByRole("button", { name: "Delete" }).className,
-    ).toMatch(/red/);
+      screen.getByRole("button", { name: "Edit" }).className,
+    ).not.toContain("red");
   });
 });
 
