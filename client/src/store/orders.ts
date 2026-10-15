@@ -18,6 +18,10 @@
  * or Mark unpaid (PATCH paid) — paid-off never reopens the tab.
  * reopenForEdit flips a done-but-unpaid tab back to open (sale kept for
  * the re-Done PUT); discardEmpty drops a never-posted empty tab locally.
+ * openSaleTab binds an existing server sale (fetched by id, e.g. from the
+ * Today page) onto a done holding tab so its Details Mark paid button stays
+ * reachable — the only settlement path for orphaned unpaid sales with no
+ * open tab. Reopening an already-held sale just selects its tab.
  */
 import { create } from "zustand";
 import type { MenuItem } from "../api/menu";
@@ -58,6 +62,7 @@ interface OrdersState {
   updateSale: (key: string, sale: Sale) => void;
   reopenForEdit: (key: string) => void;
   discardEmpty: (key: string) => void;
+  openSaleTab: (sale: Sale) => void;
 }
 
 /** localStorage key for the persisted {orders, activeKey, utcDate} snapshot. */
@@ -371,6 +376,42 @@ export const useOrders = create<OrdersState>()((set) => ({
           state.activeKey === key
             ? remaining[remaining.length - 1].key
             : state.activeKey,
+      };
+    }),
+  openSaleTab: (sale) =>
+    set((state) => {
+      const holder = state.orders.find((order) => order.sale?.id === sale.id);
+      if (holder) return { activeKey: holder.key };
+      const seq =
+        typeof sale.daily_seq === "number" &&
+        Number.isInteger(sale.daily_seq) &&
+        sale.daily_seq >= 1
+          ? sale.daily_seq
+          : null;
+      const tempNo = nextTempNo(state.orders);
+      const order: Order = {
+        key: `order-sale-${sale.id}`,
+        label: seq === null ? `Sale #${sale.id}` : `Order #${seq}`,
+        lines: sale.items.map((line) => ({
+          menu_item_id: line.menu_item_id,
+          qty: line.qty,
+        })),
+        payment: sale.payment,
+        status: "done",
+        sale,
+        dailySeq: seq,
+        tempNo,
+      };
+      // Reap never-posted empty temps so the bound label never duplicates
+      // a visible temp label; an existing key is refreshed in place.
+      const kept = state.orders.filter((existing) => !isEmptyTemp(existing));
+      return {
+        orders: kept.some((existing) => existing.key === order.key)
+          ? kept.map((existing) =>
+              existing.key === order.key ? order : existing,
+            )
+          : [...kept, order],
+        activeKey: order.key,
       };
     }),
 }));

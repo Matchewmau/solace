@@ -53,6 +53,8 @@ export interface SaleSummary {
   gcash_total_cents: number;
   sale_count: number;
   voided_count: number;
+  /** Next Order # for the UTC date (day row count + 1, voided included). */
+  next_order_number: number;
 }
 
 /** Today's UTC date (YYYY-MM-DD), matching the server's day-boundary rule. */
@@ -97,6 +99,11 @@ export function fetchSummary(date: string): Promise<SaleSummary> {
   return requestJson<SaleSummary>(
     `/api/sales/summary?date=${encodeURIComponent(date)}`,
   );
+}
+
+/** Full sale with lines (for reopening an orphaned sale onto a tab). */
+export function fetchSale(id: number): Promise<Sale> {
+  return requestJson<Sale>(`/api/sales/${id}`);
 }
 
 export function patchSaleVoid(id: number, voided: 0 | 1): Promise<Sale> {

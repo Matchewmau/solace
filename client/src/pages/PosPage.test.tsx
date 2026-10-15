@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router-dom";
 import PosPage from "./PosPage";
 import { useOrders } from "../store/orders";
 import type { Category, MenuItem } from "../api/menu";
@@ -73,9 +74,14 @@ function renderPos() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+  // MemoryRouter supplies context for the Today/History nav links; the
+  // POS shell itself renders standalone (route wiring is covered by the
+  // Today/History page tests).
   return render(
     <QueryClientProvider client={client}>
-      <PosPage />
+      <MemoryRouter>
+        <PosPage />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -224,108 +230,27 @@ describe("POS checkout flow", () => {
     expect(screen.getByText("Order #1 · Sale #8")).toBeDefined();
   });
 
-describe("Today panel + daily summary", () => {
-  const today = new Date().toISOString().slice(0, 10);
-
-  it("summary header renders split totals with voided flag and Void/Unvoid buttons", async () => {
-    globalThis.fetch = vi.fn(async (url: unknown) => {
-      const u = String(url);
-      if (u === "/api/categories") return ok(categories);
-      if (u === "/api/menu_items?active=1") return ok(items);
-      if (u.startsWith("/api/sales/summary"))
-        return ok({
-          date: today,
-          cash_total_cents: 16000,
-          gcash_total_cents: 9000,
-          sale_count: 1,
-          voided_count: 1,
-        });
-      if (u.startsWith("/api/sales?") && u.includes("since="))
-        return ok([
-          { id: 1, daily_seq: 1, total_cents: 16000, payment: "cash", voided: 0, paid: 0, created_at: `${today} 06:30:00` },
-          { id: 2, daily_seq: 2, total_cents: 9000, payment: "gcash", voided: 1, paid: 1, created_at: `${today} 07:15:00` },
-        ]);
-      if (u.startsWith("/api/sales?")) return ok([]);
-      throw new Error(`unexpected fetch ${u}`);
-    }) as typeof fetch;
+describe("POS nav to Today + History pages", () => {
+  it("far-left nav links to the Today and History pages", async () => {
+    globalThis.fetch = vi.fn(menuFetch()) as typeof fetch;
 
     renderPos();
-    await screen.findByText("Today");
+    await screen.findByText("Cortado");
 
-    // Split method totals via the shared formatPeso helper. Each amount
-    // appears twice: once in the summary header, once in its sale row.
-    expect(screen.getAllByText("₱160")).toHaveLength(2);
-    expect(screen.getAllByText("₱90")).toHaveLength(2);
-
-    expect(screen.getByText("Sale #1")).toBeDefined();
-    expect(screen.getByText("Sale #2")).toBeDefined();
-    expect(screen.getByText("Voided")).toBeDefined();
+    // The inline Today/History sections are gone — the nav owns the links.
     expect(
-      screen.getByRole("button", { name: "Void sale 1" }),
-    ).toBeDefined();
+      screen.queryByRole("heading", { name: "Today" }),
+    ).toBeNull();
     expect(
-      screen.getByRole("button", { name: "Unvoid sale 2" }),
-    ).toBeDefined();
-  });
-
-  it("void button issues PATCH {voided} and refreshes the list + summary", async () => {
-    let rows = [
-      { id: 1, daily_seq: 1, total_cents: 16000, payment: "cash", voided: 0, paid: 0, created_at: `${today} 06:30:00` },
-    ];
-    const patchBodies: unknown[] = [];
-    const summary = () => {
-      const live = rows.filter((row) => row.voided === 0);
-      return {
-        date: today,
-        cash_total_cents: live
-          .filter((row) => row.payment === "cash")
-          .reduce((sum, row) => sum + row.total_cents, 0),
-        gcash_total_cents: live
-          .filter((row) => row.payment === "gcash")
-          .reduce((sum, row) => sum + row.total_cents, 0),
-        sale_count: live.length,
-        voided_count: rows.filter((row) => row.voided === 1).length,
-      };
-    };
-    globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
-      const u = String(url);
-      if (u === "/api/categories") return ok(categories);
-      if (u === "/api/menu_items?active=1") return ok(items);
-      if (u === "/api/sales/1" && init?.method === "PATCH") {
-        const body = JSON.parse(String(init.body));
-        patchBodies.push(body);
-        rows = rows.map((row) =>
-          row.id === 1 ? { ...row, voided: body.voided } : row,
-        );
-        return ok({ ...rows[0], items: [] });
-      }
-      if (u.startsWith("/api/sales/summary")) return ok(summary());
-      if (u.startsWith("/api/sales?") && u.includes("since=")) return ok(rows);
-      if (u.startsWith("/api/sales?")) return ok([]);
-      throw new Error(`unexpected fetch ${u} ${init?.method}`);
-    }) as typeof fetch;
-
-    renderPos();
-    await screen.findByText("Sale #1");
-    // ₱160 twice: summary header + the sale row.
-    expect(screen.getAllByText("₱160")).toHaveLength(2);
-    expect(screen.queryByText("Voided")).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: "Void sale 1" }));
-
-    // PATCH payload is exactly {voided}, and the refreshed list + summary
-    // show the void (flag, Unvoid button, header cash total back to zero
-    // while the row keeps its rung-up total).
-    await waitFor(() => {
-      expect(screen.getByText("Voided")).toBeDefined();
-    });
-    expect(patchBodies).toEqual([{ voided: 1 }]);
+      screen.queryByRole("heading", { name: "History" }),
+    ).toBeNull();
+    const nav = screen.getByRole("navigation", { name: "Pages" });
     expect(
-      screen.getByRole("button", { name: "Unvoid sale 1" }),
-    ).toBeDefined();
-    await waitFor(() => {
-      expect(screen.getAllByText("₱160")).toHaveLength(1);
-    });
+      within(nav).getByRole("link", { name: "Today" }).getAttribute("href"),
+    ).toBe("/today");
+    expect(
+      within(nav).getByRole("link", { name: "History" }).getAttribute("href"),
+    ).toBe("/history");
   });
 });
 
@@ -714,7 +639,7 @@ describe("POS paid flow with history", () => {
     });
   });
 
-  it("mark paid PATCHes paid 1, closes the tab, and lists under Paid today", async () => {
+  it("mark paid PATCHes paid 1 and closes the tab (settlement lives in Details)", async () => {
     const patches: unknown[] = [];
     let paid = 0;
     const row = () => ({
@@ -775,168 +700,85 @@ describe("POS paid flow with history", () => {
     expect(
       screen.getByText("Order is empty. Tap an item to add it."),
     ).toBeDefined();
-    // The sale now lives under Paid today.
-    const paidList = await screen.findByRole("list", { name: "Paid today sales" });
-    expect(within(paidList).getByText("Sale #23")).toBeDefined();
-  });
-
-  it("list mark paid PATCHes paid 1, closes the holding tab, and lists under Paid today", async () => {
-    const patches: unknown[] = [];
-    let paid = 0;
-    const row = () => ({
-      id: 24,
-      daily_seq: 1,
-      total_cents: 7000,
-      payment: "cash",
-      voided: 0,
-      paid,
-      created_at: `${today} 10:00:00`,
-    });
-    globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
-      const u = String(url);
-      if (u === "/api/categories") return ok(categories);
-      if (u === "/api/menu_items?active=1") return ok(items);
-      if (u.startsWith("/api/sales/summary")) return ok(emptySummary);
-      if (u === "/api/sales" && init?.method === "POST") {
-        return ok(
-          {
-            ...unpaidSale(24, 7000, "cash", [{ menu_item_id: 1, qty: 1 }]),
-            items: [
-              { id: 1, menu_item_id: 1, qty: 1, unit_price_cents: 7000 },
-            ],
-          },
-          201,
-        );
-      }
-      if (u === "/api/sales/24" && init?.method === "PATCH") {
-        const body = JSON.parse(String(init.body));
-        patches.push(body);
-        paid = body.paid;
-        return ok(row());
-      }
-      // Today list vs history: only since-scoped rows are today's.
-      if (u.startsWith("/api/sales?") && u.includes("since=")) return ok([row()]);
-      if (u.startsWith("/api/sales?")) return ok([]);
-      throw new Error(`unexpected fetch ${u} ${init?.method}`);
-    }) as typeof fetch;
-
-    renderPos();
-    await screen.findByText("Cortado");
-
-    fireEvent.click(screen.getByRole("button", { name: /Cortado/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Done" }));
-    await waitFor(() => {
-      expect(screen.getByText("UNPAID")).toBeDefined();
-    });
-
-    // LIST button (not the tab's "Mark paid"): the finalized tab holds sale 24.
-    const unpaidList = await screen.findByRole("list", { name: "Unpaid sales" });
-    fireEvent.click(
-      within(unpaidList).getByRole("button", { name: "Mark sale 24 paid" }),
-    );
-
-    await waitFor(() => {
-      expect(patches).toEqual([{ paid: 1 }]);
-    });
-    // Holding tab closed: Order #1 tab is gone, fresh empty order is open.
-    await waitFor(() => {
-      expect(screen.queryByRole("tab", { name: "Order #1 (1)" })).toBeNull();
-    });
+    // Settlement lives in Order Details only — the sale appears under
+    // Paid today on the /today page, never inline here.
     expect(
-      screen.getByText("Order is empty. Tap an item to add it."),
-    ).toBeDefined();
-    // The sale now lives under Paid today.
-    const paidList = await screen.findByRole("list", { name: "Paid today sales" });
-    expect(within(paidList).getByText("Sale #24")).toBeDefined();
+      screen.queryByRole("button", { name: /Mark sale/ }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: /Void sale/ })).toBeNull();
   });
 
-  it("history section lists a past-date sale", async () => {
-    globalThis.fetch = vi.fn(async (url: unknown) => {
-      const u = String(url);
-      if (u === "/api/categories") return ok(categories);
-      if (u === "/api/menu_items?active=1") return ok(items);
-      if (u.startsWith("/api/sales/summary")) return ok(emptySummary);
-      if (u.startsWith("/api/sales?") && u.includes("since=")) return ok([]);
-      if (u.startsWith("/api/sales?"))
-        return ok([
-          {
-            id: 31,
-            daily_seq: 1,
-            total_cents: 5000,
-            payment: "gcash",
+  it("Details Mark unpaid PATCHes paid 0 and keeps the tab open with UNPAID", async () => {
+    // A paid holding tab (e.g. reopened from Today) settles back to unpaid
+    // via the Order Details button — the tab stays, lines stay editable.
+    useOrders.setState({
+      orders: [
+        {
+          key: "order-9",
+          label: "Order #9",
+          lines: [{ menu_item_id: 1, qty: 1 }],
+          payment: "cash",
+          status: "done",
+          sale: {
+            id: 41,
+            daily_seq: 9,
+            total_cents: 7000,
+            payment: "cash",
             voided: 0,
             paid: 1,
-            created_at: "2026-10-12 08:00:00",
+            created_at: `${today} 07:15:00`,
+            items: [{ id: 1, menu_item_id: 1, qty: 1, unit_price_cents: 7000 }],
           },
-        ]);
-      throw new Error(`unexpected fetch ${u}`);
-    }) as typeof fetch;
-
-    renderPos();
-    await screen.findByText("Cortado");
-
-    expect(
-      screen.getByRole("heading", { name: "History" }),
-    ).toBeDefined();
-    const history = screen.getByRole("list", { name: "History sales" });
-    expect(within(history).getByText("Sale #31")).toBeDefined();
-  });
-
-  it("mark unpaid PATCHes paid 0 and returns the row to Unpaid, red", async () => {
-    const patches: unknown[] = [];
-    let paid = 1;
-    const row = () => ({
-      id: 41,
-      daily_seq: 1,
-      total_cents: 9000,
-      payment: "gcash",
-      voided: 0,
-      paid,
-      created_at: `${today} 07:15:00`,
+          dailySeq: 9,
+          tempNo: 9,
+        },
+      ],
+      activeKey: "order-9",
     });
+    const patches: unknown[] = [];
     globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
       const u = String(url);
       if (u === "/api/categories") return ok(categories);
       if (u === "/api/menu_items?active=1") return ok(items);
       if (u.startsWith("/api/sales/summary")) return ok(emptySummary);
+      if (u.startsWith("/api/sales?")) return ok([]);
       if (u === "/api/sales/41" && init?.method === "PATCH") {
         const body = JSON.parse(String(init.body));
         patches.push(body);
-        paid = body.paid;
-        return ok(row());
+        return ok({
+          id: 41,
+          daily_seq: 9,
+          total_cents: 7000,
+          payment: "cash",
+          voided: 0,
+          paid: body.paid,
+          created_at: `${today} 07:15:00`,
+          items: [{ id: 1, menu_item_id: 1, qty: 1, unit_price_cents: 7000 }],
+        });
       }
-      if (u.startsWith("/api/sales?") && u.includes("since=")) return ok([row()]);
-      if (u.startsWith("/api/sales?")) return ok([]);
       throw new Error(`unexpected fetch ${u} ${init?.method}`);
     }) as typeof fetch;
 
     renderPos();
     await screen.findByText("Cortado");
 
-    // Paid row starts under Paid today.
-    const paidList = await screen.findByRole("list", { name: "Paid today sales" });
-    expect(within(paidList).getByText("Sale #41")).toBeDefined();
-
-    fireEvent.click(
-      within(paidList).getByRole("button", { name: "Mark sale 41 unpaid" }),
-    );
+    expect(screen.getByText("PAID")).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Mark unpaid" }));
 
     await waitFor(() => {
       expect(patches).toEqual([{ paid: 0 }]);
     });
-    // Row moves back under Unpaid and reads red.
-    const unpaidList = await screen.findByRole("list", { name: "Unpaid sales" });
+    // Receipt stays open on the same tab, now UNPAID, with Edit available.
     await waitFor(() => {
-      expect(within(unpaidList).getByText("Sale #41")).toBeDefined();
+      expect(screen.getByText("UNPAID")).toBeDefined();
     });
-    const li = within(unpaidList).getByText("Sale #41").closest("li");
-    expect(li?.className).toMatch(/red/);
+    expect(screen.getByRole("button", { name: "Edit" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: /Mark sale/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Void sale/ })).toBeNull();
   });
 });
 
 describe("POS order/sale label linking", () => {
-  const today = new Date().toISOString().slice(0, 10);
-
   it("finalized tab receipt header reads Order #N · Sale #M", async () => {
     globalThis.fetch = vi.fn(
       menuFetch(async (u, init) => {
@@ -961,140 +803,5 @@ describe("POS order/sale label linking", () => {
       expect(screen.getByText("Sale complete")).toBeDefined();
     });
     expect(screen.getByText("Order #1 · Sale #4")).toBeDefined();
-  });
-
-  it("unpaid row held by an open tab appends the order label", async () => {
-    globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
-      const u = String(url);
-      if (u === "/api/categories") return ok(categories);
-      if (u === "/api/menu_items?active=1") return ok(items);
-      if (u.startsWith("/api/sales/summary")) return ok(emptySummary);
-      if (u === "/api/sales" && init?.method === "POST") {
-        const body = JSON.parse(String(init.body)) as {
-          payment: string;
-          items: { menu_item_id: number; qty: number }[];
-        };
-        return ok(
-          {
-            ...sale(4, 7000, body.payment, body.items),
-            id: 4,
-            created_at: `${today} 10:00:00`,
-          },
-          201,
-        );
-      }
-      if (u.startsWith("/api/sales?") && u.includes("since="))
-        return ok([
-          {
-            id: 4,
-            daily_seq: 1,
-            total_cents: 7000,
-            payment: "cash",
-            voided: 0,
-            paid: 0,
-            created_at: `${today} 10:00:00`,
-          },
-        ]);
-      if (u.startsWith("/api/sales?")) return ok([]);
-      throw new Error(`unexpected fetch ${u} ${init?.method}`);
-    }) as typeof fetch;
-
-    renderPos();
-    await screen.findByText("Cortado");
-
-    fireEvent.click(screen.getByRole("button", { name: /Cortado/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Done" }));
-
-    await waitFor(() => {
-      expect(screen.getByText("Sale complete")).toBeDefined();
-    });
-    const unpaidList = await screen.findByRole("list", { name: "Unpaid sales" });
-    await waitFor(() => {
-      expect(within(unpaidList).getByText("Sale #4 (Order #1)")).toBeDefined();
-    });
-  });
-
-  it("paid-today row held by an open tab appends the order label", async () => {
-    useOrders.setState({
-      orders: [
-        {
-          key: "order-3",
-          label: "Order #3",
-          lines: [{ menu_item_id: 1, qty: 1 }],
-          payment: "cash",
-          status: "done",
-          sale: {
-            id: 4,
-            daily_seq: 3,
-            total_cents: 7000,
-            payment: "cash",
-            voided: 0,
-            paid: 1,
-            created_at: `${today} 10:00:00`,
-            items: [{ id: 1, menu_item_id: 1, qty: 1, unit_price_cents: 7000 }],
-          },
-          dailySeq: 3,
-          tempNo: 3,
-        },
-      ],
-      activeKey: "order-3",
-    });
-    globalThis.fetch = vi.fn(async (url: unknown) => {
-      const u = String(url);
-      if (u === "/api/categories") return ok(categories);
-      if (u === "/api/menu_items?active=1") return ok(items);
-      if (u.startsWith("/api/sales/summary")) return ok(emptySummary);
-      if (u.startsWith("/api/sales?") && u.includes("since="))
-        return ok([
-          {
-            id: 4,
-            daily_seq: 3,
-            total_cents: 7000,
-            payment: "cash",
-            voided: 0,
-            paid: 1,
-            created_at: `${today} 10:00:00`,
-          },
-        ]);
-      if (u.startsWith("/api/sales?")) return ok([]);
-      throw new Error(`unexpected fetch ${u}`);
-    }) as typeof fetch;
-
-    renderPos();
-    await screen.findByText("Cortado");
-
-    const paidList = await screen.findByRole("list", { name: "Paid today sales" });
-    expect(within(paidList).getByText("Sale #4 (Order #3)")).toBeDefined();
-  });
-
-  it("row with no open tab shows the sale label only", async () => {
-    globalThis.fetch = vi.fn(async (url: unknown) => {
-      const u = String(url);
-      if (u === "/api/categories") return ok(categories);
-      if (u === "/api/menu_items?active=1") return ok(items);
-      if (u.startsWith("/api/sales/summary")) return ok(emptySummary);
-      if (u.startsWith("/api/sales?") && u.includes("since="))
-        return ok([
-          {
-            id: 99,
-            daily_seq: 5,
-            total_cents: 7000,
-            payment: "cash",
-            voided: 0,
-            paid: 0,
-            created_at: `${today} 10:00:00`,
-          },
-        ]);
-      if (u.startsWith("/api/sales?")) return ok([]);
-      throw new Error(`unexpected fetch ${u}`);
-    }) as typeof fetch;
-
-    renderPos();
-    await screen.findByText("Cortado");
-
-    const unpaidList = await screen.findByRole("list", { name: "Unpaid sales" });
-    const label = within(unpaidList).getByText("Sale #99");
-    expect(label).toBeDefined();
-    expect(label.closest("li")?.textContent).not.toMatch(/Order #/);
   });
 });

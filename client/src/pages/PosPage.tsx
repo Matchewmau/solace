@@ -1,7 +1,8 @@
 import { useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchActiveMenuItems, fetchCategories } from "../api/menu";
-import { fetchPastSales, fetchSalesForDate, fetchSummary, patchSalePaid, patchSaleVoid, postSale, putSaleItems, utcToday, type SaleRow } from "../api/sales";
+import { patchSalePaid, postSale, putSaleItems, utcToday } from "../api/sales";
 import { formatPeso } from "../lib/formatPeso";
 import { cartTotalCents, useOrders } from "../store/orders";
 import { sortCategories } from "../lib/sortCategories";
@@ -30,7 +31,6 @@ export default function PosPage() {
   const [activeCategory, setActiveCategory] = useState<number | "all">("all");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
-  const [todayError, setTodayError] = useState("");
   // Finalized-tab ops (PUT items, Mark paid/unpaid) share one busy flag +
   // one error line so overlapping detail writes cannot interleave.
   const [detailBusy, setDetailBusy] = useState(false);
@@ -39,57 +39,12 @@ export default function PosPage() {
   // post only once. The done-status check below blocks any later click.
   const checkoutBusy = useRef(false);
 
-  // UTC-date "Today" panel (Task 8): the day boundary is the UTC calendar
+  // UTC-date order header (Task 8): the day boundary is the UTC calendar
   // date, matching GET /api/sales/summary. Shop hours 2pm-10pm PHT always
-  // fall inside one UTC date, so UTC prefix filtering is exact.
+  // fall inside one UTC date, so UTC prefix filtering is exact. Today and
+  // History live on their own pages (/today, /history) now.
   const today = useMemo(() => utcToday(), []);
   const queryClient = useQueryClient();
-  const summaryQuery = useQuery({
-    queryKey: ["sales", "summary", today],
-    queryFn: () => fetchSummary(today),
-  });
-  const todaySalesQuery = useQuery({
-    queryKey: ["sales", "today", today],
-    queryFn: () => fetchSalesForDate(today),
-  });
-  const historyQuery = useQuery({
-    queryKey: ["sales", "history", today],
-    queryFn: () => fetchPastSales(today),
-  });
-
-  // Today splits by settlement: anything not paid-1 reads as unpaid (the
-  // safer default — an unknown flag must demand attention, not hide).
-  const todayRows = todaySalesQuery.data ?? [];
-  const unpaidToday = todayRows.filter((row) => row.paid !== 1);
-  const paidToday = todayRows.filter((row) => row.paid === 1);
-  const paidTodayTotal = paidToday
-    .filter((row) => row.voided !== 1)
-    .reduce((sum, row) => sum + row.total_cents, 0);
-
-  async function toggleVoid(row: SaleRow) {
-    setTodayError("");
-    try {
-      await patchSaleVoid(row.id, row.voided === 1 ? 0 : 1);
-      await queryClient.invalidateQueries({ queryKey: ["sales"] });
-    } catch (err) {
-      setTodayError(err instanceof Error ? err.message : "Void failed.");
-    }
-  }
-
-  async function togglePaidRow(row: SaleRow) {
-    setTodayError("");
-    try {
-      const paid = row.paid === 1 ? 0 : 1;
-      await patchSalePaid(row.id, paid);
-      if (paid === 1) {
-        const holder = useOrders.getState().orders.find((order) => order.sale?.id === row.id);
-        if (holder) useOrders.getState().closeOrder(holder.key);
-      }
-      await queryClient.invalidateQueries({ queryKey: ["sales"] });
-    } catch (err) {
-      setTodayError(err instanceof Error ? err.message : "Mark paid failed.");
-    }
-  }
 
   // Finalized-tab settlement toggle. Marking paid closes the tab (a paid
   // order is fully done); marking unpaid refreshes the tab sale in place
@@ -195,68 +150,14 @@ export default function PosPage() {
     setError("");
   }
 
-  // One today-list row. Unpaid rows read red and carry a Mark paid button;
-  // paid rows carry Mark unpaid. Both are aria-labeled per sale so they
-  // never collide with the tab's Mark paid / Mark unpaid buttons.
-  // void/unvoid stays on every today row, paid or not.
-  function todayRow(row: SaleRow, markPaid: boolean) {
-    const holder = orders.find(
-      (order) => order.status === "done" && order.sale?.id === row.id,
-    );
-    return (
-      <li
-        key={row.id}
-        className={
-          row.paid === 1
-            ? "flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-ink/10 pb-2"
-            : "flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-ink/10 pb-2 text-red-600"
-        }
-      >
-        <span className="font-semibold">Sale #{row.id}{holder ? ` (${holder.label})` : ""}</span>
-        <span className="text-muted">{row.created_at.slice(11, 16)}</span>
-        <span>{row.payment === "cash" ? "Cash" : "GCash"}</span>
-        <span className="text-accent">{formatPeso(row.total_cents)}</span>
-        {row.voided === 1 ? <span>Voided</span> : null}
-        <button
-          type="button"
-          aria-label={
-            row.voided === 1 ? `Unvoid sale ${row.id}` : `Void sale ${row.id}`
-          }
-          onClick={() => void toggleVoid(row)}
-          className="ml-auto border border-ink px-3 py-1 text-sm font-semibold"
-        >
-          {row.voided === 1 ? "Unvoid" : "Void"}
-        </button>
-        {row.paid === 1 ? (
-          <button
-            type="button"
-            aria-label={`Mark sale ${row.id} unpaid`}
-            onClick={() => void togglePaidRow(row)}
-            className="border border-ink px-3 py-1 text-sm font-semibold"
-          >
-            Mark unpaid
-          </button>
-        ) : markPaid ? (
-          <button
-            type="button"
-            aria-label={`Mark sale ${row.id} paid`}
-            onClick={() => void togglePaidRow(row)}
-            className="border border-ink px-3 py-1 text-sm font-semibold"
-          >
-            Mark paid
-          </button>
-        ) : null}
-      </li>
-    );
-  }
-
   const isLoading = categoriesQuery.isLoading || itemsQuery.isLoading;
   const isError = categoriesQuery.isError || itemsQuery.isError;
 
   return (
     <main className="min-h-screen bg-paper text-ink">
       <div className="flex min-h-screen">
-        {/* Far-left page nav (visual stubs; Task 4 wires Today/History pages). */}
+        {/* Far-left page nav: Menu is the POS shell; Today + History are
+            their own pages (Task 4). Guide/Tables/Settings stay visual stubs. */}
         <nav aria-label="Pages" className="flex w-24 shrink-0 flex-col items-center gap-3 bg-ink py-6 text-paper">
           <span className="px-2 text-center text-xs font-bold tracking-widest">SOLACE</span>
           <button type="button" aria-current="page" className="w-full bg-accent px-2 py-2 text-sm font-semibold text-paper">
@@ -271,6 +172,12 @@ export default function PosPage() {
           <button type="button" className="w-full px-2 py-2 text-sm font-semibold text-paper/80">
             Settings
           </button>
+          <Link to="/today" className="w-full px-2 py-2 text-center text-sm font-semibold text-paper/80">
+            Today
+          </Link>
+          <Link to="/history" className="w-full px-2 py-2 text-center text-sm font-semibold text-paper/80">
+            History
+          </Link>
           <span className="mt-auto w-full px-2 py-2 text-center text-sm font-semibold text-paper/60">
             Logout
           </span>
@@ -568,92 +475,6 @@ export default function PosPage() {
               )}
             </section>
           </div>
-          <section aria-label="Today" className="flex flex-col gap-4 border border-ink p-6">
-            <h2 className="text-2xl font-semibold">Today</h2>
-            {summaryQuery.data ? (
-              <p className="text-lg">
-                Cash{" "}
-                <span className="font-semibold text-accent">
-                  {formatPeso(summaryQuery.data.cash_total_cents)}
-                </span>{" "}
-                &middot; GCash{" "}
-                <span className="font-semibold text-accent">
-                  {formatPeso(summaryQuery.data.gcash_total_cents)}
-                </span>{" "}
-                &middot; {summaryQuery.data.sale_count}{" "}
-                {summaryQuery.data.sale_count === 1 ? "sale" : "sales"}
-                {summaryQuery.data.voided_count > 0
-                  ? ` · ${summaryQuery.data.voided_count} voided`
-                  : ""}
-              </p>
-            ) : summaryQuery.isLoading ? (
-              <p className="text-muted">Loading today&apos;s summary…</p>
-            ) : (
-              <p className="text-muted">Could not load today&apos;s summary.</p>
-            )}
-            {todayError !== "" ? (
-              <p role="alert" className="text-base">
-                {todayError}
-              </p>
-            ) : null}
-            {todaySalesQuery.data ? (
-              <>
-                <h3 className="text-xl font-semibold">Unpaid</h3>
-                {unpaidToday.length === 0 ? (
-                  <p className="text-muted">No unpaid sales.</p>
-                ) : (
-                  <ul aria-label="Unpaid sales" className="flex flex-col gap-2">
-                    {unpaidToday.map((row) => todayRow(row, true))}
-                  </ul>
-                )}
-                <h3 className="text-xl font-semibold">Paid today</h3>
-                {paidToday.length === 0 ? (
-                  <p className="text-muted">No paid sales yet.</p>
-                ) : (
-                  <>
-                    <ul aria-label="Paid today sales" className="flex flex-col gap-2">
-                      {paidToday.map((row) => todayRow(row, false))}
-                    </ul>
-                    <p className="text-lg">
-                      Paid total{" "}
-                      <span className="font-semibold text-accent">
-                        {formatPeso(paidTodayTotal)}
-                      </span>
-                    </p>
-                  </>
-                )}
-              </>
-            ) : todaySalesQuery.isLoading ? (
-              <p className="text-muted">Loading today&apos;s sales…</p>
-            ) : (
-              <p className="text-muted">Could not load today&apos;s sales.</p>
-            )}
-            <h3 className="text-xl font-semibold">History</h3>
-            {historyQuery.data ? (
-              historyQuery.data.length === 0 ? (
-                <p className="text-muted">No past sales.</p>
-              ) : (
-                <ul aria-label="History sales" className="flex flex-col gap-2">
-                  {historyQuery.data.map((row) => (
-                    <li
-                      key={row.id}
-                      className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-ink/10 pb-2"
-                    >
-                      <span className="font-semibold">Sale #{row.id}</span>
-                      <span className="text-muted">{row.created_at.slice(0, 10)}</span>
-                      <span>{row.payment === "cash" ? "Cash" : "GCash"}</span>
-                      <span className="text-accent">{formatPeso(row.total_cents)}</span>
-                      {row.voided === 1 ? <span>Voided</span> : null}
-                    </li>
-                  ))}
-                </ul>
-              )
-            ) : historyQuery.isLoading ? (
-              <p className="text-muted">Loading past sales…</p>
-            ) : (
-              <p className="text-muted">Could not load past sales.</p>
-            )}
-          </section>
           </>
         )}
         </div>

@@ -4,6 +4,8 @@ import { Navigate, Outlet } from "react-router-dom";
 import InventoryPage from "./pages/InventoryPage";
 import InventoryHistoryPage from "./pages/InventoryHistoryPage";
 import PosPage from "./pages/PosPage";
+import TodayPage from "./pages/TodayPage";
+import HistoryPage from "./pages/HistoryPage";
 import LoginPage from "./pages/LoginPage";
 import { AuthedLayout } from "./components/AppHeader";
 import { useAuth } from "./components/AuthProvider";
@@ -113,6 +115,8 @@ export const routes: RouteObject[] = [
           },
           { path: "/menu", element: withBrandFallback(<MenuPage />, MenuFallback) },
           { path: "/pos", element: <PosPage /> },
+          { path: "/today", element: <TodayPage /> },
+          { path: "/history", element: <HistoryPage /> },
           {
             path: "/guide",
             element: withBrandFallback(<GuidePage />, GuideFallback),
