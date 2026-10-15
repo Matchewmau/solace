@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import DashboardPage from "./DashboardPage";
@@ -85,9 +85,12 @@ describe("DashboardPage with mocked payload", () => {
     expect(screen.getByText(/Item Two — 8 sold — ₱160/)).toBeTruthy();
 
     // No duplicating inline nav: the global rail owns every tab.
+    // Scoped to landmarks so future card-body copy stays green.
     expect(screen.queryByRole("navigation", { name: "Dashboard" })).toBeNull();
+    expect(screen.queryAllByRole("navigation")).toHaveLength(0);
+    const main = screen.getByRole("main");
     for (const label of ["Menu", "POS", "Finance", "Guide", "Inventory"]) {
-      expect(screen.queryByRole("link", { name: label })).toBeNull();
+      expect(within(main).queryByRole("link", { name: label })).toBeNull();
     }
   });
 

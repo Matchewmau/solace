@@ -36,11 +36,24 @@ const tabs = [
   "History",
 ] as const;
 
+const routes: Record<(typeof tabs)[number], string> = {
+  Dashboard: "/dashboard",
+  POS: "/pos",
+  Guide: "/guide",
+  Menu: "/menu",
+  Finance: "/finance",
+  Today: "/today",
+  History: "/history",
+};
+
 describe("SideNav shell", () => {
   it("renders all seven tabs with POS active and no top bar", () => {
     renderAt("/pos");
-    for (const name of tabs)
-      expect(screen.getByRole("link", { name })).toBeDefined();
+    for (const name of tabs) {
+      expect(screen.getByRole("link", { name }).getAttribute("href")).toBe(
+        routes[name],
+      );
+    }
     expect(
       screen.getByRole("link", { name: "POS" }).getAttribute("aria-current"),
     ).toBe("page");
