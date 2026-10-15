@@ -92,6 +92,25 @@ afterEach(() => {
 });
 
 describe("TodayPage", () => {
+  it("today list exposes Void only", async () => {
+    globalThis.fetch = vi.fn(async (url: unknown) => {
+      const u = String(url);
+      if (u.startsWith("/api/sales/summary")) return ok(summary());
+      if (u.startsWith("/api/sales?")) return ok([row({ id: 1, paid: 0 })]);
+      throw new Error(`unexpected fetch ${u}`);
+    }) as typeof fetch;
+
+    renderAt("/today");
+    await screen.findByRole("table", { name: "Unpaid sales" });
+
+    // Void-only regression: settlement lives exclusively in Order Details
+    // on /pos, so the Today list must never offer a Mark paid button.
+    expect(screen.getByRole("button", { name: "Void sale 1" })).toBeDefined();
+    expect(
+      screen.queryByRole("button", { name: /Mark sale 1 paid/ }),
+    ).toBeNull();
+  });
+
   it("summary header renders split totals with voided flag and Void/Unvoid buttons, zero Mark paid buttons", async () => {
     globalThis.fetch = vi.fn(async (url: unknown) => {
       const u = String(url);

@@ -362,7 +362,7 @@ export default function PosPage() {
                     <button
                       type="button"
                       onClick={deleteOrder}
-                      className="flex-1 border border-ink px-4 py-3 text-base font-semibold"
+                      className="flex-1 border border-red-600 px-4 py-3 text-base font-semibold text-red-600"
                     >
                       Delete
                     </button>

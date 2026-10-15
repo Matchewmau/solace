@@ -778,6 +778,37 @@ describe("POS paid flow with history", () => {
   });
 });
 
+describe("POS theme lock", () => {
+  it("done receipt Delete reads destructive red", async () => {
+    globalThis.fetch = vi.fn(
+      menuFetch(async (u, init) => {
+        if (u === "/api/sales") {
+          const body = JSON.parse(String(init?.body)) as {
+            payment: string;
+            items: { menu_item_id: number; qty: number }[];
+          };
+          return ok(sale(31, 7000, body.payment, body.items), 201);
+        }
+        throw new Error(`unexpected fetch ${u}`);
+      }),
+    ) as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Cortado");
+
+    fireEvent.click(screen.getByRole("button", { name: /Cortado/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    await waitFor(() => {
+      expect(screen.getByText("Sale complete")).toBeDefined();
+    });
+
+    // Destructive-action lock: Delete is red, Edit stays ink-outline.
+    expect(
+      screen.getByRole("button", { name: "Delete" }).className,
+    ).toMatch(/red/);
+  });
+});
+
 describe("POS order/sale label linking", () => {
   it("finalized tab receipt header reads Order #N · Sale #M", async () => {
     globalThis.fetch = vi.fn(

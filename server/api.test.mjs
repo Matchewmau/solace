@@ -522,6 +522,60 @@ describe("daily order numbers", () => {
   });
 });
 
+describe("sales paid flag (Task 5 regression)", () => {
+  it("PATCH {paid} settles and unsettles; bad values and empty body -> 400", async () => {
+    const dir5 = mkdtempSync(join(tmpdir(), "solace-paid-flag-test-"));
+    const app5 = createApp(join(dir5, "paid-flag-test.db"));
+    const api5 = authed(app5);
+    try {
+      const cat = await api5
+        .post("/api/categories")
+        .send({ name: "PaidFlag" })
+        .expect(201);
+      const item = (
+        await api5
+          .post("/api/menu_items")
+          .send({
+            category_id: cat.body.id,
+            name: "Flag Drink",
+            price_cents: 5000,
+          })
+          .expect(201)
+      ).body;
+      const created = (
+        await api5
+          .post("/api/sales")
+          .send({ payment: "cash", items: [{ menu_item_id: item.id, qty: 1 }] })
+          .expect(201)
+      ).body;
+      expect(created.paid).toBe(0);
+
+      const settled = await api5
+        .patch(`/api/sales/${created.id}`)
+        .send({ paid: 1 })
+        .expect(200);
+      expect(settled.body.paid).toBe(1);
+
+      const unsettled = await api5
+        .patch(`/api/sales/${created.id}`)
+        .send({ paid: 0 })
+        .expect(200);
+      expect(unsettled.body.paid).toBe(0);
+
+      for (const bad of [{ paid: 5 }, { paid: "yes" }, {}]) {
+        const res = await api5
+          .patch(`/api/sales/${created.id}`)
+          .send(bad)
+          .expect(400);
+        expect(res.body.error).toEqual(expect.any(String));
+      }
+    } finally {
+      app5.locals.db.close();
+      rmSync(dir5, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("static frontend", () => {
   it("GET / returns HTML (or 503 JSON when dist is missing), never crashes", async () => {
     const res = await api.get("/");
