@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  fetchActiveMenuItems,
   fetchCategories,
   fetchItemTotals,
+  fetchMenuItems,
   patchMenuItem,
   postMenuItem,
   type Category,
@@ -59,6 +59,7 @@ export function MenuItemDialog({
   onSubmit,
 }: MenuItemDialogProps) {
   const isEdit = initial !== null;
+  const [formError, setFormError] = useState<string | null>(null);
   const pricePesos =
     initial === null
       ? ""
@@ -104,10 +105,23 @@ export function MenuItemDialog({
             const category_id = Number(data.get("category_id"));
             const priceValue = Number(String(data.get("price") ?? ""));
             const variantsRaw = String(data.get("variants") ?? "");
-            if (name === "") return;
-            if (!Number.isFinite(category_id)) return;
-            if (!categories.some((c) => c.id === category_id)) return;
-            if (!Number.isFinite(priceValue) || priceValue < 0) return;
+            if (name === "") {
+              setFormError("Enter a name.");
+              return;
+            }
+            if (!Number.isFinite(category_id)) {
+              setFormError("Choose a type.");
+              return;
+            }
+            if (!categories.some((c) => c.id === category_id)) {
+              setFormError("Choose a type.");
+              return;
+            }
+            if (!Number.isFinite(priceValue) || priceValue < 0) {
+              setFormError("Enter a valid price.");
+              return;
+            }
+            setFormError(null);
             onSubmit({
               category_id,
               name,
@@ -189,9 +203,9 @@ export function MenuItemDialog({
             </button>
           </div>
         </form>
-        {error ? (
+        {formError ?? error ? (
           <p role="alert" className="mt-2 text-sm text-accent">
-            {error}
+            {formError ?? error}
           </p>
         ) : null}
       </div>
@@ -206,6 +220,7 @@ export interface ItemPopupProps {
   onEdit: () => void;
   onToggleActive: () => void;
   togglePending: boolean;
+  toggleError?: string | null;
 }
 
 /**
@@ -219,6 +234,7 @@ export function ItemPopup({
   onEdit,
   onToggleActive,
   togglePending,
+  toggleError = null,
 }: ItemPopupProps) {
   const [totals, setTotals] = useState<ItemTotals | null>(null);
   const [totalsLoading, setTotalsLoading] = useState(true);
@@ -309,6 +325,11 @@ export function ItemPopup({
             {item.active === 1 ? "Deactivate" : "Activate"}
           </button>
         </div>
+        {toggleError ? (
+          <p role="alert" className="mt-2 text-sm text-accent">
+            {toggleError}
+          </p>
+        ) : null}
       </div>
     </div>
   );
@@ -319,8 +340,8 @@ type DialogState = { mode: "add" } | { mode: "edit"; item: MenuItem } | null;
 /**
  * Type-forward showcase with owner controls: Add opens MenuItemDialog,
  * item click opens ItemPopup with totals plus Edit and
- * Deactivate/Activate. Inactive items are never listed (defensive
- * filter; the query already requests `?active=1`).
+ * Deactivate/Activate. Active items list first; inactive items are
+ * reachable via the Show inactive affordance and render distinctly.
  */
 export function MenuShowcase({ categories, items }: ShowcaseProps) {
   const queryClient = useOptionalQueryClient();
@@ -329,6 +350,8 @@ export function MenuShowcase({ categories, items }: ShowcaseProps) {
   const [savePending, setSavePending] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [togglePending, setTogglePending] = useState(false);
+  const [toggleError, setToggleError] = useState<string | null>(null);
+  const [showInactive, setShowInactive] = useState(false);
 
   async function invalidateMenuItems() {
     try {
@@ -368,12 +391,13 @@ export function MenuShowcase({ categories, items }: ShowcaseProps) {
 
   async function handleToggleActive(item: MenuItem) {
     setTogglePending(true);
+    setToggleError(null);
     try {
       await patchMenuItem(item.id, { active: item.active === 1 ? 0 : 1 });
       setPopupItem(null);
       await invalidateMenuItems();
     } catch {
-      // Keep the popup open; the toggle simply did not apply.
+      setToggleError("Could not update that item.");
     } finally {
       setTogglePending(false);
     }
@@ -392,11 +416,18 @@ export function MenuShowcase({ categories, items }: ShowcaseProps) {
   }, [dialog, popupItem]);
 
   const visible = items.filter((item) => item.active === 1);
+  const inactive = items.filter((item) => item.active !== 1);
   const byCategory = new Map<number, MenuItem[]>();
   for (const item of visible) {
     const list = byCategory.get(item.category_id) ?? [];
     list.push(item);
     byCategory.set(item.category_id, list);
+  }
+  const inactiveByCategory = new Map<number, MenuItem[]>();
+  for (const item of inactive) {
+    const list = inactiveByCategory.get(item.category_id) ?? [];
+    list.push(item);
+    inactiveByCategory.set(item.category_id, list);
   }
   const categoryNameById = new Map(categories.map((c) => [c.id, c.name]));
 
@@ -415,36 +446,92 @@ export function MenuShowcase({ categories, items }: ShowcaseProps) {
           Add
         </button>
       </div>
-      {categories.length === 0 || visible.length === 0 ? (
+      {categories.length === 0 || items.length === 0 ? (
         <p className="py-16 text-center text-muted">No items available</p>
       ) : (
-        <StaggerGroup className="flex flex-col gap-12">
-          {sortCategories(categories).map((category) => (
-            <StaggerSection key={category.id} ariaLabel={category.name}>
-              <p className="label text-xs text-muted">Solace &middot; Menu</p>
-              <h2 className="mt-2 text-2xl font-semibold">{category.name}</h2>
-              <StaggerList className="mt-6 flex flex-col gap-5">
-                {(byCategory.get(category.id) ?? []).map((item) => (
-                  <StaggerItem
-                    key={item.id}
-                    className="flex items-baseline justify-between gap-6"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => setPopupItem(item)}
-                      className="flex w-full items-baseline justify-between gap-6 text-left"
+        <>
+          <StaggerGroup className="flex flex-col gap-12">
+            {sortCategories(categories).map((category) => (
+              <StaggerSection key={category.id} ariaLabel={category.name}>
+                <p className="label text-xs text-muted">Solace &middot; Menu</p>
+                <h2 className="mt-2 text-2xl font-semibold">{category.name}</h2>
+                <StaggerList className="mt-6 flex flex-col gap-5">
+                  {(byCategory.get(category.id) ?? []).map((item) => (
+                    <StaggerItem
+                      key={item.id}
+                      className="flex items-baseline justify-between gap-6"
                     >
-                      <span className="text-lg">{item.name}</span>
-                      <span className="text-lg font-semibold text-accent">
-                        {formatPeso(item.price_cents)}
-                      </span>
-                    </button>
-                  </StaggerItem>
-                ))}
-              </StaggerList>
-            </StaggerSection>
-          ))}
-        </StaggerGroup>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setToggleError(null);
+                          setPopupItem(item);
+                        }}
+                        className="flex w-full items-baseline justify-between gap-6 text-left"
+                      >
+                        <span className="text-lg">{item.name}</span>
+                        <span className="text-lg font-semibold text-accent">
+                          {formatPeso(item.price_cents)}
+                        </span>
+                      </button>
+                    </StaggerItem>
+                  ))}
+                </StaggerList>
+              </StaggerSection>
+            ))}
+          </StaggerGroup>
+          {inactive.length > 0 ? (
+            <div className="flex flex-col gap-4">
+              <button
+                type="button"
+                onClick={() => setShowInactive((value) => !value)}
+                aria-expanded={showInactive}
+                className="self-start border border-ink px-4 py-2 text-sm font-semibold"
+              >
+                {showInactive ? "Hide inactive" : "Show inactive"}
+              </button>
+              {showInactive ? (
+                <section aria-label="Inactive">
+                  <p className="label text-xs text-muted">
+                    Solace &middot; Inactive ({inactive.length})
+                  </p>
+                  <h2 className="mt-2 text-2xl font-semibold">Inactive</h2>
+                  <ul className="mt-6 flex flex-col gap-5">
+                    {sortCategories(categories).flatMap((category) =>
+                      (inactiveByCategory.get(category.id) ?? []).map(
+                        (item) => (
+                          <li
+                            key={item.id}
+                            className="flex items-baseline justify-between gap-6"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setToggleError(null);
+                                setPopupItem(item);
+                              }}
+                              className="flex w-full items-baseline justify-between gap-6 text-left"
+                            >
+                              <span className="text-lg">
+                                {item.name}{" "}
+                                <span className="border border-ink/20 px-2 py-0.5 text-xs font-semibold text-muted">
+                                  Inactive
+                                </span>
+                              </span>
+                              <span className="text-lg font-semibold text-accent">
+                                {formatPeso(item.price_cents)}
+                              </span>
+                            </button>
+                          </li>
+                        ),
+                      ),
+                    )}
+                  </ul>
+                </section>
+              ) : null}
+            </div>
+          ) : null}
+        </>
       )}
       {dialog !== null ? (
         <MenuItemDialog
@@ -466,14 +553,19 @@ export function MenuShowcase({ categories, items }: ShowcaseProps) {
         <ItemPopup
           item={popupItem}
           categoryName={categoryNameById.get(popupItem.category_id) ?? ""}
-          onClose={() => setPopupItem(null)}
+          onClose={() => {
+            setPopupItem(null);
+            setToggleError(null);
+          }}
           onEdit={() => {
             setPopupItem(null);
             setSaveError(null);
+            setToggleError(null);
             setDialog({ mode: "edit", item: popupItem });
           }}
           onToggleActive={() => void handleToggleActive(popupItem)}
           togglePending={togglePending}
+          toggleError={toggleError}
         />
       ) : null}
     </div>
@@ -502,8 +594,8 @@ export default function MenuPage() {
     queryFn: fetchCategories,
   });
   const itemsQuery = useQuery({
-    queryKey: ["menu-items", "active"],
-    queryFn: fetchActiveMenuItems,
+    queryKey: ["menu-items"],
+    queryFn: fetchMenuItems,
   });
 
   const isLoading = categoriesQuery.isLoading || itemsQuery.isLoading;

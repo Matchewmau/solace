@@ -183,6 +183,50 @@ describe("MenuShowcase add/edit and popup (Task 7)", () => {
     expect(patchSpy).toHaveBeenCalledWith(1, { active: 0 });
   });
 
+  it("inactive item is reachable via Show inactive and reactivates from the list", async () => {
+    vi.spyOn(menuApi, "fetchItemTotals").mockResolvedValue({
+      menu_item_id: 4,
+      total_qty: 3,
+      total_revenue_cents: 27000,
+    });
+    const patchSpy = vi.spyOn(menuApi, "patchMenuItem").mockResolvedValue(items[3]);
+    renderShowcase();
+    expect(screen.queryByText("Retired Blend")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show inactive" }));
+    fireEvent.click(await screen.findByText("Retired Blend"));
+    const dialog = await screen.findByRole("dialog", { name: "Retired Blend" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Activate" }));
+    await vi.waitFor(() => expect(patchSpy).toHaveBeenCalledTimes(1));
+    expect(patchSpy).toHaveBeenCalledWith(4, { active: 1 });
+  });
+
+  it("invalid submit shows an inline error and does not post", async () => {
+    const postSpy = vi
+      .spyOn(menuApi, "postMenuItem")
+      .mockResolvedValue({ ...items[0], id: 99 });
+    renderShowcase();
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    await screen.findByLabelText("Name");
+    const form = screen.getByLabelText("Add menu item form").closest("form") as HTMLFormElement;
+    fireEvent.submit(form);
+    expect(await screen.findByRole("alert")).toBeDefined();
+    expect(postSpy).not.toHaveBeenCalled();
+  });
+
+  it("failed toggle shows an inline error", async () => {
+    vi.spyOn(menuApi, "fetchItemTotals").mockResolvedValue({
+      menu_item_id: 1,
+      total_qty: 12,
+      total_revenue_cents: 84000,
+    });
+    vi.spyOn(menuApi, "patchMenuItem").mockRejectedValue(new Error("offline"));
+    renderShowcase();
+    fireEvent.click(screen.getByText("Cortado"));
+    const dialog = await screen.findByRole("dialog", { name: "Cortado" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Deactivate" }));
+    expect(await within(dialog).findByRole("alert")).toBeDefined();
+  });
+
   it("edit dialog submits a patch", async () => {
     const patchSpy = vi.spyOn(menuApi, "patchMenuItem").mockResolvedValue(items[0]);
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

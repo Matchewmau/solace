@@ -65,6 +65,10 @@ export function fetchActiveMenuItems(): Promise<MenuItem[]> {
   return getJson<MenuItem[]>("/api/menu_items?active=1");
 }
 
+export function fetchMenuItems(): Promise<MenuItem[]> {
+  return getJson<MenuItem[]>("/api/menu_items");
+}
+
 export function postMenuItem(input: MenuItemInput): Promise<MenuItem> {
   return sendJson<MenuItem>("/api/menu_items", "POST", input);
 }
