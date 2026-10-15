@@ -1,5 +1,6 @@
-// Boot auto-seed: fresh DBs gain the 20-drink menu + recipes on createApp;
-// reopening adds no dupes and never touches sales. Stock is NOT auto-seeded.
+// Boot auto-seed: fresh DBs gain the 22-item menu (20 drinks + Siomai/Fries)
+// + 21 drink recipes on createApp; reopening adds no dupes and never
+// touches sales. Stock is NOT auto-seeded. Food has no guides.
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,15 +25,15 @@ function counts(db) {
 }
 
 describe("boot auto-seed", () => {
-  it("fresh DB boots with 20 active drinks (21 rows) + 21 recipes, no stock", async () => {
+  it("fresh DB boots with 22 active items (23 rows) + 21 recipes, no stock", async () => {
     const dbPath = join(dir, "fresh.db");
     const app = createApp(dbPath);
     try {
       const api = authed(app);
       const active = await api.get("/api/menu_items?active=1").expect(200);
-      expect(active.body).toHaveLength(20);
+      expect(active.body).toHaveLength(22);
       const all = await api.get("/api/menu_items").expect(200);
-      expect(all.body).toHaveLength(21);
+      expect(all.body).toHaveLength(23);
       const dark = all.body.find((r) => r.name === "Dark Mocha");
       expect(dark).toBeDefined();
       expect(dark.active).toBe(0);
@@ -48,7 +49,7 @@ describe("boot auto-seed", () => {
     const dbPath = join(dir, "reopen.db");
     const first = createApp(dbPath);
     const before = counts(first.locals.db);
-    expect(before.menu).toBe(21);
+    expect(before.menu).toBe(23);
     expect(before.recipes).toBe(21);
     first.locals.db.close();
 

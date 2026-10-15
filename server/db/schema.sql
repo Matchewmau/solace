@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS menu_items (
   name TEXT NOT NULL,
   price_cents INTEGER NOT NULL,
   cost_cents INTEGER NOT NULL DEFAULT 0,
-  active INTEGER NOT NULL DEFAULT 1
+  active INTEGER NOT NULL DEFAULT 1,
+  variants TEXT NOT NULL DEFAULT '[]'
 );
 
 CREATE TABLE IF NOT EXISTS sales (
@@ -30,7 +31,8 @@ CREATE TABLE IF NOT EXISTS sale_items (
   sale_id INTEGER NOT NULL REFERENCES sales(id),
   menu_item_id INTEGER NOT NULL REFERENCES menu_items(id),
   qty INTEGER NOT NULL,
-  unit_price_cents INTEGER NOT NULL
+  unit_price_cents INTEGER NOT NULL,
+  variant TEXT
 );
 
 CREATE TABLE IF NOT EXISTS stock_items (

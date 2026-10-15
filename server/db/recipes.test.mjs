@@ -14,8 +14,11 @@ import { seedRecipes } from "./seed-recipes.mjs";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SEED_RECIPES = join(HERE, "seed-recipes.mjs");
 
-// All 21 MENU names (20 active + inactive Dark Mocha) — the coverage binding.
-const MENU_NAMES = MENU.flatMap((g) => g.items.map((i) => i.name));
+// All 21 drink names (20 active + inactive Dark Mocha) — the coverage binding.
+// Food (Siomai/Fries) is excluded: food has no guides.
+const MENU_NAMES = MENU.filter((g) => g.category !== "Food").flatMap((g) =>
+  g.items.map((i) => i.name),
+);
 
 const dir = mkdtempSync(join(tmpdir(), "solace-recipe-test-"));
 const dbPath = join(dir, "recipe-test.db");
@@ -55,7 +58,7 @@ function lineMap(name) {
 }
 
 describe("recipe data faithfulness", () => {
-  it("RECIPES covers exactly the 21 MENU names (20 active + Dark Mocha)", () => {
+  it("RECIPES covers exactly the 21 drink names (20 active + Dark Mocha)", () => {
     expect(MENU_NAMES).toHaveLength(21);
     expect(RECIPES.map((r) => r.menu_item).sort()).toEqual(
       [...MENU_NAMES].sort(),
@@ -69,7 +72,7 @@ describe("recipe data faithfulness", () => {
     expect(second.ok).toHaveLength(21);
   });
 
-  it("all 21 MENU items (incl. inactive Dark Mocha) have a recipe row", () => {
+  it("all 21 drink items (incl. inactive Dark Mocha) have a recipe row", () => {
     const { n } = app.locals.db
       .prepare(
         `SELECT COUNT(*) AS n FROM recipes r

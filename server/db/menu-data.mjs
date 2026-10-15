@@ -2,6 +2,7 @@
 // Prices in INTEGER cents, PHP. All drinks 16 oz (display fact, not a column).
 // Soda is 50 PHP (owner correction; the PDF shows 60).
 // Dark Mocha is kept as an INACTIVE Coffee item (recipe lands in Task 9).
+// Food (Siomai/Fries, 50 PHP each) carries variants, has no guides, sorts last.
 // cost_cents unknown — left 0, never invented.
 export const MENU = [
   {
@@ -43,6 +44,17 @@ export const MENU = [
       { name: "Mango Soda", price_cents: 5000 },
       { name: "Green Apple Soda", price_cents: 5000 },
       { name: "Mixed Berries Soda", price_cents: 5000 },
+    ],
+  },
+  {
+    category: "Food",
+    items: [
+      { name: "Siomai", price_cents: 5000, variants: ["Fried", "Steamed"] },
+      {
+        name: "Fries",
+        price_cents: 5000,
+        variants: ["Cheese", "BBQ", "Sour Cream"],
+      },
     ],
   },
 ];

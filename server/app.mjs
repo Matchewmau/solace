@@ -54,6 +54,25 @@ function openDb(dbPath) {
       "UPDATE sales SET daily_seq = (SELECT COUNT(*) FROM sales s2 WHERE substr(s2.created_at, 1, 10) = substr(sales.created_at, 1, 10) AND s2.id <= sales.id)",
     );
   }
+  // Variant columns (guide-menu Task 1): pre-variant DBs lack
+  // menu_items.variants and sale_items.variant (CREATE TABLE IF NOT EXISTS
+  // never alters existing tables), so add them when missing. The '[]'
+  // DEFAULT backfills old menu rows with no variants; sale variant stays
+  // NULL when no choice was offered.
+  const menuCols = db
+    .prepare("PRAGMA table_info(menu_items)")
+    .all()
+    .map((col) => col.name);
+  if (!menuCols.includes("variants")) {
+    db.exec("ALTER TABLE menu_items ADD COLUMN variants TEXT NOT NULL DEFAULT '[]'");
+  }
+  const saleItemCols = db
+    .prepare("PRAGMA table_info(sale_items)")
+    .all()
+    .map((col) => col.name);
+  if (!saleItemCols.includes("variant")) {
+    db.exec("ALTER TABLE sale_items ADD COLUMN variant TEXT");
+  }
   return db;
 }
 

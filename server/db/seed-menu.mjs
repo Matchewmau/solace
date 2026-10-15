@@ -2,8 +2,9 @@
 // Usage: node server/db/seed-menu.mjs [db-path]
 //   (default: SOLACE_DB env or server/data/solace.db, CWD-relative).
 // Rules: upsert categories by name; upsert items by (category_id, name);
-// re-runs apply price corrections; existing active flags are preserved
-// EXCEPT Dark Mocha, which is forced inactive; never deletes, never wipes,
+// re-runs apply price corrections and backfill variants; existing active
+// flags are preserved EXCEPT Dark Mocha, which is forced inactive; Food is
+// always normalized to sort max-plus-one (last); never deletes, never wipes,
 // safe on a DB that already has sales (no dupes).
 // Money is INTEGER cents. Offline only: no network calls.
 import Database from "better-sqlite3";
@@ -23,13 +24,36 @@ export function seedMenuDb(db) {
       const existingCat = db
         .prepare("SELECT id FROM categories WHERE name = ?")
         .get(group.category);
-      const categoryId = existingCat
-        ? existingCat.id
-        : db
-            .prepare("INSERT INTO categories (name, sort) VALUES (?, ?)")
-            .run(group.category, sort).lastInsertRowid;
+      let categoryId;
+      if (existingCat) {
+        categoryId = existingCat.id;
+      } else {
+        // Food seeds after any foreign/operator categories (max plus one);
+        // drinks keep their sequential slot.
+        const sortValue =
+          group.category === "Food"
+            ? db.prepare("SELECT COALESCE(MAX(sort), 0) AS m FROM categories")
+                .get().m + 1
+            : sort;
+        categoryId = db
+          .prepare("INSERT INTO categories (name, sort) VALUES (?, ?)")
+          .run(group.category, sortValue).lastInsertRowid;
+      }
+      if (group.category === "Food") {
+        // Food stays last across re-runs even when other categories sort higher.
+        const maxOther = db
+          .prepare(
+            "SELECT COALESCE(MAX(sort), 0) AS m FROM categories WHERE id != ?",
+          )
+          .get(categoryId).m;
+        db.prepare("UPDATE categories SET sort = ? WHERE id = ?").run(
+          maxOther + 1,
+          categoryId,
+        );
+      }
       for (const item of group.items) {
         const forceInactive = item.name === "Dark Mocha";
+        const variantsJson = JSON.stringify(item.variants ?? []);
         const existing = db
           .prepare(
             "SELECT id FROM menu_items WHERE category_id = ? AND name = ?",
@@ -38,22 +62,22 @@ export function seedMenuDb(db) {
         if (existing) {
           if (forceInactive) {
             db.prepare(
-              "UPDATE menu_items SET price_cents = ?, active = 0 WHERE id = ?",
-            ).run(item.price_cents, existing.id);
+              "UPDATE menu_items SET price_cents = ?, variants = ?, active = 0 WHERE id = ?",
+            ).run(item.price_cents, variantsJson, existing.id);
           } else {
-            db.prepare("UPDATE menu_items SET price_cents = ? WHERE id = ?").run(
-              item.price_cents,
-              existing.id,
-            );
+            db.prepare(
+              "UPDATE menu_items SET price_cents = ?, variants = ? WHERE id = ?",
+            ).run(item.price_cents, variantsJson, existing.id);
           }
         } else {
           db.prepare(
-            "INSERT INTO menu_items (category_id, name, price_cents, cost_cents, active) VALUES (?, ?, ?, 0, ?)",
+            "INSERT INTO menu_items (category_id, name, price_cents, cost_cents, active, variants) VALUES (?, ?, ?, 0, ?, ?)",
           ).run(
             categoryId,
             item.name,
             item.price_cents,
             forceInactive ? 0 : (item.active ?? 1),
+            variantsJson,
           );
         }
       }
