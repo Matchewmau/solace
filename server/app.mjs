@@ -847,6 +847,131 @@ export function createApp(dbPath, opts = {}) {
     res.json({ ...row, lines: recipeLines(id) });
   });
 
+  function recipeById(id) {
+    const row = db
+      .prepare(
+        `SELECT ${RECIPE_COLS} FROM recipes r JOIN menu_items m ON m.id = r.menu_item_id WHERE r.id = ?`,
+      )
+      .get(id);
+    if (!row) return undefined;
+    return { ...row, lines: recipeLines(id) };
+  }
+
+  function validateRecipeLines(lines) {
+    if (lines === undefined) return { lines: [] };
+    if (!Array.isArray(lines)) return { error: "lines must be an array" };
+    if (lines.length > 20) {
+      return { error: "lines must have at most 20 items" };
+    }
+    const clean = [];
+    for (const line of lines) {
+      if (typeof line?.ingredient !== "string" || line.ingredient.trim() === "") {
+        return { error: "ingredient is required" };
+      }
+      const qty = line?.qty ?? null;
+      if (
+        qty !== null &&
+        (typeof qty !== "number" || !Number.isFinite(qty) || qty < 0)
+      ) {
+        return { error: "qty must be a non-negative number or null" };
+      }
+      const unit = line?.unit ?? null;
+      if (unit !== null && typeof unit !== "string") {
+        return { error: "unit must be a string or null" };
+      }
+      clean.push({ ingredient: line.ingredient.trim(), qty, unit });
+    }
+    return { lines: clean };
+  }
+
+  app.post("/api/recipes", (req, res) => {
+    const { menu_item_id, steps, lines } = req.body ?? {};
+    if (!isInt(menu_item_id)) {
+      return sendError(res, 400, "menu_item_id must be an integer");
+    }
+    const item = db
+      .prepare(
+        "SELECT mi.id, c.name AS category FROM menu_items mi JOIN categories c ON c.id = mi.category_id WHERE mi.id = ?",
+      )
+      .get(menu_item_id);
+    if (!item) return sendError(res, 400, "unknown menu_item_id");
+    if (item.category === "Food") {
+      return sendError(res, 400, "food items cannot have guides");
+    }
+    if (
+      db.prepare("SELECT id FROM recipes WHERE menu_item_id = ?").get(menu_item_id)
+    ) {
+      return sendError(res, 400, "recipe already exists for this menu item");
+    }
+    if (typeof steps !== "string" || steps.trim() === "") {
+      return sendError(res, 400, "steps is required");
+    }
+    const validated = validateRecipeLines(lines);
+    if (validated.error) return sendError(res, 400, validated.error);
+    const insert = db.transaction(() => {
+      const info = db
+        .prepare("INSERT INTO recipes (menu_item_id, steps) VALUES (?, ?)")
+        .run(menu_item_id, steps);
+      const addLine = db.prepare(
+        "INSERT INTO recipe_lines (recipe_id, ingredient, qty, unit) VALUES (?, ?, ?, ?)",
+      );
+      for (const line of validated.lines) {
+        addLine.run(info.lastInsertRowid, line.ingredient, line.qty, line.unit);
+      }
+      return info.lastInsertRowid;
+    });
+    res.status(201).json(recipeById(insert()));
+  });
+
+  app.patch("/api/recipes/:id", (req, res) => {
+    const id = parseId(req.params.id);
+    const current = id
+      ? db.prepare("SELECT id, menu_item_id, steps FROM recipes WHERE id = ?").get(id)
+      : undefined;
+    if (!current) return sendError(res, 404, "recipe not found");
+    if (
+      req.body?.menu_item_id !== undefined &&
+      req.body.menu_item_id !== current.menu_item_id
+    ) {
+      return sendError(res, 400, "menu_item_id cannot be changed");
+    }
+    const steps = req.body?.steps ?? current.steps;
+    if (typeof steps !== "string" || steps.trim() === "") {
+      return sendError(res, 400, "steps is required");
+    }
+    let nextLines = null;
+    if (req.body?.lines !== undefined) {
+      const validated = validateRecipeLines(req.body.lines);
+      if (validated.error) return sendError(res, 400, validated.error);
+      nextLines = validated.lines;
+    }
+    const update = db.transaction(() => {
+      db.prepare("UPDATE recipes SET steps = ? WHERE id = ?").run(steps, id);
+      if (nextLines !== null) {
+        db.prepare("DELETE FROM recipe_lines WHERE recipe_id = ?").run(id);
+        const addLine = db.prepare(
+          "INSERT INTO recipe_lines (recipe_id, ingredient, qty, unit) VALUES (?, ?, ?, ?)",
+        );
+        for (const line of nextLines) {
+          addLine.run(id, line.ingredient, line.qty, line.unit);
+        }
+      }
+    });
+    update();
+    res.json(recipeById(id));
+  });
+
+  app.delete("/api/recipes/:id", (req, res) => {
+    const id = parseId(req.params.id);
+    if (!id) return sendError(res, 404, "recipe not found");
+    const remove = db.transaction(() => {
+      db.prepare("DELETE FROM recipe_lines WHERE recipe_id = ?").run(id);
+      return db.prepare("DELETE FROM recipes WHERE id = ?").run(id);
+    });
+    if (remove().changes === 0) return sendError(res, 404, "recipe not found");
+    res.status(204).end();
+  });
+
   // --- stock_items + stock_movements (Task 10: inventory ledger) ---
   // LEDGER RULING (binds Task 10): stock_movements is the ledger and
   // stock_items.qty is the cached balance. POST /api/stock_movements inserts

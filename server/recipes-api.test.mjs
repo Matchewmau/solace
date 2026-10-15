@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { authed } from "./test-auth.mjs";
 import { createApp } from "./app.mjs";
 import { seedMenu } from "./db/seed-menu.mjs";
@@ -82,11 +82,106 @@ describe("recipes read API (Task 9)", () => {
     expect(nonNumeric.body.error).toEqual(expect.any(String));
   });
 
-  it("recipes are read-only: POST/PUT/PATCH/DELETE -> 404", async () => {
-    for (const method of ["post", "put", "patch", "delete"]) {
-      const res = await api[method]("/api/recipes").send({});
-      expect(res.status).toBe(404);
-      expect(res.body.error).toEqual(expect.any(String));
-    }
+  it("PUT /api/recipes is still 404 {error}", async () => {
+    const res = await api.put("/api/recipes").send({});
+    expect(res.status).toBe(404);
+    expect(res.body.error).toEqual(expect.any(String));
+  });
+});
+
+describe("recipes write API (Task 5)", () => {
+  let drinkId;
+  let friesId;
+  let createdId;
+
+  beforeAll(async () => {
+    const cats = await api.get("/api/categories").expect(200);
+    const coffee = cats.body.find((c) => c.name === "Coffee");
+    const items = await api.get("/api/menu_items").expect(200);
+    friesId = items.body.find((m) => m.name === "Fries").id;
+    const fresh = await api
+      .post("/api/menu_items")
+      .send({
+        category_id: coffee.id,
+        name: "Guide Test Drink",
+        price_cents: 7000,
+      })
+      .expect(201);
+    drinkId = fresh.body.id;
+  });
+
+  it("POST recipe requires an existing drink without a guide", async () => {
+    const res = await api.post("/api/recipes").send({ menu_item_id: drinkId, steps: "1. Milk\n2. Mix", lines: [{ ingredient: "Milk", qty: 70, unit: "ml" }] });
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ menu_item_id: drinkId });
+    expect(typeof res.body.steps).toBe("string");
+    createdId = res.body.id;
+  });
+
+  it("POST recipe for a Food item fails with 400", async () => {
+    const res = await api.post("/api/recipes").send({ menu_item_id: friesId, steps: "Fry", lines: [] });
+    expect(res.status).toBe(400);
+  });
+
+  it("POST duplicate guide for the same drink returns 400", async () => {
+    const res = await api
+      .post("/api/recipes")
+      .send({ menu_item_id: drinkId, steps: "1. Other", lines: [] });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toEqual(expect.any(String));
+  });
+
+  it("POST unknown menu_item_id returns 400", async () => {
+    const res = await api
+      .post("/api/recipes")
+      .send({ menu_item_id: 999999, steps: "1. Mix", lines: [] });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toEqual(expect.any(String));
+  });
+
+  it("PATCH updates steps/lines for the same drink", async () => {
+    const res = await api
+      .patch(`/api/recipes/${createdId}`)
+      .send({
+        steps: "1. Milk\n2. Mix well",
+        lines: [{ ingredient: "Milk", qty: 80, unit: "ml" }],
+      })
+      .expect(200);
+    expect(res.body).toMatchObject({
+      id: createdId,
+      menu_item_id: drinkId,
+      steps: "1. Milk\n2. Mix well",
+    });
+    expect(res.body.lines).toHaveLength(1);
+    expect(res.body.lines[0]).toMatchObject({
+      ingredient: "Milk",
+      qty: 80,
+      unit: "ml",
+    });
+  });
+
+  it("PATCH a recipe onto a different drink fails with 400", async () => {
+    const res = await api
+      .patch(`/api/recipes/${createdId}`)
+      .send({ menu_item_id: friesId, steps: "1. X" });
+    expect(res.status).toBe(400);
+  });
+
+  it("PATCH unknown recipe returns 404", async () => {
+    const res = await api
+      .patch("/api/recipes/999999")
+      .send({ steps: "1. X" });
+    expect(res.status).toBe(404);
+  });
+
+  it("DELETE returns 204, removes guide only, menu item still GETs 200", async () => {
+    await api.delete(`/api/recipes/${createdId}`).expect(204);
+    await api.get(`/api/recipes/${createdId}`).expect(404);
+    await api.get(`/api/menu_items/${drinkId}`).expect(200);
+  });
+
+  it("DELETE unknown recipe returns 404", async () => {
+    const res = await api.delete("/api/recipes/999999");
+    expect(res.status).toBe(404);
   });
 });
