@@ -519,6 +519,29 @@ export function createApp(dbPath, opts = {}) {
     res.status(204).end();
   });
 
+  app.get("/api/menu_items/:id/sales-totals", (req, res) => {
+    const id = parseId(req.params.id);
+    const exists = id
+      ? db.prepare("SELECT id FROM menu_items WHERE id = ?").get(id)
+      : undefined;
+    if (!exists) return sendError(res, 404, "menu item not found");
+    const row = db
+      .prepare(
+        `SELECT
+           COALESCE(SUM(si.qty), 0) AS total_qty,
+           COALESCE(SUM(si.qty * si.unit_price_cents), 0) AS total_revenue_cents
+         FROM sale_items si
+         JOIN sales s ON s.id = si.sale_id
+         WHERE si.menu_item_id = ? AND s.voided = 0`,
+      )
+      .get(id);
+    res.json({
+      menu_item_id: id,
+      total_qty: row.total_qty,
+      total_revenue_cents: row.total_revenue_cents,
+    });
+  });
+
   // --- sales ---
   const SALE_COLS =
     "id, total_cents, payment, voided, paid, daily_seq, created_at";
