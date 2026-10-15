@@ -11,10 +11,10 @@ const categories: Category[] = [
 ];
 
 const items: MenuItem[] = [
-  { id: 1, category_id: 1, name: "Cortado", price_cents: 7000, cost_cents: 2000, active: 1 },
-  { id: 2, category_id: 1, name: "Latte", price_cents: 8000, cost_cents: 2500, active: 1 },
-  { id: 3, category_id: 2, name: "Calamansi Cooler", price_cents: 5000, cost_cents: 1200, active: 1 },
-  { id: 4, category_id: 1, name: "Retired Blend", price_cents: 9000, cost_cents: 3000, active: 0 },
+  { id: 1, category_id: 1, name: "Cortado", price_cents: 7000, cost_cents: 2000, active: 1, variants: [] },
+  { id: 2, category_id: 1, name: "Latte", price_cents: 8000, cost_cents: 2500, active: 1, variants: [] },
+  { id: 3, category_id: 2, name: "Calamansi Cooler", price_cents: 5000, cost_cents: 1200, active: 1, variants: [] },
+  { id: 4, category_id: 1, name: "Retired Blend", price_cents: 9000, cost_cents: 3000, active: 0, variants: [] },
 ];
 
 describe("MenuShowcase with mocked query data", () => {

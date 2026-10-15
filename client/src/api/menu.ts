@@ -19,10 +19,38 @@ export interface MenuItem {
   price_cents: number;
   cost_cents: number;
   active: number;
+  variants: string[];
+}
+
+export interface MenuItemInput {
+  category_id: number;
+  name: string;
+  price_cents: number;
+  variants: string[];
+  cost_cents?: number;
+  active?: 0 | 1;
+}
+
+export interface ItemTotals {
+  menu_item_id: number;
+  total_qty: number;
+  total_revenue_cents: number;
 }
 
 async function getJson<T>(url: string): Promise<T> {
   const res = await authFetch(url);
+  if (!res.ok) {
+    throw new Error(`Request failed: ${res.status} ${url}`);
+  }
+  return (await res.json()) as T;
+}
+
+async function sendJson<T>(url: string, method: string, body: unknown): Promise<T> {
+  const res = await authFetch(url, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
   if (!res.ok) {
     throw new Error(`Request failed: ${res.status} ${url}`);
   }
@@ -35,4 +63,16 @@ export function fetchCategories(): Promise<Category[]> {
 
 export function fetchActiveMenuItems(): Promise<MenuItem[]> {
   return getJson<MenuItem[]>("/api/menu_items?active=1");
+}
+
+export function postMenuItem(input: MenuItemInput): Promise<MenuItem> {
+  return sendJson<MenuItem>("/api/menu_items", "POST", input);
+}
+
+export function patchMenuItem(id: number, input: Partial<MenuItemInput>): Promise<MenuItem> {
+  return sendJson<MenuItem>(`/api/menu_items/${id}`, "PATCH", input);
+}
+
+export function fetchItemTotals(id: number): Promise<ItemTotals> {
+  return getJson<ItemTotals>(`/api/menu_items/${id}/sales-totals`);
 }
