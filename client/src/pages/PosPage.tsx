@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchActiveMenuItems, fetchCategories } from "../api/menu";
-import { fetchPastSales, fetchSalesForDate, fetchSummary, patchSalePaid, patchSaleVoid, postSale, putSaleItems, utcToday, type Sale, type SaleItemPayload, type SaleRow } from "../api/sales";
+import { fetchPastSales, fetchSalesForDate, fetchSummary, patchSalePaid, patchSaleVoid, postSale, putSaleItems, utcToday, type SaleRow } from "../api/sales";
 import { formatPeso } from "../lib/formatPeso";
 import { cartTotalCents, useOrders } from "../store/orders";
 import { sortCategories } from "../lib/sortCategories";
@@ -21,9 +21,9 @@ export default function PosPage() {
   const setQty = useOrders((s) => s.setQty);
   const removeLine = useOrders((s) => s.removeLine);
   const setPayment = useOrders((s) => s.setPayment);
-  const clearOrder = useOrders((s) => s.clearOrder);
   const completeOrder = useOrders((s) => s.completeOrder);
   const updateSale = useOrders((s) => s.updateSale);
+  const reopenForEdit = useOrders((s) => s.reopenForEdit);
 
   const active = orders.find((order) => order.key === activeKey) ?? orders[0];
 
@@ -93,7 +93,7 @@ export default function PosPage() {
 
   // Finalized-tab settlement toggle. Marking paid closes the tab (a paid
   // order is fully done); marking unpaid refreshes the tab sale in place
-  // so its lines stay editable.
+  // so its lines stay editable via Edit.
   async function togglePaidTab(orderKey: string, saleId: number, paid: 0 | 1) {
     if (detailBusy) return;
     setDetailBusy(true);
@@ -109,33 +109,6 @@ export default function PosPage() {
       await queryClient.invalidateQueries({ queryKey: ["sales"] });
     } catch (err) {
       setDetailError(err instanceof Error ? err.message : "Mark paid failed.");
-    } finally {
-      setDetailBusy(false);
-    }
-  }
-
-  // Finalized-but-unpaid line edit: re-PUT the sale lines, refresh the tab
-  // sale from the server response, and refresh every ["sales"] panel.
-  async function changeSaleQty(sale: Sale, orderKey: string, menuItemId: number, delta: number) {
-    if (detailBusy) return;
-    const current = sale.items.find((line) => line.menu_item_id === menuItemId);
-    if (!current) return;
-    const next: SaleItemPayload[] = [];
-    for (const line of sale.items) {
-      const qty = line.qty + (line.menu_item_id === menuItemId ? delta : 0);
-      if (qty >= 1) next.push({ menu_item_id: line.menu_item_id, qty });
-    }
-    // The server rejects empty item lists — a sale cannot be edited down
-    // to zero lines (void it or start a New sale instead).
-    if (next.length === 0) return;
-    setDetailBusy(true);
-    setDetailError("");
-    try {
-      const updated = await putSaleItems(sale.id, next);
-      updateSale(orderKey, updated);
-      await queryClient.invalidateQueries({ queryKey: ["sales"] });
-    } catch (err) {
-      setDetailError(err instanceof Error ? err.message : "Edit failed.");
     } finally {
       setDetailBusy(false);
     }
@@ -177,26 +150,30 @@ export default function PosPage() {
     setError("");
   }
 
-  function closeTab(key: string) {
-    closeOrder(key);
-    setError("");
-  }
-
   async function checkout() {
-    // Read fresh state: only the active order posts, and a locked
-    // (done) tab never posts again.
+    // Read fresh state: only an open order Dones. A reopened order (sale
+    // kept) re-locks via PUT lines; a fresh order posts once via POST.
+    // A locked (done) tab never posts again.
     const order = useOrders.getState().orders.find((o) => o.key === active.key);
-    if (!order || order.status === "done" || order.lines.length === 0) return;
+    if (!order || order.status !== "open" || order.lines.length === 0) return;
     if (checkoutBusy.current) return;
     checkoutBusy.current = true;
     setPending(true);
     setError("");
     try {
-      const completed = await postSale(
-        order.payment,
-        order.lines.map((line) => ({ menu_item_id: line.menu_item_id, qty: line.qty })),
-      );
-      completeOrder(order.key, completed);
+      if (order.sale?.id) {
+        const updated = await putSaleItems(
+          order.sale.id,
+          order.lines.map((line) => ({ menu_item_id: line.menu_item_id, qty: line.qty })),
+        );
+        completeOrder(order.key, updated);
+      } else {
+        const completed = await postSale(
+          order.payment,
+          order.lines.map((line) => ({ menu_item_id: line.menu_item_id, qty: line.qty })),
+        );
+        completeOrder(order.key, completed);
+      }
       // A fresh sale belongs to today's panel — refresh summary + list.
       void queryClient.invalidateQueries({ queryKey: ["sales"] });
     } catch (err) {
@@ -207,8 +184,14 @@ export default function PosPage() {
     }
   }
 
-  function newSale() {
-    clearOrder(active.key);
+  function editOrder() {
+    reopenForEdit(active.key);
+    setError("");
+  }
+
+  function deleteOrder() {
+    // Local-only: the sale itself is append-only and stays in history.
+    closeOrder(active.key);
     setError("");
   }
 
@@ -272,12 +255,65 @@ export default function PosPage() {
 
   return (
     <main className="min-h-screen bg-paper text-ink">
-      <div className="mx-auto flex max-w-5xl flex-col gap-8 px-6 py-12">
-        <header className="flex flex-col gap-3">
-          <p className="label text-xs text-muted">Cafe &middot; LAN</p>
-          <h1 className="text-4xl font-semibold">POS</h1>
-          <p className="text-sm text-muted">Tap to add, checkout with cash or GCash.</p>
-        </header>
+      <div className="flex min-h-screen">
+        {/* Far-left page nav (visual stubs; Task 4 wires Today/History pages). */}
+        <nav aria-label="Pages" className="flex w-24 shrink-0 flex-col items-center gap-3 bg-ink py-6 text-paper">
+          <span className="px-2 text-center text-xs font-bold tracking-widest">SOLACE</span>
+          <button type="button" aria-current="page" className="w-full bg-accent px-2 py-2 text-sm font-semibold text-paper">
+            Menu
+          </button>
+          <button type="button" className="w-full px-2 py-2 text-sm font-semibold text-paper/80">
+            Guide
+          </button>
+          <button type="button" className="w-full px-2 py-2 text-sm font-semibold text-paper/80">
+            Tables
+          </button>
+          <button type="button" className="w-full px-2 py-2 text-sm font-semibold text-paper/80">
+            Settings
+          </button>
+          <span className="mt-auto w-full px-2 py-2 text-center text-sm font-semibold text-paper/60">
+            Logout
+          </span>
+        </nav>
+        {/* Order rail: New order first, then vertical tabs, zero close buttons. */}
+        <div className="flex w-36 shrink-0 flex-col gap-2 border-r border-ink/10 bg-white p-3">
+          <h2 className="text-xs font-semibold tracking-widest text-muted">ORDERS</h2>
+          <button
+            type="button"
+            onClick={newTab}
+            className="border border-dashed border-ink px-3 py-2 text-sm font-semibold"
+          >
+            New order
+          </button>
+          <div role="tablist" aria-label="Orders" className="flex flex-col gap-2">
+            {orders.map((order) => {
+              const count = order.lines.reduce((sum, line) => sum + line.qty, 0);
+              const selected = order.key === active.key;
+              return (
+                <button
+                  key={order.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  onClick={() => switchTab(order.key)}
+                  className={
+                    selected
+                      ? "bg-accent px-3 py-2 text-sm font-semibold text-paper"
+                      : "border border-ink px-3 py-2 text-sm font-semibold"
+                  }
+                >
+                  {order.label} ({count})
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col gap-8 px-6 py-12">
+          <header className="flex flex-col gap-3">
+            <p className="label text-xs text-muted">Cafe &middot; LAN</p>
+            <h1 className="text-4xl font-semibold">POS</h1>
+            <p className="text-sm text-muted">Tap to add, checkout with cash or GCash.</p>
+          </header>
         {isLoading ? (
           <p aria-busy="true" aria-label="Loading menu" className="py-16 text-center text-muted">
             Loading menu…
@@ -300,44 +336,6 @@ export default function PosPage() {
           </div>
         ) : (
           <>
-          <div role="tablist" aria-label="Orders" className="flex flex-wrap items-center gap-2">
-            {orders.map((order) => {
-              const count = order.lines.reduce((sum, line) => sum + line.qty, 0);
-              const selected = order.key === active.key;
-              return (
-                <span key={order.key} className="flex items-stretch">
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={selected}
-                    onClick={() => switchTab(order.key)}
-                    className={
-                      selected
-                        ? "bg-ink px-4 py-2 text-sm font-semibold text-paper"
-                        : "border border-ink px-4 py-2 text-sm font-semibold"
-                    }
-                  >
-                    {order.label} ({count})
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={`Close ${order.label}`}
-                    onClick={() => closeTab(order.key)}
-                    className="border border-ink border-l-0 px-2 py-2 text-sm font-semibold text-muted"
-                  >
-                    ×
-                  </button>
-                </span>
-              );
-            })}
-            <button
-              type="button"
-              onClick={newTab}
-              className="border border-dashed border-ink px-4 py-2 text-sm font-semibold"
-            >
-              New order
-            </button>
-          </div>
           <div className="grid gap-10 lg:grid-cols-[1fr_320px]">
             <section aria-label="Menu items" className="flex flex-col gap-6">
               <div className="flex flex-wrap gap-2" role="group" aria-label="Category filter">
@@ -406,47 +404,22 @@ export default function PosPage() {
                     {formatPeso(doneSale.total_cents)}
                   </p>
                   <p className="text-lg">{doneSale.payment === "cash" ? "Cash" : "GCash"}</p>
-                  {doneSale.paid === 1 ? null : (
-                    <ul className="flex flex-col gap-4">
-                      {doneSale.items.map((line) => {
-                        const item = byId.get(line.menu_item_id);
-                        const name = item?.name ?? `Item #${line.menu_item_id}`;
-                        return (
-                          <li key={line.menu_item_id} className="flex flex-col gap-2 border-b border-ink/10 pb-4">
-                            <div className="flex items-baseline justify-between gap-4">
-                              <span className="text-base font-semibold">{name}</span>
-                              <span className="text-base text-accent">
-                                {formatPeso(line.unit_price_cents * line.qty)}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                aria-label={`Decrease ${name} quantity`}
-                                onClick={() => void changeSaleQty(doneSale, active.key, line.menu_item_id, -1)}
-                                disabled={detailBusy}
-                                className="border border-ink px-3 py-1 text-base font-semibold disabled:opacity-40"
-                              >
-                                −
-                              </button>
-                              <span aria-label={`${name} quantity`} className="min-w-8 text-center text-base">
-                                {line.qty}
-                              </span>
-                              <button
-                                type="button"
-                                aria-label={`Increase ${name} quantity`}
-                                onClick={() => void changeSaleQty(doneSale, active.key, line.menu_item_id, 1)}
-                                disabled={detailBusy}
-                                className="border border-ink px-3 py-1 text-base font-semibold disabled:opacity-40"
-                              >
-                                +
-                              </button>
-                            </div>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
+                  <ul className="flex flex-col gap-2">
+                    {doneSale.items.map((line) => {
+                      const item = byId.get(line.menu_item_id);
+                      const name = item?.name ?? `Item #${line.menu_item_id}`;
+                      return (
+                        <li key={line.menu_item_id} className="flex items-baseline justify-between gap-4 border-b border-ink/10 pb-2">
+                          <span className="text-base font-semibold">
+                            {name} × {line.qty}
+                          </span>
+                          <span className="text-base text-accent">
+                            {formatPeso(line.unit_price_cents * line.qty)}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
                   {doneSale.paid === 1 ? (
                     <button
                       type="button"
@@ -471,13 +444,22 @@ export default function PosPage() {
                       {detailError}
                     </p>
                   ) : null}
-                  <button
-                    type="button"
-                    onClick={newSale}
-                    className="mt-2 border border-ink px-4 py-3 text-base font-semibold"
-                  >
-                    New sale
-                  </button>
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      onClick={editOrder}
+                      className="flex-1 border border-ink px-4 py-3 text-base font-semibold"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={deleteOrder}
+                      className="flex-1 border border-ink px-4 py-3 text-base font-semibold"
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <>
@@ -533,24 +515,33 @@ export default function PosPage() {
                   <p className="text-xl font-semibold">
                     Total <span className="text-accent">{formatPeso(totalCents)}</span>
                   </p>
-                  <div className="flex gap-3">
-                    <button
-                      type="button"
-                      aria-pressed={active.payment === "cash"}
-                      onClick={() => setPayment(active.key, "cash")}
-                      className={methodButton(active.payment === "cash")}
-                    >
-                      Cash
-                    </button>
-                    <button
-                      type="button"
-                      aria-pressed={active.payment === "gcash"}
-                      onClick={() => setPayment(active.key, "gcash")}
-                      className={methodButton(active.payment === "gcash")}
-                    >
-                      GCash
-                    </button>
-                  </div>
+                  {active.sale ? (
+                    <>
+                      <p className="text-sm text-muted">
+                        Editing {active.label} — payment {active.payment === "cash" ? "Cash" : "GCash"} is fixed. Tap items to stage changes, then Done to save.
+                      </p>
+                      <p className="text-lg">{active.payment === "cash" ? "Cash" : "GCash"}</p>
+                    </>
+                  ) : (
+                    <div className="flex gap-3">
+                      <button
+                        type="button"
+                        aria-pressed={active.payment === "cash"}
+                        onClick={() => setPayment(active.key, "cash")}
+                        className={methodButton(active.payment === "cash")}
+                      >
+                        Cash
+                      </button>
+                      <button
+                        type="button"
+                        aria-pressed={active.payment === "gcash"}
+                        onClick={() => setPayment(active.key, "gcash")}
+                        className={methodButton(active.payment === "gcash")}
+                      >
+                        GCash
+                      </button>
+                    </div>
+                  )}
                   <button
                     type="button"
                     onClick={() => void checkout()}
@@ -665,6 +656,7 @@ export default function PosPage() {
           </section>
           </>
         )}
+        </div>
       </div>
     </main>
   );

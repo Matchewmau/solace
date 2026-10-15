@@ -377,9 +377,8 @@ describe("POS order tabs", () => {
     fireEvent.click(screen.getByRole("button", { name: "New order" }));
     expect(selected("Order #2 (0)")).toBe("true");
     expect(screen.getAllByRole("tab")).toHaveLength(2);
-    fireEvent.click(screen.getByRole("button", { name: "Close Order #2" }));
-    expect(screen.queryByRole("tab", { name: "Order #2 (0)" })).toBeNull();
-    expect(selected("Order #1 (1)")).toBe("true");
+    // Rail has zero close buttons — Delete-after-Done is the only removal.
+    expect(screen.queryByRole("button", { name: /Close Order/ })).toBeNull();
   });
 
   it("item grid adds to the active order only", async () => {
@@ -433,28 +432,69 @@ describe("POS order tabs", () => {
     ).toBe("true");
   });
 
-  it("closing the last tab creates a fresh empty order", async () => {
-    globalThis.fetch = vi.fn(menuFetch()) as typeof fetch;
+  it("Delete on a done tab closes it locally without touching the sale", async () => {
+    const seen: string[] = [];
+    globalThis.fetch = vi.fn(
+      menuFetch(async (u, init) => {
+        seen.push(`${init?.method ?? "GET"} ${u}`);
+        if (u === "/api/sales" && init?.method === "POST") {
+          const body = JSON.parse(String(init.body)) as {
+            payment: string;
+            items: { menu_item_id: number; qty: number }[];
+          };
+          return ok(sale(60, 7000, body.payment, body.items), 201);
+        }
+        throw new Error(`unexpected fetch ${u} ${init?.method}`);
+      }),
+    ) as typeof fetch;
 
     renderPos();
     await screen.findByText("Cortado");
 
     fireEvent.click(screen.getByRole("button", { name: /Cortado/ }));
     expect(selected("Order #1 (1)")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    await screen.findByText("Sale complete");
 
-    fireEvent.click(screen.getByRole("button", { name: "Close Order #1" }));
-    expect(screen.queryByRole("tab", { name: "Order #1 (1)" })).toBeNull();
-    expect(selected("Order #1 (0)")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    // Tab closed locally: receipt gone, fresh empty order open, no DELETE call.
+    expect(screen.queryByText("Sale complete")).toBeNull();
     expect(screen.getByText("Order is empty. Tap an item to add it.")).toBeDefined();
     expect(
       (screen.getByRole("button", { name: "Done" }) as HTMLButtonElement)
         .disabled,
     ).toBe(true);
+    expect(seen.some((entry) => entry.startsWith("DELETE"))).toBe(false);
+  });
+
+  it("rail has no close buttons and Edit allows adding new menu items", async () => {
+    globalThis.fetch = vi.fn(
+      menuFetch(async (u, init) => {
+        if (u === "/api/sales" && init?.method === "POST") {
+          const body = JSON.parse(String(init.body)) as {
+            payment: string;
+            items: { menu_item_id: number; qty: number }[];
+          };
+          return ok(sale(50, 7000, body.payment, body.items), 201);
+        }
+        throw new Error(`unexpected fetch ${u} ${init?.method}`);
+      }),
+    ) as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Cortado");
+    expect(screen.queryByRole("button", { name: /Close Order/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Cortado/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    await screen.findByText("Sale complete");
+    fireEvent.click(screen.getByRole("button", { name: /Edit/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Latte/ }));
+    expect(screen.getByLabelText("Latte quantity")).toBeDefined();
   });
 });
 
 describe("POS per-order checkout", () => {
-  it("posts the active order only, locks the receipt, and clears via New sale", async () => {
+  it("posts the active order only, locks the receipt with Edit|Delete, and Delete closes locally", async () => {
     let payload: unknown;
     let posts = 0;
     globalThis.fetch = vi.fn(
@@ -489,8 +529,11 @@ describe("POS per-order checkout", () => {
     expect(screen.getByText("Order #2 · Sale #9")).toBeDefined();
     expect(screen.getByText("₱155")).toBeDefined();
 
-    // Receipt lock: no second Done to double-post with.
+    // Receipt lock: no second Done to double-post with — Edit|Delete instead.
     expect(screen.queryByRole("button", { name: "Done" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "New sale" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Edit" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Delete" })).toBeDefined();
     expect(posts).toBe(1);
 
     // The other tab is untouched and still editable.
@@ -501,15 +544,12 @@ describe("POS per-order checkout", () => {
         .disabled,
     ).toBe(false);
 
-    // New sale clears the locked tab back to an open, empty order.
+    // Delete closes the done tab locally (sale stays in history).
     fireEvent.click(screen.getByRole("tab", { name: "Order #2 (1)" }));
-    fireEvent.click(screen.getByRole("button", { name: "New sale" }));
-    expect(screen.getByText("Order is empty. Tap an item to add it.")).toBeDefined();
-    expect(selected("Order #2 (0)")).toBe("true");
-    expect(
-      (screen.getByRole("button", { name: "Done" }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    expect(screen.queryByText("Sale complete")).toBeNull();
+    expect(screen.queryByRole("tab", { name: "Order #2 (1)" })).toBeNull();
+    expect(selected("Order #1 (1)")).toBe("true");
     expect(posts).toBe(1);
   });
 
@@ -611,7 +651,7 @@ describe("POS paid flow with history", () => {
     expect(screen.getAllByText(new RegExp(today)).length).toBeGreaterThan(0);
   });
 
-  it("unpaid finalized order stays editable and steppers re-PUT items", async () => {
+  it("Edit reopens the order and re-Done PUTs the staged lines", async () => {
     const puts: unknown[] = [];
     globalThis.fetch = vi.fn(
       menuFetch(async (u, init) => {
@@ -651,9 +691,18 @@ describe("POS paid flow with history", () => {
       expect(screen.getByText("UNPAID")).toBeDefined();
     });
 
+    // Locked receipt has no steppers — Edit reopens to stage changes.
+    expect(
+      screen.queryByRole("button", { name: "Increase Cortado quantity" }),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     fireEvent.click(
       screen.getByRole("button", { name: "Increase Cortado quantity" }),
     );
+    expect(screen.getByLabelText("Cortado quantity").textContent).toBe("2");
+    // Staged locally: no PUT until re-Done.
+    expect(puts).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
 
     await waitFor(() => {
       expect(puts).toHaveLength(1);
