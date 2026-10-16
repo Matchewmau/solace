@@ -34,6 +34,7 @@ beforeEach(() => {
 const items: MenuItem[] = [
   { id: 1, category_id: 1, name: "Cortado", price_cents: 7000, cost_cents: 2000, active: 1, variants: [] },
   { id: 2, category_id: 1, name: "Latte", price_cents: 8000, cost_cents: 2500, active: 1, variants: [] },
+  { id: 3, category_id: 3, name: "Siomai", price_cents: 5000, cost_cents: 1500, active: 1, variants: ["Fried", "Steamed"] },
 ];
 
 function saleFixture(overrides?: Partial<Sale>): Sale {
@@ -90,9 +91,13 @@ describe("orders store", () => {
     useOrders.getState().addItem(second, 2);
     useOrders.getState().setPayment(second, "gcash");
 
-    expect(order("order-1").lines).toEqual([{ menu_item_id: 1, qty: 2 }]);
+    expect(order("order-1").lines).toEqual([
+      { menu_item_id: 1, variant: null, qty: 2 },
+    ]);
     expect(order("order-1").payment).toBe("cash");
-    expect(order(second).lines).toEqual([{ menu_item_id: 2, qty: 1 }]);
+    expect(order(second).lines).toEqual([
+      { menu_item_id: 2, variant: null, qty: 1 },
+    ]);
     expect(order(second).payment).toBe("gcash");
   });
 
@@ -169,18 +174,24 @@ describe("orders store", () => {
     const second = useOrders.getState().activeKey;
 
     expect(order("order-1").lines).toEqual([
-      { menu_item_id: 1, qty: 2 },
-      { menu_item_id: 2, qty: 1 },
+      { menu_item_id: 1, variant: null, qty: 2 },
+      { menu_item_id: 2, variant: null, qty: 1 },
     ]);
     expect(order(second).lines).toEqual([]);
 
-    useOrders.getState().setQty("order-1", 1, 3);
-    expect(order("order-1").lines[0]).toEqual({ menu_item_id: 1, qty: 3 });
+    useOrders.getState().setQty("order-1", 1, null, 3);
+    expect(order("order-1").lines[0]).toEqual({
+      menu_item_id: 1,
+      variant: null,
+      qty: 3,
+    });
 
-    useOrders.getState().setQty("order-1", 1, 0);
-    expect(order("order-1").lines).toEqual([{ menu_item_id: 2, qty: 1 }]);
+    useOrders.getState().setQty("order-1", 1, null, 0);
+    expect(order("order-1").lines).toEqual([
+      { menu_item_id: 2, variant: null, qty: 1 },
+    ]);
 
-    useOrders.getState().removeLine("order-1", 2);
+    useOrders.getState().removeLine("order-1", 2, null);
     expect(order("order-1").lines).toEqual([]);
   });
 
@@ -274,8 +285,8 @@ describe("orders store", () => {
     const before = order("order-1");
 
     useOrders.getState().addItem("order-1", 2);
-    useOrders.getState().setQty("order-1", 1, 9);
-    useOrders.getState().removeLine("order-1", 1);
+    useOrders.getState().setQty("order-1", 1, null, 9);
+    useOrders.getState().removeLine("order-1", 1, null);
     useOrders.getState().setPayment("order-1", "gcash");
 
     expect(order("order-1")).toEqual(before);
@@ -319,6 +330,7 @@ describe("orders store", () => {
     useOrders.getState().addItem("order-1", 2);
     expect(order("order-1").lines).toContainEqual({
       menu_item_id: 2,
+      variant: null,
       qty: 1,
     });
   });
@@ -532,5 +544,127 @@ describe("orders store", () => {
     expect(cartTotalCents(order("order-1").lines, items)).toBe(14000);
     expect(cartTotalCents(order(second).lines, items)).toBe(8000);
     expect(cartTotalCents([], items)).toBe(0);
+  });
+});
+
+describe("orders store variant lines", () => {
+  const siomaiId = 3;
+
+  it("keeps Fried and Steamed as separate lines", () => {
+    useOrders.getState().addItem("order-1", siomaiId, "Fried");
+    useOrders.getState().addItem("order-1", siomaiId, "Steamed");
+    expect(order("order-1").lines).toHaveLength(2);
+    expect(order("order-1").lines).toEqual([
+      { menu_item_id: siomaiId, variant: "Fried", qty: 1 },
+      { menu_item_id: siomaiId, variant: "Steamed", qty: 1 },
+    ]);
+  });
+
+  it("merges same-variant taps and setQty targets the addressed variant line", () => {
+    useOrders.getState().addItem("order-1", siomaiId, "Fried");
+    useOrders.getState().addItem("order-1", siomaiId, "Fried");
+    useOrders.getState().addItem("order-1", siomaiId, "Steamed");
+    expect(order("order-1").lines).toEqual([
+      { menu_item_id: siomaiId, variant: "Fried", qty: 2 },
+      { menu_item_id: siomaiId, variant: "Steamed", qty: 1 },
+    ]);
+
+    useOrders.getState().setQty("order-1", siomaiId, "Steamed", 3);
+    expect(order("order-1").lines).toEqual([
+      { menu_item_id: siomaiId, variant: "Fried", qty: 2 },
+      { menu_item_id: siomaiId, variant: "Steamed", qty: 3 },
+    ]);
+
+    // Zero qty drops only the addressed variant line.
+    useOrders.getState().setQty("order-1", siomaiId, "Steamed", 0);
+    expect(order("order-1").lines).toEqual([
+      { menu_item_id: siomaiId, variant: "Fried", qty: 2 },
+    ]);
+  });
+
+  it("removeLine removes only the addressed variant line", () => {
+    useOrders.getState().addItem("order-1", siomaiId, "Fried");
+    useOrders.getState().addItem("order-1", siomaiId, "Steamed");
+    useOrders.getState().removeLine("order-1", siomaiId, "Fried");
+    expect(order("order-1").lines).toEqual([
+      { menu_item_id: siomaiId, variant: "Steamed", qty: 1 },
+    ]);
+  });
+
+  it("null or omitted variant keeps the old single-line behavior", () => {
+    useOrders.getState().addItem("order-1", 1);
+    useOrders.getState().addItem("order-1", 1, null);
+    expect(order("order-1").lines).toEqual([
+      { menu_item_id: 1, variant: null, qty: 2 },
+    ]);
+
+    // A variant tap cannot merge into the plain (null) line.
+    useOrders.getState().addItem("order-1", 1, "Iced");
+    expect(order("order-1").lines).toEqual([
+      { menu_item_id: 1, variant: null, qty: 2 },
+      { menu_item_id: 1, variant: "Iced", qty: 1 },
+    ]);
+  });
+
+  it("persists variant lines through a storage reload", () => {
+    useOrders.getState().addItem("order-1", siomaiId, "Fried");
+    useOrders.getState().addItem("order-1", siomaiId, "Steamed");
+    const raw = localStorage.getItem(ORDERS_STORAGE_KEY);
+    expect(raw).not.toBeNull();
+
+    const loaded = loadOrdersSnapshot(raw, utcToday());
+    expect(loaded?.orders[0].lines).toEqual([
+      { menu_item_id: siomaiId, variant: "Fried", qty: 1 },
+      { menu_item_id: siomaiId, variant: "Steamed", qty: 1 },
+    ]);
+  });
+
+  it("sanitize defaults a missing stored variant to null (pre-variant snapshots)", () => {
+    const raw = JSON.stringify({
+      version: 1,
+      utcDate: utcToday(),
+      activeKey: "order-2",
+      orders: [
+        {
+          key: "order-2",
+          label: "Order #2",
+          lines: [
+            { menu_item_id: 3, variant: "Fried", qty: 2 },
+            { menu_item_id: 3, variant: "Steamed", qty: 1 },
+            { menu_item_id: 1, qty: 4 },
+          ],
+          payment: "cash",
+          status: "open",
+          sale: null,
+          dailySeq: null,
+          tempNo: 2,
+        },
+      ],
+    });
+    const loaded = loadOrdersSnapshot(raw, utcToday());
+    expect(loaded?.orders[0].lines).toEqual([
+      { menu_item_id: 3, variant: "Fried", qty: 2 },
+      { menu_item_id: 3, variant: "Steamed", qty: 1 },
+      { menu_item_id: 1, variant: null, qty: 4 },
+    ]);
+  });
+
+  it("openSaleTab carries server line variants onto the bound tab", () => {
+    useOrders.getState().openSaleTab(
+      saleFixture({
+        items: [
+          { id: 1, menu_item_id: 3, qty: 2, unit_price_cents: 5000, variant: "Fried" },
+          { id: 2, menu_item_id: 3, qty: 1, unit_price_cents: 5000, variant: "Steamed" },
+          { id: 3, menu_item_id: 1, qty: 1, unit_price_cents: 7000, variant: null },
+        ],
+      }),
+    );
+    const tab = order(useOrders.getState().activeKey);
+    expect(tab.status).toBe("done");
+    expect(tab.lines).toEqual([
+      { menu_item_id: 3, variant: "Fried", qty: 2 },
+      { menu_item_id: 3, variant: "Steamed", qty: 1 },
+      { menu_item_id: 1, variant: null, qty: 1 },
+    ]);
   });
 });

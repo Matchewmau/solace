@@ -13,6 +13,8 @@ export type PaymentMethod = "cash" | "gcash";
 export interface SaleItemPayload {
   menu_item_id: number;
   qty: number;
+  /** Chosen variant text, null/omitted when the item has no choices. */
+  variant?: string | null;
 }
 
 export interface SaleItem {
@@ -20,6 +22,7 @@ export interface SaleItem {
   menu_item_id: number;
   qty: number;
   unit_price_cents: number;
+  variant: string | null;
 }
 
 export interface Sale {

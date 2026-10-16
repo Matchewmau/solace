@@ -17,6 +17,7 @@ const items: MenuItem[] = [
   { id: 1, category_id: 1, name: "Cortado", price_cents: 7000, cost_cents: 2000, active: 1, variants: [] },
   { id: 2, category_id: 1, name: "Latte", price_cents: 8000, cost_cents: 2500, active: 1, variants: [] },
   { id: 3, category_id: 2, name: "Calamansi Cooler", price_cents: 5000, cost_cents: 1200, active: 1, variants: [] },
+  { id: 4, category_id: 2, name: "Siomai", price_cents: 5000, cost_cents: 1500, active: 1, variants: ["Fried", "Steamed"] },
 ];
 
 const emptySummary = {
@@ -35,7 +36,7 @@ function sale(
   id: number,
   totalCents: number,
   payment: string,
-  lines: { menu_item_id: number; qty: number }[],
+  lines: { menu_item_id: number; qty: number; variant?: string | null }[],
   dailySeq = 1,
 ) {
   return {
@@ -51,6 +52,7 @@ function sale(
       menu_item_id: line.menu_item_id,
       qty: line.qty,
       unit_price_cents: 7000,
+      variant: line.variant ?? null,
     })),
   };
 }
@@ -194,8 +196,8 @@ describe("POS checkout flow", () => {
     expect(payload).toEqual({
       payment: "gcash",
       items: [
-        { menu_item_id: 1, qty: 1 },
-        { menu_item_id: 2, qty: 1 },
+        { menu_item_id: 1, qty: 1, variant: null },
+        { menu_item_id: 2, qty: 1, variant: null },
       ],
       paid: 0,
     });
@@ -485,7 +487,7 @@ describe("POS per-order checkout", () => {
     });
     expect(payload).toEqual({
       payment: "cash",
-      items: [{ menu_item_id: 2, qty: 1 }],
+      items: [{ menu_item_id: 2, qty: 1, variant: null }],
       paid: 0,
     });
     expect(screen.getByText("Order #2 · Sale #9")).toBeDefined();
@@ -620,13 +622,13 @@ describe("POS paid flow with history", () => {
         if (u === "/api/sales" && init?.method === "POST") {
           const body = JSON.parse(String(init.body)) as {
             payment: string;
-            items: { menu_item_id: number; qty: number }[];
+            items: { menu_item_id: number; qty: number; variant?: string | null }[];
           };
           return ok(unpaidSale(22, 7000, body.payment, body.items), 201);
         }
         if (u === "/api/sales/22/items" && init?.method === "PUT") {
           const body = JSON.parse(String(init.body)) as {
-            items: { menu_item_id: number; qty: number }[];
+            items: { menu_item_id: number; qty: number; variant?: string | null }[];
           };
           puts.push(body);
           const qty = body.items[0]?.qty ?? 1;
@@ -637,6 +639,7 @@ describe("POS paid flow with history", () => {
               menu_item_id: line.menu_item_id,
               qty: line.qty,
               unit_price_cents: 7000,
+              variant: line.variant ?? null,
             })),
           });
         }
@@ -669,7 +672,9 @@ describe("POS paid flow with history", () => {
     await waitFor(() => {
       expect(puts).toHaveLength(1);
     });
-    expect(puts[0]).toEqual({ items: [{ menu_item_id: 1, qty: 2 }] });
+    expect(puts[0]).toEqual({
+      items: [{ menu_item_id: 1, qty: 2, variant: null }],
+    });
     await waitFor(() => {
       // Refreshed server total renders twice: the sale total and the line.
       expect(screen.getAllByText("₱140")).toHaveLength(2);
@@ -698,7 +703,7 @@ describe("POS paid flow with history", () => {
           {
             ...unpaidSale(23, 7000, "cash", [{ menu_item_id: 1, qty: 1 }]),
             items: [
-              { id: 1, menu_item_id: 1, qty: 1, unit_price_cents: 7000 },
+              { id: 1, menu_item_id: 1, qty: 1, unit_price_cents: 7000, variant: null },
             ],
           },
           201,
@@ -753,7 +758,7 @@ describe("POS paid flow with history", () => {
         {
           key: "order-9",
           label: "Order #9",
-          lines: [{ menu_item_id: 1, qty: 1 }],
+          lines: [{ menu_item_id: 1, variant: null, qty: 1 }],
           payment: "cash",
           status: "done",
           sale: {
@@ -764,7 +769,7 @@ describe("POS paid flow with history", () => {
             voided: 0,
             paid: 1,
             created_at: `${today} 07:15:00`,
-            items: [{ id: 1, menu_item_id: 1, qty: 1, unit_price_cents: 7000 }],
+            items: [{ id: 1, menu_item_id: 1, qty: 1, unit_price_cents: 7000, variant: null }],
           },
           dailySeq: 9,
           tempNo: 9,
@@ -790,7 +795,7 @@ describe("POS paid flow with history", () => {
           voided: 0,
           paid: body.paid,
           created_at: `${today} 07:15:00`,
-          items: [{ id: 1, menu_item_id: 1, qty: 1, unit_price_cents: 7000 }],
+          items: [{ id: 1, menu_item_id: 1, qty: 1, unit_price_cents: 7000, variant: null }],
         });
       }
       throw new Error(`unexpected fetch ${u} ${init?.method}`);
@@ -819,7 +824,7 @@ describe("POS paid flow with history", () => {
       return {
         key: "order-9",
         label: "Order #9",
-        lines: [{ menu_item_id: 1, qty: 1 }],
+        lines: [{ menu_item_id: 1, variant: null, qty: 1 }],
         payment: "cash" as const,
         status: "done" as const,
         sale: {
@@ -830,7 +835,7 @@ describe("POS paid flow with history", () => {
           voided: 0,
           paid,
           created_at: `${today} 07:15:00`,
-          items: [{ id: 1, menu_item_id: 1, qty: 1, unit_price_cents: 7000 }],
+          items: [{ id: 1, menu_item_id: 1, qty: 1, unit_price_cents: 7000, variant: null }],
         },
         dailySeq: 9,
         tempNo: 9,
@@ -969,5 +974,125 @@ describe("POS order/sale label linking", () => {
       expect(screen.getByText("Sale complete")).toBeDefined();
     });
     expect(screen.getByText("Order #1 · Sale #4")).toBeDefined();
+  });
+});
+
+describe("POS variant prompt", () => {
+  // Grid-scoped so cart stepper buttons (also named after the item) can
+  // never collide with the menu tile query.
+  function menuTile(name: string | RegExp) {
+    return within(screen.getByRole("region", { name: "Menu items" })).getByRole(
+      "button",
+      { name },
+    );
+  }
+
+  it("prompts on tap for an item with variants and adds only the chosen line", async () => {
+    globalThis.fetch = vi.fn(menuFetch()) as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Siomai");
+
+    fireEvent.click(menuTile(/Siomai/));
+
+    // No line yet — the choice prompt is up instead.
+    expect(
+      screen.getByRole("dialog", { name: "Choose Siomai variant" }),
+    ).toBeDefined();
+    expect(screen.queryByLabelText("Siomai quantity")).toBeNull();
+    expect(screen.queryByLabelText("Siomai (Fried) quantity")).toBeNull();
+    expect(
+      screen.getByText("Order is empty. Tap an item to add it."),
+    ).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: "Fried" }));
+    expect(
+      screen.queryByRole("dialog", { name: "Choose Siomai variant" }),
+    ).toBeNull();
+    expect(screen.getByLabelText("Siomai (Fried) quantity").textContent).toBe(
+      "1",
+    );
+  });
+
+  it("Cancel dismisses the prompt without adding a line", async () => {
+    globalThis.fetch = vi.fn(menuFetch()) as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Siomai");
+
+    fireEvent.click(menuTile(/Siomai/));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(
+      screen.queryByRole("dialog", { name: "Choose Siomai variant" }),
+    ).toBeNull();
+    expect(screen.queryByLabelText("Siomai (Fried) quantity")).toBeNull();
+    expect(screen.queryByLabelText("Siomai (Steamed) quantity")).toBeNull();
+    expect(
+      screen.getByText("Order is empty. Tap an item to add it."),
+    ).toBeDefined();
+    expect(
+      (screen.getByRole("button", { name: "Done" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
+
+  it("keeps different variant choices as separate lines and checks them out with variant", async () => {
+    let payload: unknown;
+    globalThis.fetch = vi.fn(
+      menuFetch(async (u, init) => {
+        if (u === "/api/sales") {
+          payload = JSON.parse(String(init?.body));
+          const body = payload as {
+            payment: string;
+            items: { menu_item_id: number; qty: number; variant?: string | null }[];
+          };
+          return ok(sale(70, 10000, body.payment, body.items), 201);
+        }
+        throw new Error(`unexpected fetch ${u}`);
+      }),
+    ) as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Siomai");
+
+    fireEvent.click(menuTile(/Siomai/));
+    fireEvent.click(screen.getByRole("button", { name: "Fried" }));
+    fireEvent.click(menuTile(/Siomai/));
+    fireEvent.click(screen.getByRole("button", { name: "Steamed" }));
+
+    expect(screen.getByLabelText("Siomai (Fried) quantity").textContent).toBe(
+      "1",
+    );
+    expect(screen.getByLabelText("Siomai (Steamed) quantity").textContent).toBe(
+      "1",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    await waitFor(() => {
+      expect(screen.getByText("Sale complete")).toBeDefined();
+    });
+    expect(payload).toEqual({
+      payment: "cash",
+      items: [
+        { menu_item_id: 4, qty: 1, variant: "Fried" },
+        { menu_item_id: 4, qty: 1, variant: "Steamed" },
+      ],
+      paid: 0,
+    });
+    // Receipt slip shows each line as Name (Choice).
+    expect(screen.getByText("Siomai (Fried) × 1")).toBeDefined();
+    expect(screen.getByText("Siomai (Steamed) × 1")).toBeDefined();
+  });
+
+  it("items without variants add directly with no prompt", async () => {
+    globalThis.fetch = vi.fn(menuFetch()) as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Cortado");
+
+    fireEvent.click(screen.getByRole("button", { name: /Cortado/ }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByLabelText("Cortado quantity").textContent).toBe("1");
   });
 });

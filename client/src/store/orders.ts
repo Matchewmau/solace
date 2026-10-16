@@ -12,7 +12,9 @@
  * empties never POST and never accumulate.
  *
  * Checkout payload stays exactly {payment, items, paid} — order lines hold
- * only menu_item_id + qty. completeOrder is the single open→done
+ * menu_item_id + variant + qty (variant null when the tap chose none). Line
+ * identity is item plus variant, so Fried and Steamed are separate lines.
+ * completeOrder is the single open→done
  * transition (binds dailySeq + label); it never overwrites a done order.
  * updateSale refreshes the locked receipt after unpaid edits (PUT items)
  * or Mark unpaid (PATCH paid) — paid-off never reopens the tab.
@@ -29,6 +31,8 @@ import { utcToday, type PaymentMethod, type Sale } from "../api/sales";
 
 export interface OrderLine {
   menu_item_id: number;
+  /** Chosen variant; null when the item has no choices. */
+  variant: string | null;
   qty: number;
 }
 
@@ -53,9 +57,14 @@ interface OrdersState {
   addOrder: () => void;
   closeOrder: (key: string) => void;
   setActive: (key: string) => void;
-  addItem: (key: string, menuItemId: number) => void;
-  setQty: (key: string, menuItemId: number, qty: number) => void;
-  removeLine: (key: string, menuItemId: number) => void;
+  addItem: (key: string, menuItemId: number, variant?: string | null) => void;
+  setQty: (
+    key: string,
+    menuItemId: number,
+    variant: string | null,
+    qty: number,
+  ) => void;
+  removeLine: (key: string, menuItemId: number, variant: string | null) => void;
   setPayment: (key: string, payment: PaymentMethod) => void;
   clearOrder: (key: string) => void;
   completeOrder: (key: string, sale: Sale) => void;
@@ -103,19 +112,20 @@ function isEmptyTemp(order: Order): boolean {
 function updateLines(
   lines: OrderLine[],
   menuItemId: number,
+  variant: string | null,
   apply: (qty: number | undefined) => number | undefined,
 ): OrderLine[] {
-  const existing = lines.find((line) => line.menu_item_id === menuItemId);
+  const isTarget = (line: OrderLine) =>
+    line.menu_item_id === menuItemId && line.variant === variant;
+  const existing = lines.find(isTarget);
   const nextQty = apply(existing?.qty);
   if (nextQty === undefined) {
-    return lines.filter((line) => line.menu_item_id !== menuItemId);
+    return lines.filter((line) => !isTarget(line));
   }
   if (!existing) {
-    return [...lines, { menu_item_id: menuItemId, qty: nextQty }];
+    return [...lines, { menu_item_id: menuItemId, variant, qty: nextQty }];
   }
-  return lines.map((line) =>
-    line.menu_item_id === menuItemId ? { ...line, qty: nextQty } : line,
-  );
+  return lines.map((line) => (isTarget(line) ? { ...line, qty: nextQty } : line));
 }
 
 function editOrder(
@@ -145,7 +155,16 @@ function sanitizeOrder(raw: unknown): Order | null {
         ) {
           return [];
         }
-        return [{ menu_item_id: entry.menu_item_id, qty: entry.qty }];
+        return [
+          {
+            menu_item_id: entry.menu_item_id,
+            variant:
+              typeof entry.variant === "string" && entry.variant !== ""
+                ? entry.variant
+                : null,
+            qty: entry.qty,
+          },
+        ];
       })
     : [];
   const sale =
@@ -278,35 +297,40 @@ export const useOrders = create<OrdersState>()((set) => ({
         ? { activeKey: key }
         : {},
     ),
-  addItem: (key, menuItemId) =>
+  addItem: (key, menuItemId, variant = null) =>
     set((state) => ({
       orders: editOrder(state.orders, key, (order) => {
         if (order.status !== "open") return order;
         return {
           ...order,
-          lines: updateLines(order.lines, menuItemId, (qty) => (qty ?? 0) + 1),
+          lines: updateLines(order.lines, menuItemId, variant, (qty) =>
+            (qty ?? 0) + 1,
+          ),
         };
       }),
     })),
-  setQty: (key, menuItemId, qty) =>
+  setQty: (key, menuItemId, variant, qty) =>
     set((state) => ({
       orders: editOrder(state.orders, key, (order) => {
         if (order.status !== "open") return order;
         return {
           ...order,
-          lines: updateLines(order.lines, menuItemId, () =>
+          lines: updateLines(order.lines, menuItemId, variant, () =>
             !Number.isInteger(qty) || qty < 1 ? undefined : qty,
           ),
         };
       }),
     })),
-  removeLine: (key, menuItemId) =>
+  removeLine: (key, menuItemId, variant) =>
     set((state) => ({
       orders: editOrder(state.orders, key, (order) => {
         if (order.status !== "open") return order;
         return {
           ...order,
-          lines: order.lines.filter((line) => line.menu_item_id !== menuItemId),
+          lines: order.lines.filter(
+            (line) =>
+              !(line.menu_item_id === menuItemId && line.variant === variant),
+          ),
         };
       }),
     })),
@@ -394,6 +418,7 @@ export const useOrders = create<OrdersState>()((set) => ({
         label: seq === null ? `Sale #${sale.id}` : `Order #${seq}`,
         lines: sale.items.map((line) => ({
           menu_item_id: line.menu_item_id,
+          variant: line.variant ?? null,
           qty: line.qty,
         })),
         payment: sale.payment,

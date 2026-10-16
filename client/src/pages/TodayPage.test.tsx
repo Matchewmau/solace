@@ -52,7 +52,7 @@ function fullSale(id: number): Sale {
     voided: 0,
     paid: 0,
     created_at: `${today} 06:30:00`,
-    items: [{ id: 1, menu_item_id: 1, qty: 1, unit_price_cents: 7000 }],
+    items: [{ id: 1, menu_item_id: 1, qty: 1, unit_price_cents: 7000, variant: null }],
   };
 }
 
@@ -202,7 +202,7 @@ describe("TodayPage", () => {
         {
           key: "order-1",
           label: "Order #1",
-          lines: [{ menu_item_id: 1, qty: 1 }],
+          lines: [{ menu_item_id: 1, variant: null, qty: 1 }],
           payment: "cash",
           status: "done",
           sale: fullSale(4),
@@ -230,7 +230,7 @@ describe("TodayPage", () => {
         {
           key: "order-3",
           label: "Order #3",
-          lines: [{ menu_item_id: 1, qty: 1 }],
+          lines: [{ menu_item_id: 1, variant: null, qty: 1 }],
           payment: "cash",
           status: "done",
           sale: { ...fullSale(4), paid: 1 },
@@ -292,7 +292,9 @@ describe("TodayPage", () => {
     const holder = state.orders.find((order) => order.sale?.id === 24);
     expect(holder).toBeDefined();
     expect(state.activeKey).toBe(holder!.key);
-    expect(holder!.lines).toEqual([{ menu_item_id: 1, qty: 1 }]);
+    expect(holder!.lines).toEqual([
+      { menu_item_id: 1, variant: null, qty: 1 },
+    ]);
     await screen.findByText("Sale complete");
     expect(screen.getByText("Order #1 · Sale #24")).toBeDefined();
   });
@@ -313,7 +315,7 @@ describe("TodayPage", () => {
         {
           key: "order-sale-24",
           label: "Order #1",
-          lines: [{ menu_item_id: 1, qty: 1 }],
+          lines: [{ menu_item_id: 1, variant: null, qty: 1 }],
           payment: "cash",
           status: "done",
           sale: fullSale(24),

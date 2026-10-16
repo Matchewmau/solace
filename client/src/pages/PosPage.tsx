@@ -1,8 +1,13 @@
 import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchActiveMenuItems, fetchCategories } from "../api/menu";
+import {
+  fetchActiveMenuItems,
+  fetchCategories,
+  type MenuItem,
+} from "../api/menu";
 import { patchSalePaid, postSale, putSaleItems, utcToday } from "../api/sales";
 import { formatPeso } from "../lib/formatPeso";
+import { formatVariantLabel } from "../lib/variants";
 import { cartTotalCents, useOrders } from "../store/orders";
 import { sortCategories } from "../lib/sortCategories";
 
@@ -10,6 +15,10 @@ const methodButton = (pressed: boolean) =>
   pressed
     ? "flex-1 bg-ink px-4 py-4 text-lg font-semibold text-paper"
     : "flex-1 border border-ink px-4 py-4 text-lg font-semibold";
+
+/** Unique cart-line key; line identity is item plus chosen variant. */
+const lineKey = (line: { menu_item_id: number; variant: string | null }) =>
+  `${line.menu_item_id}:${line.variant ?? ""}`;
 
 export default function PosPage() {
   const orders = useOrders((s) => s.orders);
@@ -28,6 +37,9 @@ export default function PosPage() {
   const active = orders.find((order) => order.key === activeKey) ?? orders[0];
 
   const [activeCategory, setActiveCategory] = useState<number | "all">("all");
+  // Variant choice prompt: set from a tap on an item with variants; the
+  // tab only grows a line when a choice is made (Cancel adds nothing).
+  const [promptItem, setPromptItem] = useState<MenuItem | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   // Finalized-tab ops (PUT items, Mark paid/unpaid) share one busy flag +
@@ -96,6 +108,7 @@ export default function PosPage() {
 
   function switchTab(key: string) {
     setActive(key);
+    setPromptItem(null);
     setError("");
   }
 
@@ -109,6 +122,7 @@ export default function PosPage() {
       state.discardEmpty(current.key);
     }
     addOrder();
+    setPromptItem(null);
     setError("");
   }
 
@@ -120,19 +134,29 @@ export default function PosPage() {
     if (!order || order.status !== "open" || order.lines.length === 0) return;
     if (checkoutBusy.current) return;
     checkoutBusy.current = true;
+    // Done supersedes any pending variant prompt (its tap was abandoned).
+    setPromptItem(null);
     setPending(true);
     setError("");
     try {
       if (order.sale?.id) {
         const updated = await putSaleItems(
           order.sale.id,
-          order.lines.map((line) => ({ menu_item_id: line.menu_item_id, qty: line.qty })),
+          order.lines.map((line) => ({
+            menu_item_id: line.menu_item_id,
+            qty: line.qty,
+            variant: line.variant,
+          })),
         );
         completeOrder(order.key, updated);
       } else {
         const completed = await postSale(
           order.payment,
-          order.lines.map((line) => ({ menu_item_id: line.menu_item_id, qty: line.qty })),
+          order.lines.map((line) => ({
+            menu_item_id: line.menu_item_id,
+            qty: line.qty,
+            variant: line.variant,
+          })),
         );
         completeOrder(order.key, completed);
       }
@@ -154,6 +178,7 @@ export default function PosPage() {
   function deleteOrder() {
     // Local-only: the sale itself is append-only and stays in history.
     closeOrder(active.key);
+    setPromptItem(null);
     setError("");
   }
 
@@ -264,7 +289,12 @@ export default function PosPage() {
                       <button
                         type="button"
                         onClick={() => {
-                          if (active.status === "open") addItem(active.key, item.id);
+                          if (active.status !== "open") return;
+                          if (item.variants.length > 0) {
+                            setPromptItem(item);
+                          } else {
+                            addItem(active.key, item.id);
+                          }
                         }}
                         className="flex h-full w-full flex-col items-start gap-1 border border-ink px-4 py-3 text-left"
                       >
@@ -295,9 +325,12 @@ export default function PosPage() {
                   <ul className="flex flex-col gap-2">
                     {doneSale.items.map((line) => {
                       const item = byId.get(line.menu_item_id);
-                      const name = item?.name ?? `Item #${line.menu_item_id}`;
+                      const name = formatVariantLabel(
+                        item?.name ?? `Item #${line.menu_item_id}`,
+                        line.variant,
+                      );
                       return (
-                        <li key={line.menu_item_id} className="flex items-baseline justify-between gap-4 border-b border-ink/10 pb-2">
+                        <li key={lineKey(line)} className="flex items-baseline justify-between gap-4 border-b border-ink/10 pb-2">
                           <span className="text-base font-semibold">
                             {name} × {line.qty}
                           </span>
@@ -352,15 +385,51 @@ export default function PosPage() {
                 </div>
               ) : (
                 <>
+                  {promptItem !== null ? (
+                    <div
+                      role="dialog"
+                      aria-label={`Choose ${promptItem.name} variant`}
+                      className="flex flex-col gap-3 border border-ink p-4"
+                    >
+                      <p className="text-base font-semibold">
+                        {promptItem.name} &middot; choose a variant
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {promptItem.variants.map((variant) => (
+                          <button
+                            key={variant}
+                            type="button"
+                            onClick={() => {
+                              addItem(active.key, promptItem.id, variant);
+                              setPromptItem(null);
+                            }}
+                            className="border border-ink px-4 py-2 text-sm font-semibold"
+                          >
+                            {variant}
+                          </button>
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setPromptItem(null)}
+                        className="self-start px-2 py-1 text-sm text-muted underline"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : null}
                   {active.lines.length === 0 ? (
                     <p className="text-muted">Order is empty. Tap an item to add it.</p>
                   ) : (
                     <ul className="flex flex-col gap-4">
                       {active.lines.map((line) => {
                         const item = byId.get(line.menu_item_id);
-                        const name = item?.name ?? `Item #${line.menu_item_id}`;
+                        const name = formatVariantLabel(
+                          item?.name ?? `Item #${line.menu_item_id}`,
+                          line.variant,
+                        );
                         return (
-                          <li key={line.menu_item_id} className="flex flex-col gap-2 border-b border-ink/10 pb-4">
+                          <li key={lineKey(line)} className="flex flex-col gap-2 border-b border-ink/10 pb-4">
                             <div className="flex items-baseline justify-between gap-4">
                               <span className="text-base font-semibold">{name}</span>
                               <span className="text-base text-accent">
@@ -371,7 +440,7 @@ export default function PosPage() {
                               <button
                                 type="button"
                                 aria-label={`Decrease ${name} quantity`}
-                                onClick={() => setQty(active.key, line.menu_item_id, line.qty - 1)}
+                                onClick={() => setQty(active.key, line.menu_item_id, line.variant, line.qty - 1)}
                                 className="border border-ink px-3 py-1 text-base font-semibold"
                               >
                                 −
@@ -382,7 +451,7 @@ export default function PosPage() {
                               <button
                                 type="button"
                                 aria-label={`Increase ${name} quantity`}
-                                onClick={() => setQty(active.key, line.menu_item_id, line.qty + 1)}
+                                onClick={() => setQty(active.key, line.menu_item_id, line.variant, line.qty + 1)}
                                 className="border border-ink px-3 py-1 text-base font-semibold"
                               >
                                 +
@@ -390,7 +459,7 @@ export default function PosPage() {
                               <button
                                 type="button"
                                 aria-label={`Remove ${name} from cart`}
-                                onClick={() => removeLine(active.key, line.menu_item_id)}
+                                onClick={() => removeLine(active.key, line.menu_item_id, line.variant)}
                                 className="ml-auto px-2 py-1 text-sm text-muted underline"
                               >
                                 Remove
