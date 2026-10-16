@@ -8,7 +8,7 @@ import { timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { seedMenuDb } from "./db/seed-menu.mjs";
+import { seedFoodDb, seedMenuDb } from "./db/seed-menu.mjs";
 import { seedRecipesDb } from "./db/seed-recipes.mjs";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
@@ -91,6 +91,12 @@ export function createApp(dbPath, opts = {}) {
   // never delete, never wipe — safe on a DB with sales).
   if (db.prepare("SELECT COUNT(*) AS n FROM menu_items").get().n === 0) {
     seedMenuDb(db);
+  }
+  // Legacy DBs (non-empty menu, no Food category) get the Food menu once
+  // via the targeted bootstrap; when Food already exists this is a no-op,
+  // so owner edits (prices, active flags, variants) survive every boot.
+  if (!db.prepare("SELECT id FROM categories WHERE name = 'Food'").get()) {
+    seedFoodDb(db);
   }
   if (db.prepare("SELECT COUNT(*) AS n FROM recipes").get().n === 0) {
     seedRecipesDb(db);
