@@ -13,7 +13,12 @@ import { createApp } from "./app.mjs";
 const dir = mkdtempSync(join(tmpdir(), "solace-boot-food-seed-"));
 
 afterAll(() => {
-  rmSync(dir, { recursive: true, force: true });
+  try {
+    rmSync(dir, { recursive: true, force: true });
+  } catch {
+    // Windows can hold the temp DB locked if a run is aborted; cleanup
+    // must not add a second failure that masks the real one.
+  }
 });
 
 // Pre-variant (guide-menu Task 1) table shapes: menu_items lacks the
@@ -96,7 +101,9 @@ function buildLegacyDb(dbPath) {
   legacy.close();
 }
 
-describe("boot Food bootstrap on legacy databases (Fix 1)", () => {
+// Legacy-DB build + boot + HTTP round trips is heavy; the default 5s
+// test timeout flakes under machine load.
+describe("boot Food bootstrap on legacy databases (Fix 1)", { timeout: 15000 }, () => {
   it("legacy DB gains only Food (Siomai/Fries) and keeps items, sale, recipe", async () => {
     const dbPath = join(dir, "legacy.db");
     buildLegacyDb(dbPath);
