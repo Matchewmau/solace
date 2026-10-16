@@ -45,6 +45,18 @@ async function getJson<T>(url: string): Promise<T> {
   return (await res.json()) as T;
 }
 
+async function readApiError(res: Response, url: string): Promise<string> {
+  try {
+    const body = (await res.json()) as { error?: unknown };
+    if (typeof body.error === "string" && body.error !== "") {
+      return body.error;
+    }
+  } catch {
+    // Non-JSON body — fall through to the status-based message.
+  }
+  return `Request failed: ${res.status} ${url}`;
+}
+
 async function sendJson<T>(url: string, method: string, body: unknown): Promise<T> {
   const res = await authFetch(url, {
     method,
@@ -52,7 +64,7 @@ async function sendJson<T>(url: string, method: string, body: unknown): Promise<
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    throw new Error(`Request failed: ${res.status} ${url}`);
+    throw new Error(await readApiError(res, url));
   }
   return (await res.json()) as T;
 }

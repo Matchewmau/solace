@@ -368,8 +368,13 @@ export function MenuShowcase({ categories, items }: ShowcaseProps) {
       await postMenuItem(input);
       setDialog(null);
       await invalidateMenuItems();
-    } catch {
-      setSaveError("Could not save that item.");
+    } catch (err) {
+      // Surface the server's {error} text when the API layer provided one.
+      setSaveError(
+        err instanceof Error && err.message !== ""
+          ? err.message
+          : "Could not save that item.",
+      );
     } finally {
       setSavePending(false);
     }
@@ -382,8 +387,12 @@ export function MenuShowcase({ categories, items }: ShowcaseProps) {
       await patchMenuItem(id, input);
       setDialog(null);
       await invalidateMenuItems();
-    } catch {
-      setSaveError("Could not save those changes.");
+    } catch (err) {
+      setSaveError(
+        err instanceof Error && err.message !== ""
+          ? err.message
+          : "Could not save those changes.",
+      );
     } finally {
       setSavePending(false);
     }
@@ -396,8 +405,12 @@ export function MenuShowcase({ categories, items }: ShowcaseProps) {
       await patchMenuItem(item.id, { active: item.active === 1 ? 0 : 1 });
       setPopupItem(null);
       await invalidateMenuItems();
-    } catch {
-      setToggleError("Could not update that item.");
+    } catch (err) {
+      setToggleError(
+        err instanceof Error && err.message !== ""
+          ? err.message
+          : "Could not update that item.",
+      );
     } finally {
       setTogglePending(false);
     }

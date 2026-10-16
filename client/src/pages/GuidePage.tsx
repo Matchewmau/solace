@@ -525,9 +525,14 @@ export default function GuidePage() {
       }
       setForm(null);
       await queryClient.invalidateQueries({ queryKey: ["recipes"] });
-    } catch {
+    } catch (err) {
+      // Surface the server's {error} text when the API layer provided one;
+      // otherwise keep the generic copy.
+      const fallback = editing
+        ? "Could not save those changes."
+        : "Could not save that guide.";
       setSaveError(
-        editing ? "Could not save those changes." : "Could not save that guide.",
+        err instanceof Error && err.message !== "" ? err.message : fallback,
       );
     } finally {
       setSavePending(false);
@@ -543,8 +548,12 @@ export default function GuidePage() {
       setIsOpen(false);
       setSelectedId(null);
       await queryClient.invalidateQueries({ queryKey: ["recipes"] });
-    } catch {
-      setDeleteError("Could not delete this guide.");
+    } catch (err) {
+      setDeleteError(
+        err instanceof Error && err.message !== ""
+          ? err.message
+          : "Could not delete this guide.",
+      );
     } finally {
       setDeletePending(false);
     }

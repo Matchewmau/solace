@@ -219,12 +219,14 @@ describe("MenuShowcase add/edit and popup (Task 7)", () => {
       total_qty: 12,
       total_revenue_cents: 84000,
     });
-    vi.spyOn(menuApi, "patchMenuItem").mockRejectedValue(new Error("offline"));
+    // Non-Error throw keeps the generic copy (no message to surface).
+    vi.spyOn(menuApi, "patchMenuItem").mockRejectedValue("offline");
     renderShowcase();
     fireEvent.click(screen.getByText("Cortado"));
     const dialog = await screen.findByRole("dialog", { name: "Cortado" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Deactivate" }));
-    expect(await within(dialog).findByRole("alert")).toBeDefined();
+    const alert = await within(dialog).findByRole("alert");
+    expect(alert.textContent).toBe("Could not update that item.");
   });
 
   it("edit dialog submits a patch", async () => {
@@ -250,5 +252,42 @@ describe("MenuShowcase add/edit and popup (Task 7)", () => {
     fireEvent.submit(form);
     await vi.waitFor(() => expect(patchSpy).toHaveBeenCalledTimes(1));
     expect(patchSpy.mock.calls[0][0]).toBe(1);
+  });
+
+  it("edit failure with a 400 body shows the server error text in the dialog", async () => {
+    globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
+      const u = String(url);
+      if (u === "/api/menu_items/1/sales-totals") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            menu_item_id: 1,
+            total_qty: 0,
+            total_revenue_cents: 0,
+          }),
+        } as Response;
+      }
+      if (u === "/api/menu_items/1" && init?.method === "PATCH") {
+        return {
+          ok: false,
+          status: 400,
+          json: async () => ({
+            error: "variant option must be 1-30 characters",
+          }),
+        } as Response;
+      }
+      throw new Error(`unexpected fetch ${u}`);
+    }) as typeof fetch;
+    renderShowcase();
+    fireEvent.click(screen.getByText("Cortado"));
+    const popup = await screen.findByRole("dialog", { name: "Cortado" });
+    fireEvent.click(within(popup).getByRole("button", { name: "Edit" }));
+    await screen.findByLabelText("Name");
+    fireEvent.submit(
+      screen.getByLabelText("Edit Cortado form").closest("form") as HTMLFormElement,
+    );
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe("variant option must be 1-30 characters");
   });
 });

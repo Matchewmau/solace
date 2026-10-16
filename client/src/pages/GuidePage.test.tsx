@@ -397,7 +397,8 @@ describe("GuidePage add edit delete (Task 8)", () => {
   });
 
   it("failed add keeps the form open with an inline error", async () => {
-    vi.spyOn(recipesApi, "postRecipe").mockRejectedValue(new Error("offline"));
+    // Non-Error throw keeps the generic copy (no message to surface).
+    vi.spyOn(recipesApi, "postRecipe").mockRejectedValue("offline");
     stubFetch();
     renderGuide();
     await screen.findByRole("button", { name: "Spanish Latte" });
@@ -411,9 +412,47 @@ describe("GuidePage add edit delete (Task 8)", () => {
       screen.getByLabelText("Add guide form").closest("form") as HTMLFormElement,
     );
 
-    await vi.waitFor(() =>
-      expect(within(screen.getByRole("dialog", { name: "Add guide" })).getByRole("alert")).toBeDefined(),
+    const alert = await within(
+      screen.getByRole("dialog", { name: "Add guide" }),
+    ).findByRole("alert");
+    expect(alert.textContent).toBe("Could not save that guide.");
+  });
+
+  it("add failure with a 400 body shows the server error text in the form", async () => {
+    globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
+      const u = String(url);
+      if (u === "/api/categories") return ok(categories);
+      if (u === "/api/menu_items") return ok(menuItems);
+      if (u === "/api/recipes" && (init?.method ?? "GET") === "GET") {
+        return ok(recipes);
+      }
+      if (u === "/api/recipes" && init?.method === "POST") {
+        return {
+          ok: false,
+          status: 400,
+          json: async () => ({
+            error: "recipe already exists for this menu item",
+          }),
+        } as Response;
+      }
+      throw new Error(`unexpected fetch ${u}`);
+    }) as typeof fetch;
+    renderGuide();
+    await screen.findByRole("button", { name: "Spanish Latte" });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    await screen.findByLabelText("Drink");
+
+    fireEvent.change(screen.getByLabelText("Steps"), {
+      target: { value: "1. Brew" },
+    });
+    fireEvent.submit(
+      screen.getByLabelText("Add guide form").closest("form") as HTMLFormElement,
     );
+
+    const alert = await within(
+      screen.getByRole("dialog", { name: "Add guide" }),
+    ).findByRole("alert");
+    expect(alert.textContent).toBe("recipe already exists for this menu item");
   });
 
   it("detail dialog carries Edit and Delete; Edit opens a prefilled form and patches the same drink", async () => {
@@ -477,7 +516,8 @@ describe("GuidePage add edit delete (Task 8)", () => {
   });
 
   it("failed delete keeps the dialog open with an inline error", async () => {
-    vi.spyOn(recipesApi, "deleteRecipe").mockRejectedValue(new Error("offline"));
+    // Non-Error throw keeps the generic copy (no message to surface).
+    vi.spyOn(recipesApi, "deleteRecipe").mockRejectedValue("offline");
     stubFetch();
     renderGuide();
     await screen.findByRole("button", { name: "Spanish Latte" });
@@ -486,9 +526,8 @@ describe("GuidePage add edit delete (Task 8)", () => {
     await screen.findByText("Condensed Milk — 40 ml");
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
-    await vi.waitFor(() =>
-      expect(within(dialog).getByRole("alert")).toBeDefined(),
-    );
+    const alert = await within(dialog).findByRole("alert");
+    expect(alert.textContent).toBe("Could not delete this guide.");
     expect(screen.getByRole("dialog", { name: "Spanish Latte" })).toBeDefined();
   });
 });
