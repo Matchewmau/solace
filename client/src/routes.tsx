@@ -14,7 +14,8 @@ import { useAuth } from "./components/AuthProvider";
  * Binding route table for Tasks 7, 9–14.
  * /menu (Task 6) + /pos (Task 7) + /guide (Task 9) + /inventory (Task 10)
  * + /finance (Task 11) + /dashboard (Task 13) + /showcase (Task 14)
- * + /inventory/history (eager) + /finance/history (lazy with finance).
+ * + /inventory/history (eager) + /finance/history (lazy with finance)
+ * + /finance/{bills,expenses,payables,loans} (Task 15 drill-ins, lazy).
  * YAGNI — no placeholder pages for future routes.
  *
  * Chunk split (Task 14): motion/three weight must NOT land in the entry
@@ -31,6 +32,10 @@ const MenuPage = lazy(() => import("./pages/MenuPage"));
 const GuidePage = lazy(() => import("./pages/GuidePage"));
 const FinancePage = lazy(() => import("./pages/FinancePage"));
 const FinanceHistoryPage = lazy(() => import("./pages/FinanceHistoryPage"));
+const FinanceBillsPage = lazy(() => import("./pages/FinanceBillsPage"));
+const FinanceExpensesPage = lazy(() => import("./pages/FinanceExpensesPage"));
+const FinancePayablesPage = lazy(() => import("./pages/FinancePayablesPage"));
+const FinanceLoansPage = lazy(() => import("./pages/FinanceLoansPage"));
 const DashboardPage = lazy(() => import("./pages/DashboardPage"));
 const ShowcasePage = lazy(() => import("./pages/ShowcasePage"));
 
@@ -133,6 +138,28 @@ export const routes: RouteObject[] = [
               <FinanceHistoryPage />,
               FinanceFallback,
             ),
+          },
+          {
+            path: "/finance/bills",
+            element: withBrandFallback(<FinanceBillsPage />, FinanceFallback),
+          },
+          {
+            path: "/finance/expenses",
+            element: withBrandFallback(
+              <FinanceExpensesPage />,
+              FinanceFallback,
+            ),
+          },
+          {
+            path: "/finance/payables",
+            element: withBrandFallback(
+              <FinancePayablesPage />,
+              FinanceFallback,
+            ),
+          },
+          {
+            path: "/finance/loans",
+            element: withBrandFallback(<FinanceLoansPage />, FinanceFallback),
           },
           {
             path: "/showcase",

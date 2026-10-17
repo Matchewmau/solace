@@ -13,7 +13,7 @@ const tabs = [
 
 function isTabActive(pathname: string, to: string): boolean {
   if (pathname === to) return true;
-  return to === "/finance" && pathname.startsWith("/finance/history");
+  return to === "/finance" && pathname.startsWith("/finance");
 }
 
 /**
