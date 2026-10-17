@@ -14,11 +14,13 @@ type SortState = { key: string; dir: "asc" | "desc" };
 
 /**
  * Row-card classes: below `md` the same `<table>` markup restyles into
- * label+value cards (single DOM — no second card list). Reused verbatim by
- * SalesTable and every other table page.
+ * label+value cards (single DOM — no second card list). The row becomes a
+ * block so its cells stack one-per-line; each cell is a flex line with its
+ * label on the left (from `data-label`) and its value on the right. Reused
+ * verbatim by SalesTable and every other table page.
  */
-const ROW_CARD = "max-md:block max-md:flex max-md:justify-between";
-const CELL_CARD = `${ROW_CARD} max-md:before:content-[attr(data-label)] max-md:text-muted`;
+const ROW_CARD = "max-md:block";
+const CELL_CARD = `max-md:flex max-md:justify-between max-md:before:content-[attr(data-label)] max-md:text-muted`;
 
 const headerButton =
   "font-semibold underline decoration-dotted underline-offset-4";
