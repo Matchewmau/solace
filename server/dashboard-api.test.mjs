@@ -87,8 +87,35 @@ const seed = db.transaction(() => {
   const addLoan = db.prepare(
     "INSERT INTO loans (lender, principal_cents, balance_cents, installment_cents, due_day) VALUES (?, ?, ?, ?, ?)",
   );
-  addLoan.run("BDO", 100000, 90000, 10000, 15);
+  const bdoLoanId = addLoan.run("BDO", 100000, 90000, 10000, 15)
+    .lastInsertRowid;
   addLoan.run("Settled Lender", 50000, 0, 5000, 5);
+
+  // Task 8 money-out fixtures with explicit paid_at so the day/month buckets
+  // are deterministic. The paid=1 rows with NULL paid_at above ("Paid Bill",
+  // "Paid Due") are legacy and must never count as money-out.
+  const addPaidBill = db.prepare(
+    "INSERT INTO bills (name, amount_cents, due_day, paid, paid_at) VALUES (?, ?, ?, 1, ?)",
+  );
+  addPaidBill.run("Paid Oct Bill", 15000, 13, "2026-10-13 09:00:00");
+  addPaidBill.run("Paid Sep Bill", 7000, 20, "2026-09-20 09:00:00");
+
+  const addPaidPayable = db.prepare(
+    "INSERT INTO payables (label, amount_cents, due_date, paid, paid_at) VALUES (?, ?, ?, 1, ?)",
+  );
+  addPaidPayable.run(
+    "Paid Oct Payable",
+    8000,
+    "2026-10-05",
+    "2026-10-05 12:00:00",
+  );
+
+  const addLoanPayment = db.prepare(
+    "INSERT INTO loan_payments (loan_id, amount_cents, paid_at) VALUES (?, ?, ?)",
+  );
+  addLoanPayment.run(bdoLoanId, 5000, "2026-10-13 15:00:00");
+  addLoanPayment.run(bdoLoanId, 2000, "2026-10-02 15:00:00");
+  addLoanPayment.run(bdoLoanId, 1000, "2026-09-10 15:00:00");
 
   return { i1, i2, i3, i4, i5, i6 };
 });
@@ -149,8 +176,64 @@ describe("dashboard reconciliation (Task 13)", () => {
     const outstanding = scalar(
       "SELECT COALESCE(SUM(balance_cents), 0) AS v FROM loans WHERE balance_cents > 0",
     ).v;
+    const expMonthCount = scalar(
+      "SELECT COUNT(*) AS v FROM expenses WHERE date LIKE ?",
+      `${MONTH}%`,
+    ).v;
+    const paidBillsMonth = scalar(
+      "SELECT COALESCE(SUM(amount_cents), 0) AS v FROM bills WHERE paid = 1 AND paid_at LIKE ?",
+      `${MONTH}%`,
+    ).v;
+    const paidBillsDay = scalar(
+      "SELECT COALESCE(SUM(amount_cents), 0) AS v FROM bills WHERE paid = 1 AND paid_at LIKE ?",
+      `${DATE}%`,
+    ).v;
+    const paidPayablesMonth = scalar(
+      "SELECT COALESCE(SUM(amount_cents), 0) AS v FROM payables WHERE paid = 1 AND paid_at LIKE ?",
+      `${MONTH}%`,
+    ).v;
+    const paidPayablesDay = scalar(
+      "SELECT COALESCE(SUM(amount_cents), 0) AS v FROM payables WHERE paid = 1 AND paid_at LIKE ?",
+      `${DATE}%`,
+    ).v;
+    const loansMonth = scalar(
+      "SELECT COALESCE(SUM(amount_cents), 0) AS v FROM loan_payments WHERE paid_at LIKE ?",
+      `${MONTH}%`,
+    ).v;
+    const loansDay = scalar(
+      "SELECT COALESCE(SUM(amount_cents), 0) AS v FROM loan_payments WHERE paid_at LIKE ?",
+      `${DATE}%`,
+    ).v;
+    const unpaidBillsCount = scalar(
+      "SELECT COUNT(*) AS v FROM bills WHERE paid = 0",
+    ).v;
+    const unpaidPayablesCount = scalar(
+      "SELECT COUNT(*) AS v FROM payables WHERE paid = 0",
+    ).v;
+    const overduePayablesCount = scalar(
+      "SELECT COUNT(*) AS v FROM payables WHERE paid = 0 AND due_date < ?",
+      DATE,
+    ).v;
+    const outstandingCount = scalar(
+      "SELECT COUNT(*) AS v FROM loans WHERE balance_cents > 0",
+    ).v;
 
     // Known fixture values pin the voided/out-of-window exclusions.
+    expect({
+      paidBillsMonth,
+      paidBillsDay,
+      paidPayablesMonth,
+      paidPayablesDay,
+      loansMonth,
+      loansDay,
+    }).toEqual({
+      paidBillsMonth: 15000,
+      paidBillsDay: 15000,
+      paidPayablesMonth: 8000,
+      paidPayablesDay: 0,
+      loansMonth: 7000,
+      loansDay: 5000,
+    });
     expect({ dayCash, dayGcash, dayCount }).toEqual({
       dayCash: 10000,
       dayGcash: 3800,
@@ -180,14 +263,40 @@ describe("dashboard reconciliation (Task 13)", () => {
     });
     expect(body.expenses_day_cents).toBe(expDay);
     expect(body.expenses_month_cents).toBe(expMonth);
-    // Net rule: income totals minus expenses only; stocks stay separate.
-    expect(body.net_day_cents).toBe(dayCash + dayGcash - expDay);
-    expect(body.net_month_cents).toBe(monthCash + monthGcash - expMonth);
-    expect(body.net_day_cents).toBe(9800);
-    expect(body.net_month_cents).toBe(25300);
+    expect(body.expenses_month_count).toBe(expMonthCount);
+    expect(body.money_out_month_by_kind).toEqual({
+      bills_cents: paidBillsMonth,
+      expenses_cents: expMonth,
+      payables_cents: paidPayablesMonth,
+      loans_cents: loansMonth,
+    });
+    expect(body.money_out_day_cents).toBe(
+      paidBillsDay + expDay + paidPayablesDay + loansDay,
+    );
+    expect(body.money_out_month_cents).toBe(
+      paidBillsMonth + expMonth + paidPayablesMonth + loansMonth,
+    );
+    // Net rule (spec §3 option A): income minus ALL money-out (payments-based
+    // across expenses, paid bills, paid payables, loan payments). Stocks stay
+    // separate memo lines.
+    expect(body.net_day_cents).toBe(dayCash + dayGcash - body.money_out_day_cents);
+    expect(body.net_month_cents).toBe(
+      monthCash + monthGcash - body.money_out_month_cents,
+    );
+    expect(body.money_out_day_cents).toBe(24000);
+    expect(body.money_out_month_cents).toBe(35000);
+    expect(body.net_day_cents).toBe(-10200);
+    expect(body.net_month_cents).toBe(-4700);
     expect(body.unpaid_bills_cents).toBe(unpaidBills);
     expect(body.unpaid_payables_cents).toBe(unpaidPayables);
     expect(body.outstanding_loans_cents).toBe(outstanding);
+    expect(body.unpaid_bills_count).toBe(unpaidBillsCount);
+    expect(body.unpaid_payables_count).toBe(unpaidPayablesCount);
+    expect(body.overdue_payables_count).toBe(overduePayablesCount);
+    expect(body.outstanding_loans_count).toBe(outstandingCount);
+    expect({ unpaidBillsCount, unpaidPayablesCount, overduePayablesCount }).toEqual(
+      { unpaidBillsCount: 2, unpaidPayablesCount: 4, overduePayablesCount: 1 },
+    );
   });
 
   it("upcoming dues: all unpaid bills (padded due_day) + unpaid payables within date+7, sorted by due", async () => {
@@ -196,28 +305,109 @@ describe("dashboard reconciliation (Task 13)", () => {
       .expect(200);
     // Cutoff 2026-10-20: Today Due (edge in), Week Due (edge in),
     // Overdue (no lower bound), Later Due 10-21 out, Paid Due out.
+    // overdue is true only for payables with due_date < the resolved date.
     expect(res.body.upcoming_dues).toEqual([
-      { kind: "bill", label: "Meralco", amount_cents: 250000, due: "05" },
-      { kind: "bill", label: "Water", amount_cents: 50000, due: "20" },
+      {
+        kind: "bill",
+        label: "Meralco",
+        amount_cents: 250000,
+        due: "05",
+        overdue: false,
+      },
+      {
+        kind: "bill",
+        label: "Water",
+        amount_cents: 50000,
+        due: "20",
+        overdue: false,
+      },
       {
         kind: "payable",
         label: "Overdue",
         amount_cents: 40000,
         due: "2026-10-01",
+        overdue: true,
       },
       {
         kind: "payable",
         label: "Today Due",
         amount_cents: 10000,
         due: "2026-10-13",
+        overdue: false,
       },
       {
         kind: "payable",
         label: "Week Due",
         amount_cents: 20000,
         due: "2026-10-20",
+        overdue: false,
       },
     ]);
+    expect(res.body.overdue_payables_count).toBe(1);
+  });
+
+  it("sales_by_day: 14 zero-filled days ending at date; voided sales excluded", async () => {
+    const res = await api
+      .get(`/api/dashboard?date=${DATE}&month=${MONTH}`)
+      .expect(200);
+    const days = res.body.sales_by_day;
+    expect(days).toHaveLength(14);
+    expect(days.map((d) => d.date)).toEqual([
+      "2026-09-30",
+      "2026-10-01",
+      "2026-10-02",
+      "2026-10-03",
+      "2026-10-04",
+      "2026-10-05",
+      "2026-10-06",
+      "2026-10-07",
+      "2026-10-08",
+      "2026-10-09",
+      "2026-10-10",
+      "2026-10-11",
+      "2026-10-12",
+      "2026-10-13",
+    ]);
+    const byDate = Object.fromEntries(days.map((d) => [d.date, d.total_cents]));
+    expect(byDate["2026-09-30"]).toBe(100000); // s5, the oldest in-window day
+    expect(byDate["2026-10-01"]).toBe(0); // zero-filled gap
+    expect(byDate["2026-10-05"]).toBe(16500); // s4
+    // s1 (10000) + s2 (3800); voided s3 (10000) is excluded.
+    expect(byDate[DATE]).toBe(13800);
+    expect(days.at(-1)).toEqual({ date: DATE, total_cents: 13800 });
+  });
+
+  it("a bill marked paid via PATCH joins money-out in its paid month; unpaid bills do not", async () => {
+    // Derive the month from the real clock so the delta assertion holds
+    // regardless of when the suite runs.
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    const before = (
+      await api.get(`/api/dashboard?month=${currentMonth}`).expect(200)
+    ).body;
+    const created = await api
+      .post("/api/bills")
+      .send({ name: "Patched Bill", amount_cents: 12345, due_day: 3 })
+      .expect(201);
+    expect(created.body.paid).toBe(0);
+    expect(created.body.paid_at).toBeNull();
+    const stamped = await api
+      .patch(`/api/bills/${created.body.id}`)
+      .send({ paid: 1 })
+      .expect(200);
+    expect(stamped.body.paid_at).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+    const after = (
+      await api.get(`/api/dashboard?month=${currentMonth}`).expect(200)
+    ).body;
+    expect(
+      after.money_out_month_by_kind.bills_cents -
+        before.money_out_month_by_kind.bills_cents,
+    ).toBe(12345);
+    expect(after.money_out_month_cents - before.money_out_month_cents).toBe(
+      12345,
+    );
+    expect(after.net_month_cents).toBe(
+      after.income_month.total_cents - after.money_out_month_cents,
+    );
   });
 
   it("loans list holds balance>0 only; paid-off loan excluded from list and sum", async () => {

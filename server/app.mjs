@@ -1716,19 +1716,23 @@ export function createApp(dbPath, opts = {}) {
     );
   });
 
-  // --- dashboard (Task 13: closing-time reconciliation) ---
-  // NET RULE (binds Task 13): net_day = income_day.total - expenses_day and
-  // net_month = income_month.total - expenses_month. Net covers FLOWS only
-  // (POS income minus money-out expenses). STOCKS — unpaid_bills_cents,
-  // unpaid_payables_cents, outstanding_loans_cents — are separate memo lines
-  // and are NEVER subtracted into net. An unpaid bill is not money out yet.
+  // --- dashboard (Task 13: closing-time reconciliation; Task 8 money-out) ---
+  // NET RULE (Task 8, spec §3 option A — supersedes the Task 13 expenses-only
+  // rule): net_day = income_day.total - money_out_day and net_month =
+  // income_month.total - money_out_month. Money-out is PAYMENTS-BASED:
+  // expenses (date prefix) + paid bills (paid_at prefix) + paid payables
+  // (paid_at prefix) + loan payments (paid_at prefix). STOCKS —
+  // unpaid_bills_cents, unpaid_payables_cents, outstanding_loans_cents — are
+  // separate memo lines and are NEVER subtracted into net. An unpaid bill is
+  // not money out yet; legacy paid rows with NULL paid_at never count.
   // DAY/MONTH RULING (Task 8 binds): sales match on the created_at TEXT
   // prefix YYYY-MM-DD / YYYY-MM; expenses match on the date TEXT prefix.
   // DUES RULING: "today" is the resolved ?date= value (defaults to UTC
   // today). Bills have no full date, so due is the zero-padded due_day
   // ("05"); payables keep their due_date. upcoming_dues holds ALL unpaid
   // bills plus unpaid payables with due_date <= date+7 days (overdues have
-  // no lower bound), sorted by due ascending.
+  // no lower bound), sorted by due ascending; each item carries overdue
+  // (true only for payables with due_date < date).
   app.get("/api/dashboard", (req, res) => {
     const todayUTC = new Date().toISOString().slice(0, 10);
     const date = req.query.date === undefined ? todayUTC : String(req.query.date);
@@ -1769,10 +1773,45 @@ export function createApp(dbPath, opts = {}) {
         .get(`${prefix}%`).v;
     }
 
+    // Paid rows only: bills/payables are money out on their paid_at date,
+    // NOT on the (due-based) dates above. Legacy paid=1/NULL paid_at rows
+    // never match a LIKE prefix, so they stay out of every bucket.
+    function paidOut(table, prefix) {
+      return db
+        .prepare(
+          `SELECT COALESCE(SUM(amount_cents), 0) AS v FROM ${table} WHERE paid = 1 AND paid_at LIKE ?`,
+        )
+        .get(`${prefix}%`).v;
+    }
+
+    function loanPayments(prefix) {
+      return db
+        .prepare(
+          "SELECT COALESCE(SUM(amount_cents), 0) AS v FROM loan_payments WHERE paid_at LIKE ?",
+        )
+        .get(`${prefix}%`).v;
+    }
+
     const incomeDay = income(date);
     const incomeMonth = income(month);
     const expensesDay = expenses(date);
     const expensesMonth = expenses(month);
+
+    const moneyOutMonthByKind = {
+      bills_cents: paidOut("bills", month),
+      expenses_cents: expensesMonth,
+      payables_cents: paidOut("payables", month),
+      loans_cents: loanPayments(month),
+    };
+    const moneyOutMonth = Object.values(moneyOutMonthByKind).reduce(
+      (sum, cents) => sum + cents,
+      0,
+    );
+    const moneyOutDay =
+      paidOut("bills", date) +
+      expensesDay +
+      paidOut("payables", date) +
+      loanPayments(date);
 
     const unpaidBills = db
       .prepare(
@@ -1784,6 +1823,21 @@ export function createApp(dbPath, opts = {}) {
         "SELECT COALESCE(SUM(amount_cents), 0) AS v FROM payables WHERE paid = 0",
       )
       .get().v;
+
+    const unpaidBillsCount = db
+      .prepare("SELECT COUNT(*) AS v FROM bills WHERE paid = 0")
+      .get().v;
+    const unpaidPayablesCount = db
+      .prepare("SELECT COUNT(*) AS v FROM payables WHERE paid = 0")
+      .get().v;
+    const overduePayablesCount = db
+      .prepare(
+        "SELECT COUNT(*) AS v FROM payables WHERE paid = 0 AND due_date < ?",
+      )
+      .get(date).v;
+    const expensesMonthCount = db
+      .prepare("SELECT COUNT(*) AS v FROM expenses WHERE date LIKE ?")
+      .get(`${month}%`).v;
 
     const cutoff = new Date(
       new Date(`${date}T00:00:00Z`).getTime() + 7 * 86400000,
@@ -1799,6 +1853,8 @@ export function createApp(dbPath, opts = {}) {
           label: bill.name,
           amount_cents: bill.amount_cents,
           due: String(bill.due_day).padStart(2, "0"),
+          // Bills have no full date, so they can never be overdue here.
+          overdue: false,
         })),
       ...db
         .prepare(
@@ -1810,6 +1866,7 @@ export function createApp(dbPath, opts = {}) {
           label: payable.label,
           amount_cents: payable.amount_cents,
           due: payable.due_date,
+          overdue: payable.due_date < date,
         })),
     ].sort((a, b) => {
       if (a.due !== b.due) return a.due < b.due ? -1 : 1;
@@ -1841,6 +1898,36 @@ export function createApp(dbPath, opts = {}) {
       )
       .all(`${month}%`);
 
+    // 14 day-buckets oldest→newest ending at the resolved date, zero-filled.
+    // One GROUP BY query; substr keeps the created_at TEXT-prefix day rule,
+    // and voided = 0 keeps voided sales out of every bucket.
+    const salesWindowStart = new Date(
+      new Date(`${date}T00:00:00Z`).getTime() - 13 * 86400000,
+    )
+      .toISOString()
+      .slice(0, 10);
+    const salesTotals = new Map(
+      db
+        .prepare(
+          `SELECT substr(created_at, 1, 10) AS day,
+             COALESCE(SUM(total_cents), 0) AS total_cents
+           FROM sales
+           WHERE voided = 0 AND substr(created_at, 1, 10) BETWEEN ? AND ?
+           GROUP BY day`,
+        )
+        .all(salesWindowStart, date)
+        .map((row) => [row.day, row.total_cents]),
+    );
+    const salesByDay = [];
+    for (let offset = 13; offset >= 0; offset -= 1) {
+      const day = new Date(
+        new Date(`${date}T00:00:00Z`).getTime() - offset * 86400000,
+      )
+        .toISOString()
+        .slice(0, 10);
+      salesByDay.push({ date: day, total_cents: salesTotals.get(day) ?? 0 });
+    }
+
     res.json({
       date,
       month,
@@ -1848,12 +1935,21 @@ export function createApp(dbPath, opts = {}) {
       income_month: incomeMonth,
       expenses_day_cents: expensesDay,
       expenses_month_cents: expensesMonth,
-      net_day_cents: incomeDay.total_cents - expensesDay,
-      net_month_cents: incomeMonth.total_cents - expensesMonth,
+      expenses_month_count: expensesMonthCount,
+      money_out_day_cents: moneyOutDay,
+      money_out_month_cents: moneyOutMonth,
+      money_out_month_by_kind: moneyOutMonthByKind,
+      net_day_cents: incomeDay.total_cents - moneyOutDay,
+      net_month_cents: incomeMonth.total_cents - moneyOutMonth,
       unpaid_bills_cents: unpaidBills,
+      unpaid_bills_count: unpaidBillsCount,
       unpaid_payables_cents: unpaidPayables,
+      unpaid_payables_count: unpaidPayablesCount,
+      overdue_payables_count: overduePayablesCount,
       upcoming_dues: upcomingDues,
+      sales_by_day: salesByDay,
       outstanding_loans_cents: outstandingLoans,
+      outstanding_loans_count: loanRows.length,
       loans: loanRows,
       best_sellers: bestSellers,
     });
