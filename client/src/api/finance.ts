@@ -12,6 +12,8 @@ export interface Bill {
   amount_cents: number;
   due_day: number;
   paid: number;
+  /** UTC stamp when settled; null while unpaid. */
+  paid_at?: string | null;
 }
 
 export interface Expense {
@@ -28,6 +30,8 @@ export interface Payable {
   amount_cents: number;
   due_date: string;
   paid: number;
+  /** UTC stamp when settled; null while unpaid. */
+  paid_at?: string | null;
 }
 
 export interface Loan {

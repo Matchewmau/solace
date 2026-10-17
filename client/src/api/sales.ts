@@ -32,6 +32,9 @@ export interface Sale {
   payment: PaymentMethod;
   voided: number;
   paid: number;
+  /** Cash handed over and change given; null for GCash and pre-change rows. */
+  received_cents?: number | null;
+  change_cents?: number | null;
   created_at: string;
   items: SaleItem[];
 }
@@ -47,6 +50,9 @@ export interface SaleRow {
   payment: PaymentMethod;
   voided: number;
   paid: number;
+  /** Cash handed over and change given; null for GCash and pre-change rows. */
+  received_cents?: number | null;
+  change_cents?: number | null;
   created_at: string;
 }
 
@@ -117,11 +123,21 @@ export function patchSaleVoid(id: number, voided: 0 | 1): Promise<Sale> {
   });
 }
 
-export function patchSalePaid(id: number, paid: 0 | 1): Promise<Sale> {
+/**
+ * Settle or un-settle a sale. `receivedCents` (cash handed over) is only
+ * sent when provided — the server rejects it unless the effective paid is 1.
+ */
+export function patchSalePaid(
+  id: number,
+  paid: 0 | 1,
+  receivedCents?: number,
+): Promise<Sale> {
+  const body: { paid: 0 | 1; received_cents?: number } = { paid };
+  if (receivedCents !== undefined) body.received_cents = receivedCents;
   return requestJson<Sale>(`/api/sales/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ paid }),
+    body: JSON.stringify(body),
   });
 }
 
