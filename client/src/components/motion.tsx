@@ -2,20 +2,22 @@ import { MotionConfig, motion, type Variants } from "motion/react";
 import type { ReactNode } from "react";
 
 /**
- * Brand-quiet motion primitives for non-POS routes ONLY.
+ * Springy motion primitives for non-POS routes ONLY.
  *
  * POS stays boring and instant: PosPage, store/orders, api/*,
  * lib/formatPeso, and lib/sortCategories must NEVER import this
- * module (source-grep enforced).
+ * module (source-grep enforced). POS motion lives in the CSS
+ * utilities instead (.press, .pop-glow, .sheet-up, .drawer-in).
  *
- * All animation is opacity + small y-transform tweens (no springs,
- * no size changes) so there is no layout shift. Reduced-motion
- * users get instant content via MotionConfig reducedMotion="user".
+ * All animation is opacity + small y-transform (springs for the
+ * stagger, a slight overshoot easing for Reveal), never size
+ * changes, so there is no layout shift. Reduced-motion users get
+ * instant content via MotionConfig reducedMotion="user".
  */
 
 const listVariants: Variants = {
   hidden: {},
-  show: { transition: { staggerChildren: 0.06, delayChildren: 0.05 } },
+  show: { transition: { staggerChildren: 0.1, delayChildren: 0.05 } },
 };
 
 const itemVariants: Variants = {
@@ -23,7 +25,7 @@ const itemVariants: Variants = {
   show: {
     opacity: 1,
     y: 0,
-    transition: { duration: 0.3, ease: "easeOut" },
+    transition: { type: "spring", stiffness: 300, damping: 24 },
   },
 };
 
@@ -41,7 +43,7 @@ export function Reveal({
         className={className}
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.35, ease: "easeOut" }}
+        transition={{ duration: 0.35, ease: [0.34, 1.56, 0.64, 1] }}
       >
         {children}
       </motion.section>

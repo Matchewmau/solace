@@ -32,6 +32,18 @@ describe("motion primitives (non-POS only)", () => {
     expect(screen.getByText("Latte")).toBeDefined();
   });
 
+  it("StaggerList children start hidden via the stagger item variant", () => {
+    render(
+      <StaggerList ariaLabel="Drinks">
+        <StaggerItem>Cortado</StaggerItem>
+      </StaggerList>,
+    );
+    const item = screen.getByLabelText("Drinks").querySelector("li");
+    // Pre-animation state comes from the shared itemVariants.hidden (opacity 0, y 8).
+    expect(item?.style.opacity).toBe("0");
+    expect(item?.style.transform).toBe("translateY(8px)");
+  });
+
   it("StaggerGroup renders section children with content", () => {
     render(
       <StaggerGroup>
