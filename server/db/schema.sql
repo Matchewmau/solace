@@ -23,6 +23,8 @@ CREATE TABLE IF NOT EXISTS sales (
   voided INTEGER NOT NULL DEFAULT 0,
   paid INTEGER NOT NULL DEFAULT 0,
   daily_seq INTEGER NOT NULL DEFAULT 1,
+  received_cents INTEGER,
+  change_cents INTEGER,
   created_at TEXT NOT NULL
 );
 

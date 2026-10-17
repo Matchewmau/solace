@@ -43,6 +43,15 @@ function openDb(dbPath) {
   if (!salesCols.includes("paid")) {
     db.exec("ALTER TABLE sales ADD COLUMN paid INTEGER NOT NULL DEFAULT 0");
   }
+  // Cash tender columns (Task 6): pre-change DBs lack received_cents /
+  // change_cents. No DEFAULT — old rows stay NULL (unknown tender), and the
+  // GCash path likewise leaves them NULL.
+  if (!salesCols.includes("received_cents")) {
+    db.exec("ALTER TABLE sales ADD COLUMN received_cents INTEGER");
+  }
+  if (!salesCols.includes("change_cents")) {
+    db.exec("ALTER TABLE sales ADD COLUMN change_cents INTEGER");
+  }
   if (!salesCols.includes("daily_seq")) {
     db.exec("ALTER TABLE sales ADD COLUMN daily_seq INTEGER NOT NULL DEFAULT 1");
     // Backfill old rows: the DEFAULT 1 above stamps every pre-existing row
@@ -550,7 +559,7 @@ export function createApp(dbPath, opts = {}) {
 
   // --- sales ---
   const SALE_COLS =
-    "id, total_cents, payment, voided, paid, daily_seq, created_at";
+    "id, total_cents, payment, voided, paid, daily_seq, received_cents, change_cents, created_at";
 
   function saleWithItems(saleId) {
     const sale = db
@@ -741,15 +750,20 @@ export function createApp(dbPath, opts = {}) {
   });
 
   // Reversible void/paid flags: {voided?: 0|1, paid?: 0|1}, at least one
-  // present. Unvoid (0) restores the sale to totals.
+  // present. Unvoid (0) restores the sale to totals. paid 1 may also carry
+  // received_cents (cash tender): stored with change_cents = received − total.
+  // paid 0 clears both tender columns; paid 1 without received_cents (GCash)
+  // leaves them as-is.
   app.patch("/api/sales/:id", (req, res) => {
     const id = parseId(req.params.id);
     const current = id
       ? db.prepare(`SELECT ${SALE_COLS} FROM sales WHERE id = ?`).get(id)
       : undefined;
     if (!current) return sendError(res, 404, "sale not found");
-    const { voided = current.voided, paid = current.paid } = req.body ?? {};
-    if (req.body?.voided === undefined && req.body?.paid === undefined) {
+    const body = req.body ?? {};
+    const { voided = current.voided, paid = current.paid } = body;
+    const receivedGiven = body.received_cents !== undefined;
+    if (body.voided === undefined && body.paid === undefined && !receivedGiven) {
       return sendError(res, 400, "voided must be 0 or 1");
     }
     if (voided !== 0 && voided !== 1) {
@@ -758,11 +772,30 @@ export function createApp(dbPath, opts = {}) {
     if (paid !== 0 && paid !== 1) {
       return sendError(res, 400, "paid must be 0 or 1");
     }
-    db.prepare("UPDATE sales SET voided = ?, paid = ? WHERE id = ?").run(
-      voided,
-      paid,
-      id,
-    );
+    if (receivedGiven && paid !== 1) {
+      return sendError(res, 400, "received_cents requires paid");
+    }
+    if (receivedGiven && (!isInt(body.received_cents) || body.received_cents < 0)) {
+      return sendError(res, 400, "received_cents must be a non-negative integer");
+    }
+    if (receivedGiven && body.received_cents < current.total_cents) {
+      return sendError(res, 400, "received_cents must cover the total");
+    }
+    const received =
+      paid === 1 && receivedGiven
+        ? body.received_cents
+        : paid === 0
+          ? null
+          : current.received_cents;
+    const change =
+      paid === 1 && receivedGiven
+        ? body.received_cents - current.total_cents
+        : paid === 0
+          ? null
+          : current.change_cents;
+    db.prepare(
+      "UPDATE sales SET voided = ?, paid = ?, received_cents = ?, change_cents = ? WHERE id = ?",
+    ).run(voided, paid, received, change, id);
     res.json(saleWithItems(id));
   });
 
