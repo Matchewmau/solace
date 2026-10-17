@@ -1615,4 +1615,55 @@ describe("POS phone register layout", () => {
     ).toBeDefined();
     expect(screen.getByRole("dialog", { name: "Your order" })).toBeDefined();
   });
+
+  it("closes only the topmost layer on Escape over the pay sheet", async () => {
+    stubMedia(false);
+    const today = new Date().toISOString().slice(0, 10);
+    useOrders.setState({
+      orders: [
+        {
+          key: "order-9",
+          label: "Order #9",
+          lines: [{ menu_item_id: 1, variant: null, qty: 1 }],
+          payment: "cash",
+          status: "done",
+          sale: {
+            id: 41,
+            daily_seq: 9,
+            total_cents: 14000,
+            payment: "cash",
+            voided: 0,
+            paid: 0,
+            created_at: `${today} 07:15:00`,
+            items: [{ id: 1, menu_item_id: 1, qty: 1, unit_price_cents: 14000, variant: null }],
+          },
+          dailySeq: 9,
+          tempNo: 9,
+        },
+      ],
+      activeKey: "order-9",
+    });
+    globalThis.fetch = vi.fn(menuFetch()) as typeof fetch;
+
+    renderPos();
+    await screen.findByRole("button", { name: /View order/ });
+
+    fireEvent.click(screen.getByRole("button", { name: /View order/ }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Your order" })).getByRole(
+        "button",
+        { name: "Pay ₱140.00" },
+      ),
+    );
+    expect(screen.getByRole("dialog", { name: "Pay ₱140.00" })).toBeDefined();
+
+    // First Escape closes only the pay sheet; the cart overlay stays open.
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Pay ₱140.00" })).toBeNull();
+    expect(screen.getByRole("dialog", { name: "Your order" })).toBeDefined();
+
+    // A second Escape then closes the cart overlay.
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Your order" })).toBeNull();
+  });
 });

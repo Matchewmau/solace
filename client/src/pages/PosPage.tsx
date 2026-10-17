@@ -133,7 +133,13 @@ export default function PosPage() {
   const isTablet = useMediaQuery("(min-width: 768px)");
   const [cartOpen, setCartOpen] = useState(false);
   // Shares BottomSheet's dialog contract: Escape close + focus trap/restore.
-  const cartPanelRef = useDialogFocus(cartOpen, () => setCartOpen(false));
+  // Escape closes the topmost layer only: while the cash PaySheet is open
+  // above the cart, that sheet owns Escape first — collapsing the overlay
+  // under it would unmount the pay button its focus restore targets.
+  const cartPanelRef = useDialogFocus(cartOpen, () => {
+    if (payOpen) return;
+    setCartOpen(false);
+  });
 
   // UTC-date order header (Task 8): the day boundary is the UTC calendar
   // date, matching GET /api/sales/summary. Shop hours 2pm-10pm PHT always
