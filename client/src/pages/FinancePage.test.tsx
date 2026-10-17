@@ -1,11 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import FinancePage from "./FinancePage";
-import { isOverdue } from "../api/finance";
-import { clearStoredAuth, setStoredAuth } from "../lib/auth";
-import type { Bill, Expense, Loan, LoanPayment, Payable } from "../api/finance";
+import { clearStoredAuth } from "../lib/auth";
+import type { Dashboard } from "../api/dashboard";
 
 afterEach(() => {
   cleanup();
@@ -14,166 +13,52 @@ afterEach(() => {
   localStorage.clear();
 });
 
-const bills: Bill[] = [
-  { id: 1, name: "Meralco", amount_cents: 250000, due_day: 15, paid: 0 },
-];
-
-const expenses: Expense[] = [
-  {
-    id: 1,
-    date: "2026-10-12",
-    category: "Beans",
-    amount_cents: 120000,
-    note: "",
+/**
+ * Fixture: month income 30300, money out 9000, net 30300 - 9000 = 21300.
+ * Donut shares of the 9000 money-out total: bills 3000 (33%), expenses
+ * 4000 (44%), payables 1000 (11%), loans 1000 (11%).
+ */
+const dashboard: Dashboard = {
+  date: "2026-10-13",
+  month: "2026-10",
+  income_day: { cash_cents: 0, gcash_cents: 0, total_cents: 0, count: 0 },
+  income_month: {
+    cash_cents: 26500,
+    gcash_cents: 3800,
+    total_cents: 30300,
+    count: 3,
   },
-];
-
-const payables: Payable[] = [
-  {
-    id: 1,
-    label: "Overdue Supplier",
-    amount_cents: 80000,
-    due_date: "2000-01-01",
-    paid: 0,
+  expenses_day_cents: 0,
+  expenses_month_cents: 4000,
+  money_out_day_cents: 0,
+  money_out_month_cents: 9000,
+  money_out_month_by_kind: {
+    bills_cents: 3000,
+    expenses_cents: 4000,
+    payables_cents: 1000,
+    loans_cents: 1000,
   },
-  {
-    id: 2,
-    label: "Future Supplier",
-    amount_cents: 50000,
-    due_date: "2999-01-01",
-    paid: 0,
-  },
-  {
-    id: 3,
-    label: "Settled Supplier",
-    amount_cents: 30000,
-    due_date: "2000-01-01",
-    paid: 1,
-  },
-];
+  net_day_cents: 0,
+  net_month_cents: 21300,
+  unpaid_bills_cents: 300000,
+  unpaid_bills_count: 2,
+  unpaid_payables_cents: 100000,
+  unpaid_payables_count: 3,
+  overdue_payables_count: 1,
+  expenses_month_count: 2,
+  outstanding_loans_cents: 90000,
+  outstanding_loans_count: 1,
+  upcoming_dues: [],
+  loans: [],
+  best_sellers: [],
+};
 
-const posted: Array<{ url: string; body: unknown }> = [];
-const patched: Array<{ url: string; body: unknown }> = [];
-const loanPaymentsPosted: Array<{ url: string; body: unknown }> = [];
-
-const loans: Loan[] = [
-  {
-    id: 1,
-    lender: "BDO",
-    principal_cents: 100000,
-    balance_cents: 90000,
-    installment_cents: 10000,
-    due_day: 15,
-  },
-  {
-    id: 2,
-    lender: "Settled Lender",
-    principal_cents: 50000,
-    balance_cents: 0,
-    installment_cents: 5000,
-    due_day: 5,
-  },
-];
-
-const loanPayments: LoanPayment[] = [
-  { id: 1, loan_id: 1, amount_cents: 10000, paid_at: "2026-10-12 10:00:00" },
-];
-
-function ok(data: unknown, status = 200): Response {
-  return {
-    ok: status >= 200 && status < 300,
-    status,
-    json: async () => data,
-  } as Response;
-}
-
-function stubFetch() {
-  posted.length = 0;
-  patched.length = 0;
-  loanPaymentsPosted.length = 0;
-  // Reset shared loan fixtures between tests.
-  loans[0] = {
-    id: 1,
-    lender: "BDO",
-    principal_cents: 100000,
-    balance_cents: 90000,
-    installment_cents: 10000,
-    due_day: 15,
-  };
-  loanPayments.length = 0;
-  loanPayments.push({
-    id: 1,
-    loan_id: 1,
-    amount_cents: 10000,
-    paid_at: "2026-10-12 10:00:00",
-  });
-  globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
-    const u = String(url);
-    if (u === "/api/bills" && (!init || init.method === undefined)) {
-      return ok(bills);
-    }
-    if (u === "/api/expenses" && (!init || init.method === undefined)) {
-      return ok(expenses);
-    }
-    if (u === "/api/payables" && (!init || init.method === undefined)) {
-      return ok(payables);
-    }
-    if (u === "/api/loans" && (!init || init.method === undefined)) {
-      return ok(loans.map((loan) => ({ ...loan })));
-    }
-    const historyMatch = u.match(/^\/api\/loans\/(\d+)\/payments$/);
-    if (historyMatch && (!init || init.method === undefined)) {
-      const loanId = Number(historyMatch[1]);
-      return ok(
-        loanPayments
-          .filter((payment) => payment.loan_id === loanId)
-          .map((payment) => ({ ...payment })),
-      );
-    }
-    if (historyMatch && init?.method === "POST") {
-      const loanId = Number(historyMatch[1]);
-      const body = JSON.parse(String(init.body)) as {
-        amount_cents: number;
-      };
-      loanPaymentsPosted.push({ url: u, body });
-      const loan = loans.find((candidate) => candidate.id === loanId);
-      if (!loan) {
-        return ok({ error: "loan not found" }, 404);
-      }
-      loan.balance_cents -= body.amount_cents;
-      const payment = {
-        id: Math.max(...loanPayments.map((p) => p.id)) + 1,
-        loan_id: loanId,
-        amount_cents: body.amount_cents,
-        paid_at: "2026-10-13 10:00:00",
-      };
-      loanPayments.unshift(payment);
-      return ok(
-        { payment: { ...payment }, balance_cents: loan.balance_cents },
-        201,
-      );
-    }
-    if (u === "/api/expenses" && init?.method === "POST") {
-      const body = JSON.parse(String(init.body)) as Record<string, unknown>;
-      posted.push({ url: u, body });
-      return ok({ id: 99, ...body }, 201);
-    }
-    const billMatch = u.match(/^\/api\/bills\/(\d+)$/);
-    if (billMatch && init?.method === "PATCH") {
-      const body = JSON.parse(String(init.body)) as { paid: 0 | 1 };
-      patched.push({ url: u, body });
-      const bill = bills.find((b) => b.id === Number(billMatch[1]));
-      return ok({ ...bill, ...body });
-    }
-    const payableMatch = u.match(/^\/api\/payables\/(\d+)$/);
-    if (payableMatch && init?.method === "PATCH") {
-      const body = JSON.parse(String(init.body)) as { paid: 0 | 1 };
-      patched.push({ url: u, body });
-      const payable = payables.find((p) => p.id === Number(payableMatch[1]));
-      return ok({ ...payable, ...body });
-    }
-    throw new Error(`unexpected fetch ${u} ${init?.method ?? "GET"}`);
-  }) as typeof fetch;
+function stubDashboard(payload: Dashboard = dashboard) {
+  globalThis.fetch = vi.fn(async () => ({
+    ok: true,
+    status: 200,
+    json: async () => payload,
+  })) as unknown as typeof fetch;
 }
 
 function renderFinance() {
@@ -189,307 +74,117 @@ function renderFinance() {
   );
 }
 
-describe("isOverdue (pure)", () => {
-  it("flags unpaid past-due rows only, against the UTC-today ruling", () => {
+/** The boxed group titled `name` (Box renders a named `<section>`). */
+function region(name: string) {
+  return screen.getByRole("region", { name });
+}
+
+describe("FinancePage money dashboard", () => {
+  it("renders the money-in / money-out / net strip with month totals", async () => {
+    stubDashboard();
+    renderFinance();
+
+    const moneyIn = (await screen.findByText(
+      "Money in · 2026-10",
+    )).closest("div") as HTMLElement;
+    expect(within(moneyIn).getByText("₱303")).toBeDefined();
+
+    const moneyOut = screen
+      .getByText("Money out · 2026-10")
+      .closest("div") as HTMLElement;
+    expect(within(moneyOut).getByText("₱90")).toBeDefined();
+
+    // Net = income 30300 - money out 9000 = 21300, toned ok when positive.
+    const net = screen.getByText("Net").closest("div") as HTMLElement;
+    const netValue = within(net).getByText("₱213");
+    expect(netValue.className).toContain("text-ok");
+  });
+
+  it("tones a negative net as danger", async () => {
+    stubDashboard({ ...dashboard, net_month_cents: -1500 });
+    renderFinance();
+
+    const net = (await screen.findByText("Net")).closest("div") as HTMLElement;
+    const netValue = within(net).getByText("₱-15");
+    expect(netValue.className).toContain("text-danger");
+  });
+
+  it("lists all four money-out kinds in the donut legend with percentages", async () => {
+    stubDashboard();
+    renderFinance();
+
+    const donut = await screen.findByRole("region", {
+      name: "Money out by kind",
+    });
+    // Legend center label echoes the money-out total.
+    expect(within(donut).getByText("₱90")).toBeDefined();
+
+    for (const [label, value] of [
+      ["Bills", "₱30"],
+      ["Expenses", "₱40"],
+      ["Payables", "₱10"],
+      ["Loans", "₱10"],
+    ] as const) {
+      const row = within(donut).getByText(label).closest("li") as HTMLElement;
+      expect(within(row).getByText(value)).toBeDefined();
+      expect(row.textContent).toMatch(/\d+%/);
+    }
+  });
+
+  it("renders the four drill-in boxes with numbers, hints, and Open links", async () => {
+    stubDashboard();
+    renderFinance();
+
+    const bills = await screen.findByRole("region", { name: "Bills" });
+    expect(within(bills).getByText("₱3000")).toBeDefined();
+    expect(within(bills).getByText("2 unpaid")).toBeDefined();
     expect(
-      isOverdue({ due_date: "2000-01-01", paid: 0 }, "2026-10-13"),
-    ).toBe(true);
+      within(bills).getByRole("link", { name: "Open" }).getAttribute("href"),
+    ).toBe("/finance/bills");
+
+    const expenses = region("Expenses");
+    expect(within(expenses).getByText("₱40")).toBeDefined();
+    expect(within(expenses).getByText("2 this month")).toBeDefined();
     expect(
-      isOverdue({ due_date: "2026-10-13", paid: 0 }, "2026-10-13"),
-    ).toBe(false);
+      within(expenses).getByRole("link", { name: "Open" }).getAttribute("href"),
+    ).toBe("/finance/expenses");
+
+    const payables = region("Payables");
+    expect(within(payables).getByText("₱1000")).toBeDefined();
+    expect(within(payables).getByText("3 open")).toBeDefined();
+    const overdue = within(payables).getByText("1 overdue");
+    expect(overdue.className).toContain("text-danger");
     expect(
-      isOverdue({ due_date: "2999-01-01", paid: 0 }, "2026-10-13"),
-    ).toBe(false);
+      within(payables).getByRole("link", { name: "Open" }).getAttribute("href"),
+    ).toBe("/finance/payables");
+
+    const loans = region("Loans");
+    expect(within(loans).getByText("₱900")).toBeDefined();
+    expect(within(loans).getByText("1 outstanding")).toBeDefined();
     expect(
-      isOverdue({ due_date: "2000-01-01", paid: 1 }, "2026-10-13"),
-    ).toBe(false);
-  });
-});
-
-describe("FinancePage with mocked data", () => {
-  it("shows the OVERDUE badge on the unpaid past-due payable only", async () => {
-    stubFetch();
-    renderFinance();
-    await screen.findByText("Overdue Supplier");
-
-    const overdueRow = screen
-      .getByText("Overdue Supplier")
-      .closest("li") as HTMLElement;
-    expect(overdueRow.textContent).toContain("OVERDUE");
-
-    const futureRow = screen
-      .getByText("Future Supplier")
-      .closest("li") as HTMLElement;
-    expect(futureRow.textContent).not.toContain("OVERDUE");
-
-    const settledRow = screen
-      .getByText("Settled Supplier")
-      .closest("li") as HTMLElement;
-    expect(settledRow.textContent).not.toContain("OVERDUE");
+      within(loans).getByRole("link", { name: "Open" }).getAttribute("href"),
+    ).toBe("/finance/loans");
   });
 
-  it("paid toggle PATCHes the bill and the payable", async () => {
-    stubFetch();
+  it("hides the overdue badge when nothing is overdue", async () => {
+    stubDashboard({ ...dashboard, overdue_payables_count: 0 });
     renderFinance();
-    await screen.findByText("Meralco");
 
-    fireEvent.click(screen.getByLabelText("Toggle paid for Meralco"));
-    await vi.waitFor(() => {
-      expect(patched).toHaveLength(1);
-    });
-    expect(patched[0]).toEqual({
-      url: "/api/bills/1",
-      body: { paid: 1 },
-    });
-
-    fireEvent.click(screen.getByLabelText("Toggle paid for Future Supplier"));
-    await vi.waitFor(() => {
-      expect(patched).toHaveLength(2);
-    });
-    expect(patched[1]).toEqual({
-      url: "/api/payables/2",
-      body: { paid: 1 },
-    });
+    const payables = await screen.findByRole("region", { name: "Payables" });
+    expect(within(payables).queryByText(/overdue/i)).toBeNull();
   });
 
-  it("add-expense form POSTs date, category, amount_cents, and note", async () => {
-    stubFetch();
+  it("preserves the loading and error/retry states", async () => {
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false,
+      status: 500,
+      json: async () => ({ error: "boom" }),
+    })) as unknown as typeof fetch;
+
     renderFinance();
-    await screen.findByText("Meralco");
-
-    const form = screen.getByLabelText("Add expense").closest(
-      "form",
-    ) as HTMLFormElement;
-    fireEvent.change(form.querySelector('input[name="date"]') as HTMLInputElement, {
-      target: { value: "2026-10-13" },
-    });
-    fireEvent.change(
-      form.querySelector('input[name="category"]') as HTMLInputElement,
-      { target: { value: "Milk" } },
-    );
-    fireEvent.change(
-      form.querySelector('input[name="amount"]') as HTMLInputElement,
-      { target: { value: "250" } },
-    );
-    fireEvent.change(form.querySelector('input[name="note"]') as HTMLInputElement, {
-      target: { value: "Arla 6L" },
-    });
-    fireEvent.submit(form);
-
-    await vi.waitFor(() => {
-      expect(posted).toHaveLength(1);
-    });
-    expect(posted[0]).toEqual({
-      url: "/api/expenses",
-      body: {
-        date: "2026-10-13",
-        category: "Milk",
-        amount_cents: 25000,
-        note: "Arla 6L",
-      },
-    });
-  });
-});
-
-describe("FinancePage loans (Task 12)", () => {
-  it("shows OUTSTANDING/PAID badges per loan balance", async () => {
-    stubFetch();
-    renderFinance();
-    await screen.findByText("BDO");
-
-    const owingRow = screen.getByText("BDO").closest("li") as HTMLElement;
-    expect(owingRow.textContent).toContain("OUTSTANDING");
-    expect(owingRow.textContent).not.toContain("PAID");
-
-    const settledRow = screen
-      .getByText("Settled Lender")
-      .closest("li") as HTMLElement;
-    expect(settledRow.textContent).toContain("PAID");
-  });
-
-  it("pay form POSTs amount_cents and the PAID badge appears at zero balance", async () => {
-    stubFetch();
-    renderFinance();
-    await screen.findByText("BDO");
-
-    fireEvent.click(screen.getByLabelText("Pay BDO"));
-    const form = screen.getByLabelText("Pay loan").closest(
-      "form",
-    ) as HTMLFormElement;
-    const amount = form.querySelector(
-      'input[name="amount"]',
-    ) as HTMLInputElement;
-    // Amount defaults to the installment (₱100 = 10000 cents).
-    expect(amount.value).toBe("100");
-
-    fireEvent.change(amount, { target: { value: "900" } });
-    fireEvent.submit(form);
-
-    await vi.waitFor(() => {
-      expect(loanPaymentsPosted).toHaveLength(1);
-    });
-    expect(loanPaymentsPosted[0]).toEqual({
-      url: "/api/loans/1/payments",
-      body: { amount_cents: 90000 },
-    });
-
-    // Balance refreshes from the refetched loans list: 90000 - 90000 = 0.
-    const owingRow = screen.getByText("BDO").closest("li") as HTMLElement;
-    await vi.waitFor(() => {
-      expect(owingRow.textContent).toContain("PAID");
-    });
-  });
-
-  it("history lives on the dedicated route, linked from the row", async () => {
-    stubFetch();
-    renderFinance();
-    await screen.findByText("BDO");
-
-    // The inline payment history moved to /finance/history (own page);
-    // the row keeps a plain link there while Pay stays inline.
-    const link = screen
-      .getByRole("link", { name: "View history for BDO" })
-      .getAttribute("href");
-    expect(link).toBe("/finance/history?loan=1");
-    expect(screen.getByLabelText("Pay BDO")).toBeDefined();
-    expect(screen.queryByLabelText("Payment history")).toBeNull();
-  });
-});
-
-describe("FinancePage create forms (review fix wave)", () => {
-  const created: Array<{ url: string; body: unknown; headers: unknown }> = [];
-
-  function stubCreate() {
-    created.length = 0;
-    setStoredAuth("solace123");
-    globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
-      const u = String(url);
-      if (
-        (u === "/api/bills" ||
-          u === "/api/expenses" ||
-          u === "/api/payables" ||
-          u === "/api/loans") &&
-        (!init || init.method === undefined)
-      ) {
-        return ok([]);
-      }
-      if (
-        (u === "/api/bills" ||
-          u === "/api/payables" ||
-          u === "/api/loans") &&
-        init?.method === "POST"
-      ) {
-        const body = JSON.parse(String(init.body)) as Record<string, unknown>;
-        created.push({ url: u, body, headers: init.headers });
-        return ok({ id: 99, ...body }, 201);
-      }
-      throw new Error(`unexpected fetch ${u} ${init?.method ?? "GET"}`);
-    }) as typeof fetch;
-  }
-
-  it("add-bill form POSTs name/amount_cents/due_day with the auth header", async () => {
-    stubCreate();
-    renderFinance();
-    await screen.findByText("Bills");
-
-    const form = screen.getByLabelText("Add bill").closest(
-      "form",
-    ) as HTMLFormElement;
-    fireEvent.change(form.querySelector('input[name="name"]') as HTMLInputElement, {
-      target: { value: "Meralco" },
-    });
-    fireEvent.change(
-      form.querySelector('input[name="amount"]') as HTMLInputElement,
-      { target: { value: "250" } },
-    );
-    fireEvent.change(
-      form.querySelector('input[name="due_day"]') as HTMLInputElement,
-      { target: { value: "15" } },
-    );
-    fireEvent.submit(form);
-
-    await vi.waitFor(() => {
-      expect(created).toHaveLength(1);
-    });
-    expect(created[0].url).toBe("/api/bills");
-    expect(created[0].body).toEqual({
-      name: "Meralco",
-      amount_cents: 25000,
-      due_day: 15,
-    });
-    expect(new Headers(created[0].headers as HeadersInit).get("x-solace-auth")).toBe("solace123");
-  });
-
-  it("add-payable form POSTs label/amount_cents/due_date with the auth header", async () => {
-    stubCreate();
-    renderFinance();
-    await screen.findByText("Payables");
-
-    const form = screen.getByLabelText("Add payable").closest(
-      "form",
-    ) as HTMLFormElement;
-    fireEvent.change(
-      form.querySelector('input[name="label"]') as HTMLInputElement,
-      { target: { value: "Supplier Ana" } },
-    );
-    fireEvent.change(
-      form.querySelector('input[name="amount"]') as HTMLInputElement,
-      { target: { value: "800" } },
-    );
-    fireEvent.change(
-      form.querySelector('input[name="due_date"]') as HTMLInputElement,
-      { target: { value: "2026-10-20" } },
-    );
-    fireEvent.submit(form);
-
-    await vi.waitFor(() => {
-      expect(created).toHaveLength(1);
-    });
-    expect(created[0].url).toBe("/api/payables");
-    expect(created[0].body).toEqual({
-      label: "Supplier Ana",
-      amount_cents: 80000,
-      due_date: "2026-10-20",
-    });
-    expect(new Headers(created[0].headers as HeadersInit).get("x-solace-auth")).toBe("solace123");
-  });
-
-  it("add-loan form POSTs lender/principal/installment/due_day (no balance) with the auth header", async () => {
-    stubCreate();
-    renderFinance();
-    await screen.findByText("Loans");
-
-    const form = screen.getByLabelText("Add loan").closest(
-      "form",
-    ) as HTMLFormElement;
-    fireEvent.change(
-      form.querySelector('input[name="lender"]') as HTMLInputElement,
-      { target: { value: "BDO" } },
-    );
-    fireEvent.change(
-      form.querySelector('input[name="principal"]') as HTMLInputElement,
-      { target: { value: "1000" } },
-    );
-    fireEvent.change(
-      form.querySelector('input[name="installment"]') as HTMLInputElement,
-      { target: { value: "100" } },
-    );
-    fireEvent.change(
-      form.querySelector('input[name="due_day"]') as HTMLInputElement,
-      { target: { value: "15" } },
-    );
-    fireEvent.submit(form);
-
-    await vi.waitFor(() => {
-      expect(created).toHaveLength(1);
-    });
-    expect(created[0].url).toBe("/api/loans");
-    expect(created[0].body).toEqual({
-      lender: "BDO",
-      principal_cents: 100000,
-      installment_cents: 10000,
-      due_day: 15,
-    });
-    expect(new Headers(created[0].headers as HeadersInit).get("x-solace-auth")).toBe("solace123");
+    expect(
+      await screen.findByText("Could not load finance."),
+    ).toBeDefined();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeDefined();
   });
 });

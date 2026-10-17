@@ -110,8 +110,10 @@ describe("FinanceHistoryPage (own route)", () => {
   it("finance history link navigates to that route (Pay stays inline, no back link)", async () => {
     setStoredAuth("solace123");
     stubFetch();
-    renderAt("/finance");
-    // /finance is a lazy route chunk: allow time for the import to resolve.
+    // The loan row (and its History link) lives on the /finance/loans drill-in
+    // now that FinancePage is the money dashboard.
+    renderAt("/finance/loans");
+    // /finance/loans is a lazy route chunk: allow time for the import.
     await screen.findByText("BDO", {}, { timeout: 5000 });
 
     // Pay stays on the row as its own inline affordance.
@@ -119,6 +121,7 @@ describe("FinanceHistoryPage (own route)", () => {
     fireEvent.click(screen.getByRole("link", { name: "View history for BDO" }));
 
     // Navigation lands on the dedicated history route with a real table.
+    await screen.findByText("Loan history", {}, { timeout: 5000 });
     const table = await screen.findByRole("table", {}, { timeout: 5000 });
     expect(table.textContent).toContain("₱100");
     // No back link: the global rail owns the way back to /finance.
