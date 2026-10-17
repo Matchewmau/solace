@@ -1419,3 +1419,200 @@ describe("POS order rail status, labels, and day cue", () => {
     expect(screen.getByRole("tab")).toBeDefined();
   });
 });
+
+describe("POS phone register layout", () => {
+  /**
+   * Stub matchMedia. Pass a boolean to answer every query the same way, or a
+   * predicate to shape phone (`false`) vs tablet (md true, lg false). With no
+   * stub, jsdom returns the hook's fallback (true) ⇒ the desktop layout.
+   */
+  function stubMedia(matches: boolean | ((query: string) => boolean)) {
+    const resolve = typeof matches === "function" ? matches : () => matches;
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn(
+        (query: string) =>
+          ({
+            matches: resolve(query),
+            media: query,
+            onchange: null,
+            addEventListener: () => {},
+            removeEventListener: () => {},
+            addListener: () => {},
+            removeListener: () => {},
+            dispatchEvent: () => true,
+          }) as unknown as MediaQueryList,
+      ),
+    );
+  }
+
+  /** Grid-scoped so the cart line (also named after the item) never collides. */
+  function menuTile(name: string | RegExp) {
+    return within(screen.getByRole("region", { name: "Menu items" })).getByRole(
+      "button",
+      { name },
+    );
+  }
+
+  it("keeps the desktop cart column and omits the phone affordances by default", async () => {
+    globalThis.fetch = vi.fn(menuFetch()) as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Cortado");
+
+    // No matchMedia ⇒ fallback true ⇒ desktop: cart inline once, no chips bar.
+    expect(screen.getAllByRole("region", { name: "Cart" })).toHaveLength(1);
+    expect(screen.queryByRole("tablist", { name: "Order chips" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /View order/ })).toBeNull();
+  });
+
+  it("shows phone chips and the cart bar, opening the sheet with the cart exactly once", async () => {
+    stubMedia(false);
+    globalThis.fetch = vi.fn(menuFetch()) as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Cortado");
+
+    // Chips replace the desktop column; the cart is not inline below lg.
+    expect(screen.getByRole("tablist", { name: "Order chips" })).toBeDefined();
+    expect(screen.queryByRole("region", { name: "Cart" })).toBeNull();
+
+    fireEvent.click(menuTile(/Cortado/));
+    const bar = screen.getByRole("button", { name: /View order/ });
+    expect(bar.textContent).toContain("1 items");
+    expect(bar.textContent).toContain("₱70");
+    // 44 px touch target on the cart bar.
+    expect(bar.className).toContain("min-h-11");
+
+    fireEvent.click(bar);
+    const dialog = screen.getByRole("dialog", { name: "Your order" });
+    // 44 px touch target on Done.
+    expect(
+      within(dialog).getByRole("button", { name: "Done" }).className,
+    ).toContain("min-h-11");
+    // The cart renders once — inside the sheet, never inline too.
+    expect(screen.getAllByRole("region", { name: "Cart" })).toHaveLength(1);
+    expect(within(dialog).getByRole("region", { name: "Cart" })).toBeDefined();
+    expect(within(dialog).getByText("Cortado")).toBeDefined();
+
+    // Backdrop dismisses the sheet…
+    fireEvent.click(screen.getByTestId("cart-backdrop"));
+    expect(screen.queryByRole("dialog", { name: "Your order" })).toBeNull();
+
+    // …and so does the visible Close button.
+    fireEvent.click(bar);
+    const reopened = screen.getByRole("dialog", { name: "Your order" });
+    fireEvent.click(within(reopened).getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog", { name: "Your order" })).toBeNull();
+  });
+
+  it("closes the phone sheet on Escape", async () => {
+    stubMedia(false);
+    globalThis.fetch = vi.fn(menuFetch()) as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Cortado");
+
+    fireEvent.click(menuTile(/Cortado/));
+    fireEvent.click(screen.getByRole("button", { name: /View order/ }));
+    expect(screen.getByRole("dialog", { name: "Your order" })).toBeDefined();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Your order" })).toBeNull();
+  });
+
+  it("completes an order from the phone sheet and keeps the receipt open", async () => {
+    stubMedia(false);
+    let payload: unknown;
+    globalThis.fetch = vi.fn(
+      menuFetch(async (u, init) => {
+        if (u === "/api/sales") {
+          payload = JSON.parse(String(init?.body));
+          return ok(sale(5, 7000, "cash", [{ menu_item_id: 1, qty: 1 }]), 201);
+        }
+        throw new Error(`unexpected fetch ${u}`);
+      }),
+    ) as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Cortado");
+
+    fireEvent.click(menuTile(/Cortado/));
+    fireEvent.click(screen.getByRole("button", { name: /View order/ }));
+    const dialog = screen.getByRole("dialog", { name: "Your order" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Done" }));
+
+    await waitFor(() => {
+      expect(within(dialog).getByText("Sale complete")).toBeDefined();
+    });
+    // After Done the overlay stays open showing the receipt.
+    expect(screen.getByRole("dialog", { name: "Your order" })).toBeDefined();
+    expect(screen.getByText("Order #1 · Sale #5")).toBeDefined();
+    expect(payload).toMatchObject({ payment: "cash" });
+  });
+
+  it("slides a right-side drawer in (not a sheet) at tablet widths", async () => {
+    // md true, lg false ⇒ tablet: overlay cart as a drawer, rail still shown.
+    stubMedia((query) => query === "(min-width: 768px)");
+    globalThis.fetch = vi.fn(menuFetch()) as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Cortado");
+
+    expect(screen.getByRole("tablist", { name: "Orders" })).toBeDefined();
+
+    fireEvent.click(menuTile(/Cortado/));
+    fireEvent.click(screen.getByRole("button", { name: /View order/ }));
+    const panel = screen.getByRole("dialog", { name: "Your order" });
+    expect(panel.className).toContain("drawer-in");
+    expect(panel.className).toContain("rounded-l-box");
+    expect(panel.className).not.toContain("sheet-up");
+  });
+
+  it("keeps the pay sheet usable above the phone cart overlay", async () => {
+    stubMedia(false);
+    const today = new Date().toISOString().slice(0, 10);
+    useOrders.setState({
+      orders: [
+        {
+          key: "order-9",
+          label: "Order #9",
+          lines: [{ menu_item_id: 1, variant: null, qty: 1 }],
+          payment: "cash",
+          status: "done",
+          sale: {
+            id: 41,
+            daily_seq: 9,
+            total_cents: 14000,
+            payment: "cash",
+            voided: 0,
+            paid: 0,
+            created_at: `${today} 07:15:00`,
+            items: [{ id: 1, menu_item_id: 1, qty: 1, unit_price_cents: 14000, variant: null }],
+          },
+          dailySeq: 9,
+          tempNo: 9,
+        },
+      ],
+      activeKey: "order-9",
+    });
+    globalThis.fetch = vi.fn(menuFetch()) as typeof fetch;
+
+    renderPos();
+    await screen.findByRole("button", { name: /View order/ });
+
+    fireEvent.click(screen.getByRole("button", { name: /View order/ }));
+    const cartDialog = screen.getByRole("dialog", { name: "Your order" });
+    expect(within(cartDialog).getByText("Sale complete")).toBeDefined();
+
+    fireEvent.click(
+      within(cartDialog).getByRole("button", { name: "Pay ₱140.00" }),
+    );
+
+    // The cash sheet layers above the cart overlay; both stay mounted.
+    expect(
+      screen.getByRole("dialog", { name: "Pay ₱140.00" }),
+    ).toBeDefined();
+    expect(screen.getByRole("dialog", { name: "Your order" })).toBeDefined();
+  });
+});
