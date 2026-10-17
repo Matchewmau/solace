@@ -82,6 +82,23 @@ function openDb(dbPath) {
   if (!saleItemCols.includes("variant")) {
     db.exec("ALTER TABLE sale_items ADD COLUMN variant TEXT");
   }
+  // Payment-date columns (Task 7): pre-change DBs lack bills.paid_at /
+  // payables.paid_at. No DEFAULT — old and unpaid rows stay NULL (never
+  // paid), and only a paid 0→1 toggle stamps a time.
+  const billCols = db
+    .prepare("PRAGMA table_info(bills)")
+    .all()
+    .map((col) => col.name);
+  if (!billCols.includes("paid_at")) {
+    db.exec("ALTER TABLE bills ADD COLUMN paid_at TEXT");
+  }
+  const payableCols = db
+    .prepare("PRAGMA table_info(payables)")
+    .all()
+    .map((col) => col.name);
+  if (!payableCols.includes("paid_at")) {
+    db.exec("ALTER TABLE payables ADD COLUMN paid_at TEXT");
+  }
   return db;
 }
 
@@ -1232,7 +1249,7 @@ export function createApp(dbPath, opts = {}) {
     return isInt(amount_cents) && amount_cents >= 0;
   }
 
-  const BILL_COLS = "id, name, amount_cents, due_day, paid";
+  const BILL_COLS = "id, name, amount_cents, due_day, paid, paid_at";
 
   function billRow(id) {
     return db.prepare(`SELECT ${BILL_COLS} FROM bills WHERE id = ?`).get(id);
@@ -1283,11 +1300,12 @@ export function createApp(dbPath, opts = {}) {
     const { name, amount_cents, due_day, paid = 0 } = req.body ?? {};
     const error = validateBillFields({ name, amount_cents, due_day, paid });
     if (error) return sendError(res, 400, error);
+    const paidAt = paid === 1 ? nowStamp() : null;
     const info = db
       .prepare(
-        "INSERT INTO bills (name, amount_cents, due_day, paid) VALUES (?, ?, ?, ?)",
+        "INSERT INTO bills (name, amount_cents, due_day, paid, paid_at) VALUES (?, ?, ?, ?, ?)",
       )
-      .run(name.trim(), amount_cents, due_day, paid);
+      .run(name.trim(), amount_cents, due_day, paid, paidAt);
     res.status(201).json(billRow(info.lastInsertRowid));
   });
 
@@ -1310,9 +1328,11 @@ export function createApp(dbPath, opts = {}) {
     } = req.body ?? {};
     const error = validateBillFields({ name, amount_cents, due_day, paid });
     if (error) return sendError(res, 400, error);
+    const paidAt =
+      paid === 1 ? (current.paid === 1 ? current.paid_at : nowStamp()) : null;
     db.prepare(
-      "UPDATE bills SET name = ?, amount_cents = ?, due_day = ?, paid = ? WHERE id = ?",
-    ).run(name.trim(), amount_cents, due_day, paid, id);
+      "UPDATE bills SET name = ?, amount_cents = ?, due_day = ?, paid = ?, paid_at = ? WHERE id = ?",
+    ).run(name.trim(), amount_cents, due_day, paid, paidAt, id);
     res.json(billRow(id));
   });
 
@@ -1403,7 +1423,7 @@ export function createApp(dbPath, opts = {}) {
   });
 
   // --- payables (to-pay list with due dates; Task 13 consumes ?overdue=1) ---
-  const PAYABLE_COLS = "id, label, amount_cents, due_date, paid";
+  const PAYABLE_COLS = "id, label, amount_cents, due_date, paid, paid_at";
 
   function payableRow(id) {
     return db
@@ -1463,11 +1483,12 @@ export function createApp(dbPath, opts = {}) {
     const { label, amount_cents, due_date, paid = 0 } = req.body ?? {};
     const error = validatePayableFields({ label, amount_cents, due_date, paid });
     if (error) return sendError(res, 400, error);
+    const paidAt = paid === 1 ? nowStamp() : null;
     const info = db
       .prepare(
-        "INSERT INTO payables (label, amount_cents, due_date, paid) VALUES (?, ?, ?, ?)",
+        "INSERT INTO payables (label, amount_cents, due_date, paid, paid_at) VALUES (?, ?, ?, ?, ?)",
       )
-      .run(label.trim(), amount_cents, due_date, paid);
+      .run(label.trim(), amount_cents, due_date, paid, paidAt);
     res.status(201).json(payableRow(info.lastInsertRowid));
   });
 
@@ -1495,9 +1516,11 @@ export function createApp(dbPath, opts = {}) {
       paid,
     });
     if (error) return sendError(res, 400, error);
+    const paidAt =
+      paid === 1 ? (current.paid === 1 ? current.paid_at : nowStamp()) : null;
     db.prepare(
-      "UPDATE payables SET label = ?, amount_cents = ?, due_date = ?, paid = ? WHERE id = ?",
-    ).run(label.trim(), amount_cents, due_date, paid, id);
+      "UPDATE payables SET label = ?, amount_cents = ?, due_date = ?, paid = ?, paid_at = ? WHERE id = ?",
+    ).run(label.trim(), amount_cents, due_date, paid, paidAt, id);
     res.json(payableRow(id));
   });
 

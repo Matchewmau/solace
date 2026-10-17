@@ -1,3 +1,4 @@
+import Database from "better-sqlite3";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,6 +9,8 @@ import { createApp } from "./app.mjs";
 const dir = mkdtempSync(join(tmpdir(), "solace-finance-api-test-"));
 const app = createApp(join(dir, "finance-api-test.db"));
 const api = authed(app);
+
+const STAMP_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
 
 afterAll(() => {
   app.locals.db.close();
@@ -392,5 +395,212 @@ describe("payables CRUD + due filters (Task 11)", () => {
       .get("/api/payables?due_before=not-a-date")
       .expect(400);
     expect(bad.body.error).toEqual(expect.any(String));
+  });
+});
+
+describe("bill payment dates (Task 7)", () => {
+  it("POST unpaid -> paid_at null; PATCH paid:1 stamps YYYY-MM-DD HH:MM:SS", async () => {
+    const created = (
+      await api
+        .post("/api/bills")
+        .send({ name: "Stamp Bill", amount_cents: 1000, due_day: 3 })
+        .expect(201)
+    ).body;
+    expect(created.paid_at).toBeNull();
+
+    const stamped = await api
+      .patch(`/api/bills/${created.id}`)
+      .send({ paid: 1 })
+      .expect(200);
+    expect(stamped.body.paid_at).toMatch(STAMP_RE);
+  });
+
+  it("PATCH paid:1 again keeps the existing paid_at", async () => {
+    const created = (
+      await api
+        .post("/api/bills")
+        .send({ name: "Keep Bill", amount_cents: 1000, due_day: 3 })
+        .expect(201)
+    ).body;
+    const first = await api
+      .patch(`/api/bills/${created.id}`)
+      .send({ paid: 1 })
+      .expect(200);
+    expect(first.body.paid_at).toMatch(STAMP_RE);
+
+    const second = await api
+      .patch(`/api/bills/${created.id}`)
+      .send({ paid: 1 })
+      .expect(200);
+    expect(second.body.paid_at).toBe(first.body.paid_at);
+
+    // Pin a sentinel so a same-second re-stamp cannot mask a kept value.
+    app.locals.db
+      .prepare("UPDATE bills SET paid_at = ? WHERE id = ?")
+      .run("2000-01-01 00:00:00", created.id);
+    const third = await api
+      .patch(`/api/bills/${created.id}`)
+      .send({ paid: 1 })
+      .expect(200);
+    expect(third.body.paid_at).toBe("2000-01-01 00:00:00");
+
+    // An unrelated patch (paid stays 1) must not restamp either.
+    const renamed = await api
+      .patch(`/api/bills/${created.id}`)
+      .send({ name: "Keep Bill Renamed" })
+      .expect(200);
+    expect(renamed.body.paid_at).toBe("2000-01-01 00:00:00");
+  });
+
+  it("PATCH paid:0 clears paid_at back to null", async () => {
+    const created = (
+      await api
+        .post("/api/bills")
+        .send({ name: "Clear Bill", amount_cents: 1000, due_day: 3, paid: 1 })
+        .expect(201)
+    ).body;
+    expect(created.paid_at).toMatch(STAMP_RE);
+
+    const cleared = await api
+      .patch(`/api/bills/${created.id}`)
+      .send({ paid: 0 })
+      .expect(200);
+    expect(cleared.body.paid).toBe(0);
+    expect(cleared.body.paid_at).toBeNull();
+  });
+});
+
+describe("payable payment dates (Task 7)", () => {
+  it("POST unpaid -> paid_at null; PATCH paid:1 stamps YYYY-MM-DD HH:MM:SS", async () => {
+    const created = (
+      await api
+        .post("/api/payables")
+        .send({ label: "Stamp Payable", amount_cents: 1000, due_date: shiftUTC(4) })
+        .expect(201)
+    ).body;
+    expect(created.paid_at).toBeNull();
+
+    const stamped = await api
+      .patch(`/api/payables/${created.id}`)
+      .send({ paid: 1 })
+      .expect(200);
+    expect(stamped.body.paid_at).toMatch(STAMP_RE);
+  });
+
+  it("PATCH paid:1 again keeps the existing paid_at", async () => {
+    const created = (
+      await api
+        .post("/api/payables")
+        .send({ label: "Keep Payable", amount_cents: 1000, due_date: shiftUTC(4) })
+        .expect(201)
+    ).body;
+    const first = await api
+      .patch(`/api/payables/${created.id}`)
+      .send({ paid: 1 })
+      .expect(200);
+    expect(first.body.paid_at).toMatch(STAMP_RE);
+
+    const second = await api
+      .patch(`/api/payables/${created.id}`)
+      .send({ paid: 1 })
+      .expect(200);
+    expect(second.body.paid_at).toBe(first.body.paid_at);
+
+    app.locals.db
+      .prepare("UPDATE payables SET paid_at = ? WHERE id = ?")
+      .run("2000-01-01 00:00:00", created.id);
+    const third = await api
+      .patch(`/api/payables/${created.id}`)
+      .send({ paid: 1 })
+      .expect(200);
+    expect(third.body.paid_at).toBe("2000-01-01 00:00:00");
+
+    const relabeled = await api
+      .patch(`/api/payables/${created.id}`)
+      .send({ label: "Keep Payable Renamed" })
+      .expect(200);
+    expect(relabeled.body.paid_at).toBe("2000-01-01 00:00:00");
+  });
+
+  it("PATCH paid:0 clears paid_at back to null", async () => {
+    const created = (
+      await api
+        .post("/api/payables")
+        .send({
+          label: "Clear Payable",
+          amount_cents: 1000,
+          due_date: shiftUTC(4),
+          paid: 1,
+        })
+        .expect(201)
+    ).body;
+    expect(created.paid_at).toMatch(STAMP_RE);
+
+    const cleared = await api
+      .patch(`/api/payables/${created.id}`)
+      .send({ paid: 0 })
+      .expect(200);
+    expect(cleared.body.paid).toBe(0);
+    expect(cleared.body.paid_at).toBeNull();
+  });
+});
+
+describe("paid_at boot migration (Task 7)", () => {
+  it("pre-Change DBs gain paid_at on bills and payables (legacy rows stay null)", async () => {
+    const legacyDir = mkdtempSync(join(tmpdir(), "solace-finance-legacy-"));
+    const legacyPath = join(legacyDir, "legacy.db");
+    try {
+      const legacy = new Database(legacyPath);
+      legacy.exec(
+        "CREATE TABLE bills (id INTEGER PRIMARY KEY, name TEXT NOT NULL, amount_cents INTEGER NOT NULL, due_day INTEGER NOT NULL, paid INTEGER NOT NULL DEFAULT 0)",
+      );
+      legacy.exec(
+        "CREATE TABLE payables (id INTEGER PRIMARY KEY, label TEXT NOT NULL, amount_cents INTEGER NOT NULL, due_date TEXT NOT NULL, paid INTEGER NOT NULL DEFAULT 0)",
+      );
+      legacy
+        .prepare(
+          "INSERT INTO bills (name, amount_cents, due_day, paid) VALUES (?, ?, ?, ?)",
+        )
+        .run("Legacy Bill", 1000, 3, 1);
+      legacy
+        .prepare(
+          "INSERT INTO payables (label, amount_cents, due_date, paid) VALUES (?, ?, ?, ?)",
+        )
+        .run("Legacy Payable", 1000, "2026-01-05", 0);
+      legacy.close();
+
+      const legacyApp = createApp(legacyPath);
+      try {
+        const cols = (table) =>
+          legacyApp.locals.db
+            .prepare(`PRAGMA table_info(${table})`)
+            .all()
+            .map((col) => col.name);
+        expect(cols("bills")).toContain("paid_at");
+        expect(cols("payables")).toContain("paid_at");
+
+        const legacyApi = authed(legacyApp);
+        const bills = await legacyApi.get("/api/bills").expect(200);
+        expect(bills.body[0]).toMatchObject({ paid: 1, paid_at: null });
+
+        const stamped = await legacyApi
+          .patch("/api/bills/1")
+          .send({ name: "Legacy Bill" })
+          .expect(200);
+        expect(stamped.body.paid_at).toBeNull();
+
+        const payables = await legacyApi.get("/api/payables").expect(200);
+        expect(payables.body[0]).toMatchObject({ paid: 0, paid_at: null });
+        const marked = await legacyApi
+          .patch("/api/payables/1")
+          .send({ paid: 1 })
+          .expect(200);
+        expect(marked.body.paid_at).toMatch(STAMP_RE);
+      } finally {
+        legacyApp.locals.db.close();
+      }
+    } finally {
+      rmSync(legacyDir, { recursive: true, force: true });
+    }
   });
 });
