@@ -10,6 +10,7 @@ import { formatPeso } from "../lib/formatPeso";
 import { formatVariantLabel } from "../lib/variants";
 import { cartTotalCents, useOrders, type Order } from "../store/orders";
 import { sortCategories } from "../lib/sortCategories";
+import { PaySheet, formatMoney } from "../components/PaySheet";
 
 const methodButton = (pressed: boolean) =>
   pressed
@@ -72,6 +73,11 @@ export default function PosPage() {
   // one error line so overlapping detail writes cannot interleave.
   const [detailBusy, setDetailBusy] = useState(false);
   const [detailError, setDetailError] = useState("");
+  // Cash change calculator: the sheet is open only for a done, unpaid, cash
+  // tab. `celebrating` holds the tab key mid-payment so its rail tab pops the
+  // green pop-glow before the delayed close removes it.
+  const [payOpen, setPayOpen] = useState(false);
+  const [celebrating, setCelebrating] = useState<string | null>(null);
   // Sync re-entry guard: two clicks before the pending re-render still
   // post only once. The done-status check below blocks any later click.
   const checkoutBusy = useRef(false);
@@ -83,17 +89,31 @@ export default function PosPage() {
   const today = useMemo(() => utcToday(), []);
   const queryClient = useQueryClient();
 
-  // Finalized-tab settlement toggle. Marking paid closes the tab (a paid
-  // order is fully done); marking unpaid refreshes the tab sale in place
-  // so its lines stay editable via Edit.
-  async function togglePaidTab(orderKey: string, saleId: number, paid: 0 | 1) {
+  // Finalized-tab settlement toggle. Marking paid (cash or GCash) settles the
+  // sale, flashes the rail tab, then closes the tab after the 320 ms success
+  // state; marking unpaid refreshes the tab sale in place so its lines stay
+  // editable via Edit. `receivedCents` is sent only on the cash path.
+  async function togglePaidTab(
+    orderKey: string,
+    saleId: number,
+    paid: 0 | 1,
+    receivedCents?: number,
+  ) {
     if (detailBusy) return;
     setDetailBusy(true);
     setDetailError("");
     try {
-      const updated = await patchSalePaid(saleId, paid);
+      const updated = await patchSalePaid(saleId, paid, receivedCents);
       if (paid === 1) {
-        closeOrder(orderKey);
+        setPayOpen(false);
+        // Show the settled (green) tab, pop-glow it, then close it shortly
+        // after so the success state is visible before the tab disappears.
+        updateSale(orderKey, updated);
+        setCelebrating(orderKey);
+        setTimeout(() => {
+          setCelebrating(null);
+          closeOrder(orderKey);
+        }, 320);
         setError("");
       } else {
         updateSale(orderKey, updated);
@@ -252,7 +272,9 @@ export default function PosPage() {
                   role="tab"
                   aria-selected={selected}
                   onClick={() => switchTab(order.key)}
-                  className={railTabClass(order, selected)}
+                  className={`${railTabClass(order, selected)}${
+                    order.key === celebrating ? " pop-glow" : ""
+                  }`}
                 >
                   {done ? (
                     <>
@@ -375,6 +397,17 @@ export default function PosPage() {
                     {formatPeso(doneSale.total_cents)}
                   </p>
                   <p className="text-lg">{doneSale.payment === "cash" ? "Cash" : "GCash"}</p>
+                  {doneSale.payment === "cash" &&
+                  doneSale.received_cents != null ? (
+                    <>
+                      <p className="text-base">
+                        Received {formatPeso(doneSale.received_cents)}
+                      </p>
+                      <p className="text-base">
+                        Change {formatPeso(doneSale.change_cents ?? 0)}
+                      </p>
+                    </>
+                  ) : null}
                   <ul className="flex flex-col gap-2">
                     {doneSale.items.map((line) => {
                       const item = byId.get(line.menu_item_id);
@@ -406,14 +439,38 @@ export default function PosPage() {
                   ) : (
                     <button
                       type="button"
-                      onClick={() => void togglePaidTab(active.key, doneSale.id, 1)}
+                      onClick={() => {
+                        // Cash opens the change calculator; GCash settles
+                        // directly with no received amount.
+                        if (doneSale.payment === "cash") {
+                          setPayOpen(true);
+                        } else {
+                          void togglePaidTab(active.key, doneSale.id, 1);
+                        }
+                      }}
                       disabled={detailBusy}
                       className="press bg-ink px-4 py-3 text-base font-semibold text-paper disabled:opacity-40"
                     >
-                      Mark paid
+                      Pay {formatMoney(doneSale.total_cents)}
                     </button>
                   )}
-                  {detailError !== "" ? (
+                  {payOpen && doneSale.payment === "cash" ? (
+                    <PaySheet
+                      totalCents={doneSale.total_cents}
+                      pending={detailBusy}
+                      error={detailError}
+                      onCancel={() => setPayOpen(false)}
+                      onConfirm={(receivedCents) =>
+                        void togglePaidTab(
+                          active.key,
+                          doneSale.id,
+                          1,
+                          receivedCents,
+                        )
+                      }
+                    />
+                  ) : null}
+                  {detailError !== "" && !payOpen ? (
                     <p role="alert" className="text-base">
                       {detailError}
                     </p>

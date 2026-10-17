@@ -683,17 +683,20 @@ describe("POS paid flow with history", () => {
     });
   });
 
-  it("mark paid PATCHes paid 1 and closes the tab (settlement lives in Details)", async () => {
+  it("GCash Pay PATCHes paid 1 with no received amount and closes the tab after the delay", async () => {
     const patches: unknown[] = [];
     let paid = 0;
     const row = () => ({
       id: 23,
       daily_seq: 1,
       total_cents: 7000,
-      payment: "cash",
+      payment: "gcash",
       voided: 0,
       paid,
       created_at: `${today} 10:00:00`,
+      items: [
+        { id: 1, menu_item_id: 1, qty: 1, unit_price_cents: 7000, variant: null },
+      ],
     });
     globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
       const u = String(url);
@@ -703,7 +706,7 @@ describe("POS paid flow with history", () => {
       if (u === "/api/sales" && init?.method === "POST") {
         return ok(
           {
-            ...unpaidSale(23, 7000, "cash", [{ menu_item_id: 1, qty: 1 }]),
+            ...unpaidSale(23, 7000, "gcash", [{ menu_item_id: 1, qty: 1 }]),
             items: [
               { id: 1, menu_item_id: 1, qty: 1, unit_price_cents: 7000, variant: null },
             ],
@@ -727,17 +730,21 @@ describe("POS paid flow with history", () => {
     await screen.findByText("Cortado");
 
     fireEvent.click(screen.getByRole("button", { name: /Cortado/ }));
+    fireEvent.click(screen.getByRole("button", { name: "GCash" }));
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
     await waitFor(() => {
       expect(screen.getByText("UNPAID")).toBeDefined();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Mark paid" }));
+    // GCash skips the change calculator — Pay settles directly, no sheet.
+    fireEvent.click(screen.getByRole("button", { name: "Pay ₱70.00" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
 
     await waitFor(() => {
       expect(patches).toEqual([{ paid: 1 }]);
     });
     // Tab closed: the finalized banner is gone and a fresh order is open.
+    // The close is now delayed by the celebrating (pop-glow) timeout.
     await waitFor(() => {
       expect(screen.queryByText("Sale complete")).toBeNull();
     });
@@ -867,6 +874,193 @@ describe("POS paid flow with history", () => {
       (screen.getByRole("button", { name: "Edit" }) as HTMLButtonElement)
         .disabled,
     ).toBe(false);
+  });
+});
+
+describe("POS cash change calculator flow", () => {
+  const today = new Date().toISOString().slice(0, 10);
+
+  /** A finalized holding tab seeded directly, bypassing the POST. */
+  function doneOrder(sale: {
+    id: number;
+    total_cents: number;
+    payment: "cash" | "gcash";
+    paid: number;
+    received_cents?: number | null;
+    change_cents?: number | null;
+  }) {
+    return {
+      key: "order-9",
+      label: "Order #9",
+      lines: [{ menu_item_id: 1, variant: null, qty: 1 }],
+      payment: sale.payment,
+      status: "done" as const,
+      sale: {
+        id: sale.id,
+        daily_seq: 9,
+        total_cents: sale.total_cents,
+        payment: sale.payment,
+        voided: 0,
+        paid: sale.paid,
+        received_cents: sale.received_cents ?? null,
+        change_cents: sale.change_cents ?? null,
+        created_at: `${today} 07:15:00`,
+        items: [{ id: 1, menu_item_id: 1, qty: 1, unit_price_cents: 7000, variant: null }],
+      },
+      dailySeq: 9,
+      tempNo: 9,
+    };
+  }
+
+  function seed(order: ReturnType<typeof doneOrder>) {
+    useOrders.setState({ orders: [order], activeKey: order.key });
+  }
+
+  /** Menu + empty sales, plus a PATCH /api/sales/23 handler returning a paid row. */
+  function payFetch(
+    onPatch: (url: string, body: { paid: number; received_cents?: number }) => Response,
+    onPatchCall?: () => void,
+  ) {
+    return vi.fn(async (url: unknown, init?: RequestInit) => {
+      const u = String(url);
+      if (u === "/api/categories") return ok(categories);
+      if (u === "/api/menu_items?active=1") return ok(items);
+      if (u.startsWith("/api/sales/summary")) return ok(emptySummary);
+      if (u === "/api/sales/23" && init?.method === "PATCH") {
+        onPatchCall?.();
+        return onPatch(u, JSON.parse(String(init.body)));
+      }
+      if (u.startsWith("/api/sales?")) return ok([]);
+      throw new Error(`unexpected fetch ${u} ${init?.method}`);
+    }) as typeof fetch;
+  }
+
+  it("offers Pay on an unpaid done tab and opens the cash sheet", async () => {
+    seed(doneOrder({ id: 23, total_cents: 14000, payment: "cash", paid: 0 }));
+    globalThis.fetch = vi.fn(menuFetch()) as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Sale complete");
+
+    fireEvent.click(screen.getByRole("button", { name: "Pay ₱140.00" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Pay ₱140.00" });
+    expect(within(dialog).getByText("short ₱140.00")).toBeDefined();
+  });
+
+  it("confirming cash posts the received amount, glows the tab, then closes it", async () => {
+    const patches: { url: string; body: unknown }[] = [];
+    const paidRow = {
+      id: 23,
+      daily_seq: 9,
+      total_cents: 14000,
+      payment: "cash",
+      voided: 0,
+      paid: 1,
+      received_cents: 20000,
+      change_cents: 6000,
+      created_at: `${today} 07:15:00`,
+      items: [{ id: 1, menu_item_id: 1, qty: 1, unit_price_cents: 7000, variant: null }],
+    };
+    globalThis.fetch = payFetch((url, body) => {
+      patches.push({ url, body });
+      return ok(paidRow);
+    });
+
+    seed(doneOrder({ id: 23, total_cents: 14000, payment: "cash", paid: 0 }));
+    renderPos();
+    await screen.findByText("Sale complete");
+
+    fireEvent.click(screen.getByRole("button", { name: "Pay ₱140.00" }));
+    fireEvent.click(screen.getByRole("button", { name: "₱200" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Confirm — paid ₱140.00" }),
+    );
+
+    await waitFor(() => {
+      expect(patches).toEqual([
+        { url: "/api/sales/23", body: { paid: 1, received_cents: 20000 } },
+      ]);
+    });
+
+    // The settled tab flashes the green pop-glow before it is closed.
+    await waitFor(() => {
+      expect(
+        screen.getByRole("tab", { name: /Order #9/ }).className,
+      ).toContain("pop-glow");
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("tab", { name: /Order #9/ })).toBeNull();
+    });
+    expect(
+      screen.getByText("Order is empty. Tap an item to add it."),
+    ).toBeDefined();
+  });
+
+  it("double-clicking Confirm submits the settlement only once", async () => {
+    let release!: (res: Response) => void;
+    const gate = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    let patchCalls = 0;
+    const paidRow = {
+      id: 23,
+      daily_seq: 9,
+      total_cents: 14000,
+      payment: "cash",
+      voided: 0,
+      paid: 1,
+      received_cents: 20000,
+      change_cents: 6000,
+      created_at: `${today} 07:15:00`,
+      items: [{ id: 1, menu_item_id: 1, qty: 1, unit_price_cents: 7000, variant: null }],
+    };
+    globalThis.fetch = payFetch(
+      () => gate as unknown as Response,
+      () => {
+        patchCalls += 1;
+      },
+    );
+
+    seed(doneOrder({ id: 23, total_cents: 14000, payment: "cash", paid: 0 }));
+    renderPos();
+    await screen.findByText("Sale complete");
+
+    fireEvent.click(screen.getByRole("button", { name: "Pay ₱140.00" }));
+    fireEvent.click(screen.getByRole("button", { name: "₱200" }));
+    const confirm = screen.getByRole("button", {
+      name: "Confirm — paid ₱140.00",
+    });
+    fireEvent.click(confirm);
+    fireEvent.click(confirm);
+    expect(patchCalls).toBe(1);
+
+    release(ok(paidRow));
+    await waitFor(() => {
+      expect(screen.queryByRole("tab", { name: /Order #9/ })).toBeNull();
+    });
+  });
+
+  it("shows Received and Change on a tendered cash receipt", async () => {
+    seed(
+      doneOrder({
+        id: 23,
+        total_cents: 14000,
+        payment: "cash",
+        paid: 1,
+        received_cents: 20000,
+        change_cents: 6000,
+      }),
+    );
+    globalThis.fetch = vi.fn(menuFetch()) as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Sale complete");
+
+    expect(screen.getByText("Received ₱200")).toBeDefined();
+    expect(screen.getByText("Change ₱60")).toBeDefined();
+    expect(screen.queryByRole("button", { name: /^Pay / })).toBeNull();
   });
 });
 
