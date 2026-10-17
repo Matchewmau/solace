@@ -1,13 +1,38 @@
+import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { fetchDashboard } from "../api/dashboard";
+import { fetchDashboard, type UpcomingDue } from "../api/dashboard";
 import { formatPeso } from "../lib/formatPeso";
-import {
-  Reveal,
-  StaggerGroup,
-  StaggerItem,
-  StaggerList,
-  StaggerSection,
-} from "../components/motion";
+import { Bars, Donut } from "../components/charts";
+import { Badge, Box, Button, EmptyState, StatChip } from "../components/ui";
+import { Reveal, StaggerGroup, StaggerSection } from "../components/motion";
+
+/**
+ * Owner home screen (/dashboard): the day + month money strip, three charts
+ * (14-day sales, month payment split, ranked best sellers), and the money
+ * nuggets (upcoming dues with a red overdue chip, loans summary).
+ *
+ * Net rule: net = money in − money out (payments). Bills, payables, and
+ * loans are stocks the owner still owes — listed separately, never
+ * subtracted into net.
+ *
+ * Lazy route chunk, so the motion primitives are allowed here.
+ */
+
+/** Fixed payment-split colors: Cash coffee, GCash ink. */
+const PAYMENT_COLOR = {
+  cash: "#8a5a2b",
+  gcash: "#141210",
+} as const;
+
+const KIND_LABEL: Record<UpcomingDue["kind"], string> = {
+  bill: "Bill",
+  payable: "Payable",
+};
+
+/** Day-of-month label (`2026-10-01` → `01`) for the 14-day bars. */
+function dayLabel(date: string) {
+  return date.slice(-2);
+}
 
 function LoadingSkeleton() {
   return (
@@ -23,152 +48,193 @@ function LoadingSkeleton() {
   );
 }
 
+/** One upcoming due: kind, label, amount, due date, red chip when overdue. */
+function DueRow({ due }: { due: UpcomingDue }) {
+  const overdue = due.overdue === true;
+  return (
+    <li className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
+      <span className="label text-xs text-muted">{KIND_LABEL[due.kind]}</span>
+      <span className="font-semibold text-ink">{due.label}</span>
+      <span className={overdue ? "text-danger" : "text-ink"}>
+        {formatPeso(due.amount_cents)}
+      </span>
+      <span className="text-muted">due {due.due}</span>
+      {overdue ? <Badge tone="danger">Overdue</Badge> : null}
+    </li>
+  );
+}
+
 export default function DashboardPage() {
   const dashboardQuery = useQuery({
     queryKey: ["dashboard"],
     queryFn: () => fetchDashboard(),
   });
 
+  const data = dashboardQuery.data;
+
+  // sales_by_day arrives oldest → newest; Bars keeps the caller's order.
+  const salesBars = (data?.sales_by_day ?? []).map((day) => ({
+    label: dayLabel(day.date),
+    value: day.total_cents,
+  }));
+
+  const paymentSegments = [
+    {
+      label: "Cash",
+      value: data?.income_month.cash_cents ?? 0,
+      color: PAYMENT_COLOR.cash,
+    },
+    {
+      label: "GCash",
+      value: data?.income_month.gcash_cents ?? 0,
+      color: PAYMENT_COLOR.gcash,
+    },
+  ];
+
+  // Ranked by quantity — Bars keeps the caller's order, so sort here.
+  const bestSellers = [...(data?.best_sellers ?? [])]
+    .sort((a, b) => b.qty - a.qty)
+    .map((item) => ({
+      label: `${item.name} · ${formatPeso(item.revenue_cents)}`,
+      value: item.qty,
+    }));
+
   return (
     <main className="min-h-screen bg-paper text-ink">
-      <div className="mx-auto flex max-w-4xl flex-col gap-10 px-6 py-12">
+      <div className="mx-auto flex max-w-6xl flex-col gap-10 px-6 py-12">
         <Reveal className="flex flex-col gap-3">
           <p className="label text-xs text-muted">Cafe &middot; LAN</p>
           <h1 className="text-4xl font-semibold">Dashboard</h1>
           <p className="text-sm text-muted">
-            Net is POS income minus expenses. Unpaid bills, payables, and loans
-            are separate lines, never subtracted into net.
+            Net is money in minus money out (payments). Bills, payables, and
+            loans are stocks, listed separately — never subtracted into net.
           </p>
         </Reveal>
         {dashboardQuery.isLoading ? (
           <LoadingSkeleton />
-        ) : dashboardQuery.isError || !dashboardQuery.data ? (
+        ) : dashboardQuery.isError || !data ? (
           <div className="flex flex-col items-start gap-4 py-16">
             <p role="alert" className="text-lg">
               Could not load the dashboard.
             </p>
-            <button
-              type="button"
-              className="border border-ink px-4 py-2 text-sm font-semibold"
+            <Button
+              variant="outline"
               onClick={() => {
                 void dashboardQuery.refetch();
               }}
             >
               Retry
-            </button>
+            </Button>
           </div>
         ) : (
           <StaggerGroup className="flex flex-col gap-10">
-            <StaggerSection ariaLabel="Net">
-              <p className="label text-xs text-muted">
-                Solace &middot; Net for {dashboardQuery.data.date} /{" "}
-                {dashboardQuery.data.month}
-              </p>
-              <h2 className="mt-2 text-2xl font-semibold">Net</h2>
-              <p className="mt-4 text-3xl font-semibold">
-                Day net {formatPeso(dashboardQuery.data.net_day_cents)}
-              </p>
-              <p className="mt-2 text-3xl font-semibold">
-                Month net {formatPeso(dashboardQuery.data.net_month_cents)}
-              </p>
+            <StaggerSection
+              ariaLabel="Money strip"
+              className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6"
+            >
+              <StatChip
+                label="Day in"
+                value={formatPeso(data.income_day.total_cents)}
+              />
+              <StatChip
+                label="Day out"
+                value={formatPeso(data.money_out_day_cents ?? 0)}
+              />
+              <StatChip
+                label="Day net"
+                value={formatPeso(data.net_day_cents)}
+                tone={data.net_day_cents >= 0 ? "ok" : "danger"}
+              />
+              <StatChip
+                label="Month in"
+                value={formatPeso(data.income_month.total_cents)}
+              />
+              <StatChip
+                label="Month out"
+                value={formatPeso(data.money_out_month_cents ?? 0)}
+              />
+              <StatChip
+                label="Month net"
+                value={formatPeso(data.net_month_cents)}
+                tone={data.net_month_cents >= 0 ? "ok" : "danger"}
+              />
             </StaggerSection>
-            <StaggerSection ariaLabel="Income">
-              <p className="label text-xs text-muted">Solace &middot; Income</p>
-              <h2 className="mt-2 text-2xl font-semibold">Income</h2>
-              <StaggerList className="mt-4 flex flex-col gap-2">
-                <StaggerItem className="text-base">
-                  Day cash {formatPeso(dashboardQuery.data.income_day.cash_cents)}{" "}
-                  &middot; Day GCash{" "}
-                  {formatPeso(dashboardQuery.data.income_day.gcash_cents)} &middot;
-                  Day total {formatPeso(dashboardQuery.data.income_day.total_cents)}{" "}
-                  ({dashboardQuery.data.income_day.count} sales)
-                </StaggerItem>
-                <StaggerItem className="text-base">
-                  Month cash{" "}
-                  {formatPeso(dashboardQuery.data.income_month.cash_cents)} &middot;
-                  Month GCash{" "}
-                  {formatPeso(dashboardQuery.data.income_month.gcash_cents)}{" "}
-                  &middot; Month total{" "}
-                  {formatPeso(dashboardQuery.data.income_month.total_cents)} (
-                  {dashboardQuery.data.income_month.count} sales)
-                </StaggerItem>
-              </StaggerList>
+
+            <StaggerSection ariaLabel="Sales">
+              <Box title="Sales · last 14 days">
+                <Bars
+                  items={salesBars}
+                  formatValue={formatPeso}
+                  emptyMessage="No sales in the last 14 days."
+                />
+              </Box>
             </StaggerSection>
-            <StaggerSection ariaLabel="Expenses">
-              <p className="label text-xs text-muted">Solace &middot; Expenses</p>
-              <h2 className="mt-2 text-2xl font-semibold">Expenses</h2>
-              <StaggerList className="mt-4 flex flex-col gap-2">
-                <StaggerItem className="text-base">
-                  Day {formatPeso(dashboardQuery.data.expenses_day_cents)}
-                </StaggerItem>
-                <StaggerItem className="text-base">
-                  Month {formatPeso(dashboardQuery.data.expenses_month_cents)}
-                </StaggerItem>
-              </StaggerList>
+
+            <StaggerSection
+              ariaLabel="Charts"
+              className="grid grid-cols-1 gap-4 lg:grid-cols-2"
+            >
+              <Box title="Payment split">
+                <Donut
+                  segments={paymentSegments}
+                  formatValue={formatPeso}
+                  emptyMessage="No payments this month."
+                  centerLabel={
+                    <div className="flex flex-col items-center">
+                      <span className="label text-xs text-muted">Money in</span>
+                      <span className="text-lg font-semibold text-ink">
+                        {formatPeso(data.income_month.total_cents)}
+                      </span>
+                    </div>
+                  }
+                />
+              </Box>
+              <Box title="Best sellers">
+                <Bars
+                  items={bestSellers}
+                  orientation="horizontal"
+                  formatValue={(qty) => `${qty} sold`}
+                  emptyMessage="No sales this month."
+                />
+              </Box>
             </StaggerSection>
-            <StaggerSection ariaLabel="Upcoming dues">
-              <p className="label text-xs text-muted">
-                Solace &middot; Upcoming dues
-              </p>
-              <h2 className="mt-2 text-2xl font-semibold">Upcoming dues</h2>
-              <p className="mt-4 text-base">
-                Unpaid bills {formatPeso(dashboardQuery.data.unpaid_bills_cents)}{" "}
-                &middot; Unpaid payables{" "}
-                {formatPeso(dashboardQuery.data.unpaid_payables_cents)}
-              </p>
-              {dashboardQuery.data.upcoming_dues.length === 0 ? (
-                <p className="mt-4 text-muted">Nothing due right now.</p>
-              ) : (
-                <StaggerList className="mt-4 flex flex-col gap-2">
-                  {dashboardQuery.data.upcoming_dues.map((due, index) => (
-                    <StaggerItem
-                      key={`${due.kind}-${due.label}-${due.due}-${index}`}
-                      className="text-base"
-                    >
-                      {due.kind} — {due.label} — {formatPeso(due.amount_cents)} —
-                      due {due.due}
-                    </StaggerItem>
-                  ))}
-                </StaggerList>
-              )}
-            </StaggerSection>
-            <StaggerSection ariaLabel="Outstanding loans">
-              <p className="label text-xs text-muted">
-                Solace &middot; Outstanding loans
-              </p>
-              <h2 className="mt-2 text-2xl font-semibold">Outstanding loans</h2>
-              <p className="mt-4 text-base">
-                Total {formatPeso(dashboardQuery.data.outstanding_loans_cents)}
-              </p>
-              {dashboardQuery.data.loans.length === 0 ? (
-                <p className="mt-4 text-muted">No outstanding loans.</p>
-              ) : (
-                <StaggerList className="mt-4 flex flex-col gap-2">
-                  {dashboardQuery.data.loans.map((loan) => (
-                    <StaggerItem key={loan.id} className="text-base">
-                      {loan.lender} — balance {formatPeso(loan.balance_cents)}
-                    </StaggerItem>
-                  ))}
-                </StaggerList>
-              )}
-            </StaggerSection>
-            <StaggerSection ariaLabel="Best sellers">
-              <p className="label text-xs text-muted">
-                Solace &middot; Best sellers
-              </p>
-              <h2 className="mt-2 text-2xl font-semibold">Best sellers</h2>
-              {dashboardQuery.data.best_sellers.length === 0 ? (
-                <p className="mt-4 text-muted">No sales this month.</p>
-              ) : (
-                <StaggerList className="mt-4 flex flex-col gap-2">
-                  {dashboardQuery.data.best_sellers.map((item) => (
-                    <StaggerItem key={item.menu_item_id} className="text-base">
-                      {item.name} — {item.qty} sold —{" "}
-                      {formatPeso(item.revenue_cents)}
-                    </StaggerItem>
-                  ))}
-                </StaggerList>
-              )}
+
+            <StaggerSection
+              ariaLabel="Dues and loans"
+              className="grid grid-cols-1 gap-4 lg:grid-cols-2"
+            >
+              <Box title="Upcoming dues">
+                {data.upcoming_dues.length === 0 ? (
+                  <EmptyState message="Nothing due right now." />
+                ) : (
+                  <ul className="flex flex-col gap-2">
+                    {data.upcoming_dues.map((due, index) => (
+                      <DueRow
+                        key={`${due.kind}-${due.label}-${due.due}-${index}`}
+                        due={due}
+                      />
+                    ))}
+                  </ul>
+                )}
+              </Box>
+              <Box
+                title="Loans"
+                action={
+                  <Link
+                    to="/finance/loans"
+                    className="press rounded-box border border-ink/20 px-3 py-1 text-sm font-semibold"
+                  >
+                    Open
+                  </Link>
+                }
+              >
+                <p className="text-2xl font-semibold text-ink">
+                  {formatPeso(data.outstanding_loans_cents)}
+                </p>
+                <p className="text-sm text-muted">
+                  {data.outstanding_loans_count ?? 0} outstanding
+                </p>
+              </Box>
             </StaggerSection>
           </StaggerGroup>
         )}
