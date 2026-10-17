@@ -8,13 +8,37 @@ import {
 import { patchSalePaid, postSale, putSaleItems, utcToday } from "../api/sales";
 import { formatPeso } from "../lib/formatPeso";
 import { formatVariantLabel } from "../lib/variants";
-import { cartTotalCents, useOrders } from "../store/orders";
+import { cartTotalCents, useOrders, type Order } from "../store/orders";
 import { sortCategories } from "../lib/sortCategories";
 
 const methodButton = (pressed: boolean) =>
   pressed
-    ? "flex-1 bg-ink px-4 py-4 text-lg font-semibold text-paper"
-    : "flex-1 border border-ink px-4 py-4 text-lg font-semibold";
+    ? "press flex-1 bg-ink px-4 py-4 text-lg font-semibold text-paper"
+    : "press flex-1 border border-ink px-4 py-4 text-lg font-semibold";
+
+/**
+ * Rail tab surface by status (Task 11 contract): open orders are a quiet
+ * paper surface with an accent left edge (dashed/muted while empty), a
+ * finished-but-unpaid order is loud red, and a settled one recedes into the
+ * green tint. Selection is always an ink ring, never a status fill.
+ */
+function railTabClass(order: Order, selected: boolean): string {
+  const status =
+    order.status === "done"
+      ? order.sale?.paid === 1
+        ? "bg-ok-tint border border-ok-border text-ink"
+        : "bg-danger text-paper"
+      : order.lines.length === 0
+        ? "border border-dashed border-ink/40 text-muted"
+        : "border border-ink/20 border-l-4 border-l-accent bg-paper text-ink";
+  return [
+    "press flex flex-col items-start gap-0.5 px-3 py-2 text-left text-sm font-semibold",
+    status,
+    selected ? "ring-2 ring-ink" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
 
 /** Unique cart-line key; line identity is item plus chosen variant. */
 const lineKey = (line: { menu_item_id: number; variant: string | null }) =>
@@ -33,6 +57,8 @@ export default function PosPage() {
   const completeOrder = useOrders((s) => s.completeOrder);
   const updateSale = useOrders((s) => s.updateSale);
   const reopenForEdit = useOrders((s) => s.reopenForEdit);
+  const rolloverCue = useOrders((s) => s.rolloverCue);
+  const dismissRolloverCue = useOrders((s) => s.dismissRolloverCue);
 
   const active = orders.find((order) => order.key === activeKey) ?? orders[0];
 
@@ -187,6 +213,22 @@ export default function PosPage() {
 
   return (
     <main className="min-h-screen bg-paper text-ink">
+      {/* Day cue: raised by the store's stale-day guard, never blocks the POS. */}
+      {rolloverCue ? (
+        <div
+          role="status"
+          className="flex items-center justify-between gap-3 border-b border-ink/10 bg-accent-soft/15 px-4 py-2"
+        >
+          <p className="text-sm font-semibold">New day — Order #1 starts fresh</p>
+          <button
+            type="button"
+            onClick={dismissRolloverCue}
+            className="press min-h-11 border border-ink px-4 text-sm font-semibold"
+          >
+            Dismiss
+          </button>
+        </div>
+      ) : null}
       <div className="flex min-h-screen">
         {/* Order rail: New order first, then vertical tabs, zero close buttons. */}
         <div className="flex w-36 shrink-0 flex-col gap-2 border-r border-ink/10 bg-white p-3">
@@ -194,7 +236,7 @@ export default function PosPage() {
           <button
             type="button"
             onClick={newTab}
-            className="border border-dashed border-ink px-3 py-2 text-sm font-semibold"
+            className="press border border-dashed border-ink px-3 py-2 text-sm font-semibold"
           >
             New order
           </button>
@@ -202,6 +244,7 @@ export default function PosPage() {
             {orders.map((order) => {
               const count = order.lines.reduce((sum, line) => sum + line.qty, 0);
               const selected = order.key === active.key;
+              const done = order.status === "done";
               return (
                 <button
                   key={order.key}
@@ -209,13 +252,23 @@ export default function PosPage() {
                   role="tab"
                   aria-selected={selected}
                   onClick={() => switchTab(order.key)}
-                  className={
-                    selected
-                      ? "bg-accent px-3 py-2 text-sm font-semibold text-paper"
-                      : "border border-ink px-3 py-2 text-sm font-semibold"
-                  }
+                  className={railTabClass(order, selected)}
                 >
-                  {order.label} ({count})
+                  {done ? (
+                    <>
+                      <span>
+                        {order.label} ({count})
+                      </span>{" "}
+                      <span className="text-xs font-normal">
+                        {order.sale?.paid === 1 ? "Paid" : "Unpaid"} ·{" "}
+                        {formatPeso(order.sale?.total_cents ?? 0)}
+                      </span>
+                    </>
+                  ) : (
+                    <span>
+                      Open · {count} items · {formatPeso(cartTotalCents(order.lines, items))}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -296,7 +349,7 @@ export default function PosPage() {
                             addItem(active.key, item.id);
                           }
                         }}
-                        className="flex h-full w-full flex-col items-start gap-1 border border-ink px-4 py-3 text-left"
+                        className="press flex h-full w-full flex-col items-start gap-1 border border-ink px-4 py-3 text-left"
                       >
                         <span className="text-base font-semibold">{item.name}</span>
                         <span className="text-base text-accent">{formatPeso(item.price_cents)}</span>
@@ -346,7 +399,7 @@ export default function PosPage() {
                       type="button"
                       onClick={() => void togglePaidTab(active.key, doneSale.id, 0)}
                       disabled={detailBusy}
-                      className="border border-ink px-4 py-3 text-base font-semibold disabled:opacity-40"
+                      className="press border border-ink px-4 py-3 text-base font-semibold disabled:opacity-40"
                     >
                       Mark unpaid
                     </button>
@@ -355,7 +408,7 @@ export default function PosPage() {
                       type="button"
                       onClick={() => void togglePaidTab(active.key, doneSale.id, 1)}
                       disabled={detailBusy}
-                      className="bg-ink px-4 py-3 text-base font-semibold text-paper disabled:opacity-40"
+                      className="press bg-ink px-4 py-3 text-base font-semibold text-paper disabled:opacity-40"
                     >
                       Mark paid
                     </button>
@@ -370,14 +423,14 @@ export default function PosPage() {
                       type="button"
                       onClick={editOrder}
                       disabled={doneSale.paid === 1}
-                      className="flex-1 border border-ink px-4 py-3 text-base font-semibold disabled:opacity-40"
+                      className="press flex-1 border border-ink px-4 py-3 text-base font-semibold disabled:opacity-40"
                     >
                       Edit
                     </button>
                     <button
                       type="button"
                       onClick={deleteOrder}
-                      className="flex-1 border border-red-600 px-4 py-3 text-base font-semibold text-red-600"
+                      className="press flex-1 border border-red-600 px-4 py-3 text-base font-semibold text-red-600"
                     >
                       Delete
                     </button>
@@ -441,7 +494,7 @@ export default function PosPage() {
                                 type="button"
                                 aria-label={`Decrease ${name} quantity`}
                                 onClick={() => setQty(active.key, line.menu_item_id, line.variant, line.qty - 1)}
-                                className="border border-ink px-3 py-1 text-base font-semibold"
+                                className="press border border-ink px-3 py-1 text-base font-semibold"
                               >
                                 −
                               </button>
@@ -452,7 +505,7 @@ export default function PosPage() {
                                 type="button"
                                 aria-label={`Increase ${name} quantity`}
                                 onClick={() => setQty(active.key, line.menu_item_id, line.variant, line.qty + 1)}
-                                className="border border-ink px-3 py-1 text-base font-semibold"
+                                className="press border border-ink px-3 py-1 text-base font-semibold"
                               >
                                 +
                               </button>
@@ -460,7 +513,7 @@ export default function PosPage() {
                                 type="button"
                                 aria-label={`Remove ${name} from cart`}
                                 onClick={() => removeLine(active.key, line.menu_item_id, line.variant)}
-                                className="ml-auto px-2 py-1 text-sm text-muted underline"
+                                className="press ml-auto px-2 py-1 text-sm text-muted underline"
                               >
                                 Remove
                               </button>
@@ -504,7 +557,7 @@ export default function PosPage() {
                     type="button"
                     onClick={() => void checkout()}
                     disabled={active.lines.length === 0 || pending}
-                    className="bg-ink px-4 py-3 text-base font-semibold text-paper disabled:opacity-40"
+                    className="press bg-ink px-4 py-3 text-base font-semibold text-paper disabled:opacity-40"
                   >
                     {pending ? "Saving…" : "Done"}
                   </button>

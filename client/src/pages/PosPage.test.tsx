@@ -96,6 +96,8 @@ function resetOrders() {
       { key: "order-1", label: "Order #1", lines: [], payment: "cash", status: "open", sale: null, dailySeq: null, tempNo: 1 },
     ],
     activeKey: "order-1",
+    // Cue is raised by the store's stale-day guard, never by the test seed.
+    rolloverCue: false,
   });
 }
 
@@ -300,26 +302,26 @@ describe("POS order tabs", () => {
     renderPos();
     await screen.findByText("Cortado");
 
-    expect(selected("Order #1 (0)")).toBe("true");
+    expect(selected("Open · 0 items · ₱0")).toBe("true");
 
     // New order on an empty tab reaps and recreates it — no count bump.
     fireEvent.click(screen.getByRole("button", { name: "New order" }));
-    expect(selected("Order #1 (0)")).toBe("true");
+    expect(selected("Open · 0 items · ₱0")).toBe("true");
     expect(screen.getAllByRole("tab")).toHaveLength(1);
 
     // With lines on #1, New order stacks a second tab.
     fireEvent.click(screen.getByRole("button", { name: /Cortado/ }));
-    expect(selected("Order #1 (1)")).toBe("true");
+    expect(selected("Open · 1 items · ₱70")).toBe("true");
     fireEvent.click(screen.getByRole("button", { name: "New order" }));
-    expect(selected("Order #2 (0)")).toBe("true");
-    expect(selected("Order #1 (1)")).toBe("false");
+    expect(selected("Open · 0 items · ₱0")).toBe("true");
+    expect(selected("Open · 1 items · ₱70")).toBe("false");
 
-    fireEvent.click(screen.getByRole("tab", { name: "Order #1 (1)" }));
-    expect(selected("Order #1 (1)")).toBe("true");
+    fireEvent.click(screen.getByRole("tab", { name: "Open · 1 items · ₱70" }));
+    expect(selected("Open · 1 items · ₱70")).toBe("true");
 
     // The empty #2 is reaped by the next New order (temp number reused).
     fireEvent.click(screen.getByRole("button", { name: "New order" }));
-    expect(selected("Order #2 (0)")).toBe("true");
+    expect(selected("Open · 0 items · ₱0")).toBe("true");
     expect(screen.getAllByRole("tab")).toHaveLength(2);
     // Rail has zero close buttons — Delete-after-Done is the only removal.
     expect(screen.queryByRole("button", { name: /Close Order/ })).toBeNull();
@@ -342,7 +344,7 @@ describe("POS order tabs", () => {
     }
     // Replaced, not stacked: still exactly one tab.
     expect(screen.getAllByRole("tab")).toHaveLength(1);
-    expect(selected("Order #1 (0)")).toBe("true");
+    expect(selected("Open · 0 items · ₱0")).toBe("true");
   });
 
   it("item grid adds to the active order only", async () => {
@@ -352,18 +354,18 @@ describe("POS order tabs", () => {
     await screen.findByText("Cortado");
 
     fireEvent.click(screen.getByRole("button", { name: /Cortado/ }));
-    expect(selected("Order #1 (1)")).toBe("true");
+    expect(selected("Open · 1 items · ₱70")).toBe("true");
 
     fireEvent.click(screen.getByRole("button", { name: "New order" }));
     expect(screen.getByText("Order is empty. Tap an item to add it.")).toBeDefined();
     fireEvent.click(screen.getByRole("button", { name: /Latte/ }));
-    expect(selected("Order #2 (1)")).toBe("true");
+    expect(selected("Open · 1 items · ₱80")).toBe("true");
 
-    fireEvent.click(screen.getByRole("tab", { name: "Order #1 (1)" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Open · 1 items · ₱70" }));
     expect(screen.getByLabelText("Cortado quantity").textContent).toBe("1");
     expect(screen.queryByLabelText("Latte quantity")).toBeNull();
 
-    fireEvent.click(screen.getByRole("tab", { name: "Order #2 (1)" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Open · 1 items · ₱80" }));
     expect(screen.getByLabelText("Latte quantity").textContent).toBe("1");
     expect(screen.queryByLabelText("Cortado quantity")).toBeNull();
   });
@@ -382,7 +384,7 @@ describe("POS order tabs", () => {
       screen.getByRole("button", { name: "GCash" }).getAttribute("aria-pressed"),
     ).toBe("true");
 
-    fireEvent.click(screen.getByRole("tab", { name: "Order #1 (1)" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Open · 1 items · ₱70" }));
     expect(
       screen.getByRole("button", { name: "Cash" }).getAttribute("aria-pressed"),
     ).toBe("true");
@@ -390,7 +392,7 @@ describe("POS order tabs", () => {
       screen.getByRole("button", { name: "GCash" }).getAttribute("aria-pressed"),
     ).toBe("false");
 
-    fireEvent.click(screen.getByRole("tab", { name: "Order #2 (0)" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Open · 0 items · ₱0" }));
     expect(
       screen.getByRole("button", { name: "GCash" }).getAttribute("aria-pressed"),
     ).toBe("true");
@@ -416,7 +418,7 @@ describe("POS order tabs", () => {
     await screen.findByText("Cortado");
 
     fireEvent.click(screen.getByRole("button", { name: /Cortado/ }));
-    expect(selected("Order #1 (1)")).toBe("true");
+    expect(selected("Open · 1 items · ₱70")).toBe("true");
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
     await screen.findByText("Sale complete");
 
@@ -501,7 +503,7 @@ describe("POS per-order checkout", () => {
     expect(posts).toBe(1);
 
     // The other tab is untouched and still editable.
-    fireEvent.click(screen.getByRole("tab", { name: "Order #1 (1)" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Open · 1 items · ₱70" }));
     expect(screen.getByLabelText("Cortado quantity").textContent).toBe("1");
     expect(
       (screen.getByRole("button", { name: "Done" }) as HTMLButtonElement)
@@ -509,11 +511,11 @@ describe("POS per-order checkout", () => {
     ).toBe(false);
 
     // Delete closes the done tab locally (sale stays in history).
-    fireEvent.click(screen.getByRole("tab", { name: "Order #2 (1)" }));
+    fireEvent.click(screen.getByRole("tab", { name: /Order #2 \(1\)/ }));
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
     expect(screen.queryByText("Sale complete")).toBeNull();
-    expect(screen.queryByRole("tab", { name: "Order #2 (1)" })).toBeNull();
-    expect(selected("Order #1 (1)")).toBe("true");
+    expect(screen.queryByRole("tab", { name: /Order #2 \(1\)/ })).toBeNull();
+    expect(selected("Open · 1 items · ₱70")).toBe("true");
     expect(posts).toBe(1);
   });
 
@@ -874,7 +876,7 @@ describe("POS theme lock", () => {
   // client/src/brand.ts — not duplicated here. These tests lock how the
   // POS shell *applies* those tokens. UNPAID red is already locked by
   // "finalize posts paid 0 and the finalized order shows UNPAID in red".
-  it("shell uses paper/ink, rail-active tab uses coffee fill", async () => {
+  it("shell uses paper/ink, rail selection is an ink ring", async () => {
     globalThis.fetch = vi.fn(menuFetch()) as typeof fetch;
 
     renderPos();
@@ -884,18 +886,19 @@ describe("POS theme lock", () => {
     expect(shell.className).toContain("bg-paper");
     expect(shell.className).toContain("text-ink");
 
-    // Rail-active tab carries the coffee fill; inactive tabs do not.
+    // Selection is the ink ring on every status surface (Task 11 contract);
+    // open-with-items tabs also carry the accent left edge.
     expect(
-      screen.getByRole("tab", { name: "Order #1 (0)" }).className,
-    ).toContain("bg-accent");
+      screen.getByRole("tab", { name: "Open · 0 items · ₱0" }).className,
+    ).toContain("ring-2");
     fireEvent.click(screen.getByRole("button", { name: /Cortado/ }));
     fireEvent.click(screen.getByRole("button", { name: "New order" }));
     expect(
-      screen.getByRole("tab", { name: "Order #2 (0)" }).className,
-    ).toContain("bg-accent");
-    expect(
-      screen.getByRole("tab", { name: "Order #1 (1)" }).className,
-    ).not.toContain("bg-accent");
+      screen.getByRole("tab", { name: "Open · 0 items · ₱0" }).className,
+    ).toContain("ring-2");
+    const openOne = screen.getByRole("tab", { name: "Open · 1 items · ₱70" });
+    expect(openOne.className).not.toContain("ring-2");
+    expect(openOne.className).toContain("border-l-accent");
   });
 
   it("category pills render above the menu item grid", async () => {
@@ -1094,5 +1097,131 @@ describe("POS variant prompt", () => {
     fireEvent.click(screen.getByRole("button", { name: /Cortado/ }));
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.getByLabelText("Cortado quantity").textContent).toBe("1");
+  });
+});
+
+describe("POS order rail status, labels, and day cue", () => {
+  // Grid-scoped so cart stepper buttons (also named after the item) can
+  // never collide with the menu tile query.
+  function menuTile(name: string | RegExp) {
+    return within(screen.getByRole("region", { name: "Menu items" })).getByRole(
+      "button",
+      { name },
+    );
+  }
+
+  it("labels an open order with its item count and peso estimate", async () => {
+    globalThis.fetch = vi.fn(menuFetch()) as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Cortado");
+
+    // Fresh empty tab: quiet dashed surface, Open label, zero estimate.
+    const fresh = screen.getByRole("tab");
+    expect(fresh.textContent).toBe("Open · 0 items · ₱0");
+    expect(fresh.className).toContain("border-dashed");
+    expect(fresh.className).toContain("text-muted");
+    expect(fresh.className).toContain("press");
+
+    fireEvent.click(menuTile(/Cortado/));
+    fireEvent.click(menuTile(/Cortado/));
+
+    const open = screen.getByRole("tab");
+    expect(open.textContent).toBe("Open · 2 items · ₱140");
+    expect(open.className).toContain("border-l-accent");
+    expect(open.className).toContain("bg-paper");
+    // Selection is an ink ring, not a status fill.
+    expect(open.className).toContain("ring-2");
+    expect(open.className).toContain("ring-ink");
+  });
+
+  it("shows an unpaid done tab loudly in red with the server total", async () => {
+    globalThis.fetch = vi.fn(
+      menuFetch(async (u, init) => {
+        if (u === "/api/sales") {
+          const body = JSON.parse(String(init?.body)) as {
+            payment: string;
+            items: { menu_item_id: number; qty: number }[];
+          };
+          return ok(sale(9, 14000, body.payment, body.items), 201);
+        }
+        throw new Error(`unexpected fetch ${u}`);
+      }),
+    ) as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Cortado");
+
+    fireEvent.click(menuTile(/Cortado/));
+    fireEvent.click(menuTile(/Cortado/));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Sale complete")).toBeDefined();
+    });
+
+    const tab = screen.getByRole("tab");
+    expect(tab.textContent).toBe("Order #1 (2) Unpaid · ₱140");
+    expect(tab.className).toContain("bg-danger");
+    expect(tab.className).toContain("text-paper");
+    expect(tab.className).toContain("ring-2");
+  });
+
+  it("settles a paid done tab quietly into the green tint with a Paid line", async () => {
+    // Paid tabs are seeded directly; the paid *flow* is Task 12's.
+    useOrders.setState({
+      orders: [
+        {
+          key: "order-9",
+          label: "Order #9",
+          lines: [{ menu_item_id: 1, variant: null, qty: 1 }],
+          payment: "cash",
+          status: "done",
+          sale: {
+            id: 41,
+            daily_seq: 9,
+            total_cents: 7000,
+            payment: "cash",
+            voided: 0,
+            paid: 1,
+            created_at: "2026-10-13 07:15:00",
+            items: [
+              { id: 1, menu_item_id: 1, qty: 1, unit_price_cents: 7000, variant: null },
+            ],
+          },
+          dailySeq: 9,
+          tempNo: 9,
+        },
+      ],
+      activeKey: "order-9",
+    });
+    globalThis.fetch = vi.fn(menuFetch()) as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Sale complete");
+
+    const tab = screen.getByRole("tab");
+    expect(tab.textContent).toBe("Order #9 (1) Paid · ₱70");
+    expect(tab.className).toContain("bg-ok-tint");
+    expect(tab.className).toContain("border-ok-border");
+    expect(tab.className).toContain("text-ink");
+    expect(tab.className).not.toContain("bg-danger");
+  });
+
+  it("renders the day-rollover cue above the rail and clears it on Dismiss", async () => {
+    globalThis.fetch = vi.fn(menuFetch()) as typeof fetch;
+    // The stale-day guard raises the cue before the POS mounts.
+    useOrders.setState({ rolloverCue: true });
+
+    renderPos();
+    await screen.findByText("Cortado");
+
+    expect(screen.getByText("New day — Order #1 starts fresh")).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+
+    expect(screen.queryByText("New day — Order #1 starts fresh")).toBeNull();
+    expect(useOrders.getState().rolloverCue).toBe(false);
+    // Non-blocking: the rail stays usable after dismissing.
+    expect(screen.getByRole("tab")).toBeDefined();
   });
 });
