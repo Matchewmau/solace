@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   cartTotalCents,
   loadOrdersSnapshot,
@@ -24,6 +24,8 @@ function resetOrders() {
       },
     ],
     activeKey: "order-1",
+    day: utcToday(),
+    rolloverCue: false,
   });
 }
 
@@ -666,5 +668,133 @@ describe("orders store variant lines", () => {
       { menu_item_id: 3, variant: "Steamed", qty: 1 },
       { menu_item_id: 1, variant: null, qty: 1 },
     ]);
+  });
+});
+
+describe("orders store cross-tab sync and day rollover", () => {
+  it("a storage event from another tab replaces the rail", () => {
+    const raw = JSON.stringify({
+      version: 1,
+      utcDate: utcToday(),
+      activeKey: "order-2",
+      orders: [
+        {
+          key: "order-1",
+          label: "stale label",
+          lines: [{ menu_item_id: 1, qty: 1 }],
+          payment: "cash",
+          status: "open",
+          sale: null,
+          dailySeq: null,
+          tempNo: 1,
+        },
+        {
+          key: "order-2",
+          label: "Order #2",
+          lines: [{ menu_item_id: 2, qty: 3 }],
+          payment: "gcash",
+          status: "open",
+          sale: null,
+          dailySeq: null,
+          tempNo: 2,
+        },
+      ],
+    });
+
+    window.dispatchEvent(
+      new StorageEvent("storage", {
+        key: ORDERS_STORAGE_KEY,
+        newValue: raw,
+      }),
+    );
+
+    const state = useOrders.getState();
+    expect(state.orders.map((o) => o.key)).toEqual(["order-1", "order-2"]);
+    // Stored labels are recomputed from the numbers on the way in.
+    expect(state.orders.map((o) => o.label)).toEqual(["Order #1", "Order #2"]);
+    expect(order("order-2").lines).toEqual([
+      { menu_item_id: 2, variant: null, qty: 3 },
+    ]);
+    expect(state.activeKey).toBe("order-2");
+  });
+
+  it("ignores storage events for other keys or malformed values", () => {
+    const before = useOrders.getState().orders;
+
+    window.dispatchEvent(
+      new StorageEvent("storage", { key: "solace:other:v1", newValue: "{}" }),
+    );
+    window.dispatchEvent(
+      new StorageEvent("storage", {
+        key: ORDERS_STORAGE_KEY,
+        newValue: "not-json",
+      }),
+    );
+    window.dispatchEvent(
+      new StorageEvent("storage", { key: ORDERS_STORAGE_KEY, newValue: null }),
+    );
+
+    expect(useOrders.getState().orders).toBe(before);
+    expect(keys()).toEqual(["order-1"]);
+  });
+
+  it("an identical write does not echo", () => {
+    useOrders.getState().addItem("order-1", 1);
+    const raw = localStorage.getItem(ORDERS_STORAGE_KEY) as string;
+    const spy = vi.spyOn(Storage.prototype, "setItem");
+
+    // The other tab broadcasts exactly what this tab already has stored.
+    window.dispatchEvent(
+      new StorageEvent("storage", {
+        key: ORDERS_STORAGE_KEY,
+        newValue: raw,
+      }),
+    );
+
+    expect(spy).not.toHaveBeenCalledWith(ORDERS_STORAGE_KEY, raw);
+    spy.mockRestore();
+  });
+
+  it("a stale day resets on first interaction", () => {
+    vi.useFakeTimers();
+    try {
+      // Set up a rail on 2026-10-17 with a line the new day must not carry.
+      vi.setSystemTime("2026-10-17T23:30:00Z");
+      useOrders.setState({ day: "2026-10-17", rolloverCue: false });
+      useOrders.getState().addItem("order-1", 2);
+      expect(order("order-1").lines).toEqual([
+        { menu_item_id: 2, variant: null, qty: 1 },
+      ]);
+      expect(useOrders.getState().day).toBe("2026-10-17");
+
+      // The day turns; the first touch resets the rail before it lands.
+      vi.setSystemTime("2026-10-18T01:00:00Z");
+      useOrders.getState().addItem("order-1", 1);
+
+      const state = useOrders.getState();
+      expect(state.orders).toHaveLength(1);
+      expect(state.orders[0].key).toBe("order-1");
+      expect(state.day).toBe("2026-10-18");
+      expect(state.rolloverCue).toBe(true);
+      // The stale item #2 line is gone; the triggering tap landed on the
+      // fresh Order #1 (its key survives the reset).
+      expect(order("order-1").lines).toEqual([
+        { menu_item_id: 1, variant: null, qty: 1 },
+      ]);
+
+      state.dismissRolloverCue();
+      expect(useOrders.getState().rolloverCue).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("persisted snapshot carries the current day", () => {
+    useOrders.getState().addItem("order-1", 1);
+    const raw = localStorage.getItem(ORDERS_STORAGE_KEY) as string;
+    expect(raw).not.toBeNull();
+    const snapshot = JSON.parse(raw) as { utcDate: string };
+    expect(snapshot.utcDate).toBe(utcToday());
+    expect(useOrders.getState().day).toBe(utcToday());
   });
 });

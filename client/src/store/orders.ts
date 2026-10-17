@@ -11,6 +11,13 @@
  * sale) are reaped on load and whenever a new order is added, so mistaken
  * empties never POST and never accumulate.
  *
+ * The open rail carries its UTC day in `day`. If the day turns while a tab is
+ * open, the first write resets the rail to one fresh temp and raises
+ * `rolloverCue` (cleared by `dismissRolloverCue`), so the POS can explain the
+ * reset. A `storage` event from another same-device tab replaces the rail
+ * (orders + active tab); snapshots carry `day` and an identical write is
+ * skipped, so tabs reconcile without echoing each other.
+ *
  * Checkout payload stays exactly {payment, items, paid} — order lines hold
  * menu_item_id + variant + qty (variant null when the tap chose none). Line
  * identity is item plus variant, so Fried and Steamed are separate lines.
@@ -25,7 +32,7 @@
  * reachable — the only settlement path for orphaned unpaid sales with no
  * open tab. Reopening an already-held sale just selects its tab.
  */
-import { create } from "zustand";
+import { create, type StateCreator } from "zustand";
 import type { MenuItem } from "../api/menu";
 import { utcToday, type PaymentMethod, type Sale } from "../api/sales";
 
@@ -54,6 +61,10 @@ export interface Order {
 interface OrdersState {
   orders: Order[];
   activeKey: string;
+  /** UTC date (YYYY-MM-DD) the open rail belongs to. */
+  day: string;
+  /** Set when a stale day reset the rail; cleared by dismissRolloverCue. */
+  rolloverCue: boolean;
   addOrder: () => void;
   closeOrder: (key: string) => void;
   setActive: (key: string) => void;
@@ -72,6 +83,7 @@ interface OrdersState {
   reopenForEdit: (key: string) => void;
   discardEmpty: (key: string) => void;
   openSaleTab: (sale: Sale) => void;
+  dismissRolloverCue: () => void;
 }
 
 /** localStorage key for the persisted {orders, activeKey, utcDate} snapshot. */
@@ -242,18 +254,19 @@ function readStoredSnapshot(): string | null {
 function persistSnapshot(state: {
   orders: Order[];
   activeKey: string;
+  day: string;
 }): void {
   try {
     if (typeof localStorage === "undefined") return;
-    localStorage.setItem(
-      ORDERS_STORAGE_KEY,
-      JSON.stringify({
-        version: 1,
-        utcDate: utcToday(),
-        orders: state.orders,
-        activeKey: state.activeKey,
-      }),
-    );
+    const next = JSON.stringify({
+      version: 1,
+      utcDate: state.day,
+      orders: state.orders,
+      activeKey: state.activeKey,
+    });
+    // Skip identical writes so a cross-tab echo settles instead of bouncing.
+    if (readStoredSnapshot() === next) return;
+    localStorage.setItem(ORDERS_STORAGE_KEY, next);
   } catch {
     // Storage full or blocked — the POS keeps running in memory.
   }
@@ -264,12 +277,55 @@ function defaultOrdersState(): { orders: Order[]; activeKey: string } {
   return { orders: [fresh], activeKey: fresh.key };
 }
 
+/** A fresh rail for a new UTC day, with the reset cue raised. */
+function freshDayState(): Pick<
+  OrdersState,
+  "orders" | "activeKey" | "day" | "rolloverCue"
+> {
+  return {
+    ...defaultOrdersState(),
+    day: utcToday(),
+    rolloverCue: true,
+  };
+}
+
 const initial =
   loadOrdersSnapshot(readStoredSnapshot(), utcToday()) ?? defaultOrdersState();
 
-export const useOrders = create<OrdersState>()((set) => ({
+/**
+ * Day-guard middleware: every write checks the rail's UTC day first. When the
+ * rail belongs to an older day, it first resets to a fresh rail (one empty
+ * temp, `day = utcToday()`, `rolloverCue: true`) and then applies the original
+ * write. A keyed edit aimed at a stale tab no-ops against the fresh rail —
+ * intentional; the cue tells the owner why the cart reset.
+ */
+const withDayGuard =
+  (config: StateCreator<OrdersState, [], []>): StateCreator<OrdersState, [], []> =>
+  (set, get, api) => {
+    const setWithDayGuard: typeof set = (
+      partial:
+        | OrdersState
+        | Partial<OrdersState>
+        | ((state: OrdersState) => OrdersState | Partial<OrdersState>),
+      replace?: boolean,
+    ) => {
+      if (get().day !== utcToday()) {
+        set(freshDayState());
+      }
+      if (replace === true) {
+        set(partial as OrdersState, true);
+      } else {
+        set(partial);
+      }
+    };
+    return config(setWithDayGuard, get, api);
+  };
+
+const createOrdersState: StateCreator<OrdersState, [], []> = (set) => ({
   orders: initial.orders,
   activeKey: initial.activeKey,
+  day: utcToday(),
+  rolloverCue: false,
   addOrder: () =>
     set((state) => {
       const kept = state.orders.filter((order) => !isEmptyTemp(order));
@@ -439,12 +495,29 @@ export const useOrders = create<OrdersState>()((set) => ({
         activeKey: order.key,
       };
     }),
-}));
+  dismissRolloverCue: () => set({ rolloverCue: false }),
+});
 
-// Persist every change (orders + activeKey + UTC date) for refresh safety.
+export const useOrders = create<OrdersState>()(withDayGuard(createOrdersState));
+
+// Persist every change (orders + activeKey + UTC day) for refresh safety.
 useOrders.subscribe((state) => {
   persistSnapshot(state);
 });
+
+// Cross-tab sync: another same-device tab wrote a snapshot; adopt its rail
+// without re-broadcasting (the echo guard in persistSnapshot settles it).
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (event) => {
+    if (event.key !== ORDERS_STORAGE_KEY) return;
+    const snapshot = loadOrdersSnapshot(event.newValue, utcToday());
+    if (snapshot === null) return;
+    useOrders.setState({
+      orders: snapshot.orders,
+      activeKey: snapshot.activeKey,
+    });
+  });
+}
 
 /**
  * Client-side order total from menu prices (display estimate only —
