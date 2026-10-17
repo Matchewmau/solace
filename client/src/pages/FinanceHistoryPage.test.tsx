@@ -27,6 +27,7 @@ const loans: Loan[] = [
 
 const payments: LoanPayment[] = [
   { id: 1, loan_id: 1, amount_cents: 10000, paid_at: "2026-10-12 10:00:00" },
+  { id: 2, loan_id: 1, amount_cents: 8050, paid_at: "2026-10-13 11:30:00" },
 ];
 
 function ok(data: unknown, status = 200): Response {
@@ -78,7 +79,7 @@ describe("FinanceHistoryPage (own route)", () => {
     stubFetch();
     renderAt("/finance/history?loan=1");
 
-    const table = await screen.findByRole("table");
+    const table = await screen.findByRole("table", { name: "Payment history" });
     expect(table.textContent).toContain("₱100");
     expect(table.textContent).toContain("2026-10-12 10:00:00");
     expect(
@@ -87,6 +88,25 @@ describe("FinanceHistoryPage (own route)", () => {
     expect(
       screen.getByRole("columnheader", { name: "Paid at" }),
     ).toBeDefined();
+
+    // Amount cells render through formatPeso (whole pesos + fractional).
+    const amounts = Array.from(
+      table.querySelectorAll('td[data-label="Amount"]'),
+    ).map((cell) => cell.textContent);
+    expect(amounts).toEqual(["₱100", "₱80.50"]);
+
+    // Every body cell carries its column label for the phone row-card layout.
+    for (const row of Array.from(table.querySelectorAll("tbody tr"))) {
+      expect(
+        Array.from(row.querySelectorAll("td")).map((cell) =>
+          cell.getAttribute("data-label"),
+        ),
+      ).toEqual(["Amount", "Paid at"]);
+    }
+
+    // Both columns are sortable, so their headers are buttons.
+    expect(screen.getByRole("button", { name: "Amount" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Paid at" })).toBeDefined();
   });
 
   it("unknown loan id shows an error, not a table", async () => {

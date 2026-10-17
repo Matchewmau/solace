@@ -1,6 +1,8 @@
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { fetchMovements } from "../api/stock";
+import { fetchMovements, type StockMovement } from "../api/stock";
+import DataTable, { type Column } from "../components/DataTable";
+import { Button } from "../components/ui";
 
 /**
  * Dedicated movement history for one stock item (?item=<id>).
@@ -17,6 +19,18 @@ export default function InventoryHistoryPage() {
     queryFn: () => fetchMovements(itemId as number),
     enabled: itemId !== null,
   });
+
+  const columns: Column<StockMovement>[] = [
+    { key: "reason", label: "Reason", render: (movement) => movement.reason },
+    { key: "change", label: "Change", render: (movement) => movement.delta },
+    {
+      key: "date",
+      label: "Date",
+      sortable: true,
+      value: (movement) => movement.created_at,
+      render: (movement) => movement.created_at,
+    },
+  ];
 
   const movements = movementsQuery.data ?? [];
 
@@ -45,46 +59,23 @@ export default function InventoryHistoryPage() {
             <p role="alert" className="text-lg">
               Could not load history.
             </p>
-            <button
-              type="button"
-              className="border border-ink px-4 py-2 text-sm font-semibold"
+            <Button
+              variant="outline"
               onClick={() => {
                 void movementsQuery.refetch();
               }}
             >
               Retry
-            </button>
+            </Button>
           </div>
-        ) : movements.length === 0 ? (
-          <p className="text-muted">No movements recorded.</p>
         ) : (
-          <table
-            aria-label="Movement history"
-            className="w-full border-collapse text-left text-base"
-          >
-            <thead>
-              <tr className="border-b border-ink/20">
-                <th scope="col" className="py-2 pr-4 font-semibold">
-                  Reason
-                </th>
-                <th scope="col" className="py-2 pr-4 font-semibold">
-                  Change
-                </th>
-                <th scope="col" className="py-2 font-semibold">
-                  Date
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {movements.map((movement) => (
-                <tr key={movement.id} className="border-b border-ink/10">
-                  <td className="py-2 pr-4">{movement.reason}</td>
-                  <td className="py-2 pr-4">{movement.delta}</td>
-                  <td className="py-2">{movement.created_at}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <DataTable
+            label="Movement history"
+            columns={columns}
+            rows={movements}
+            rowKey={(movement) => movement.id}
+            emptyMessage="No movements recorded."
+          />
         )}
         <div>
           <Link

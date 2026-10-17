@@ -64,7 +64,7 @@ describe("InventoryHistoryPage (own route)", () => {
     stubFetch();
     renderAt("/inventory/history?item=1");
 
-    const table = await screen.findByRole("table");
+    const table = await screen.findByRole("table", { name: "Movement history" });
     expect(table.textContent).toContain("waste");
     expect(table.textContent).toContain("-5");
     expect(table.textContent).toContain("2026-10-13 10:00:00");
@@ -77,6 +77,20 @@ describe("InventoryHistoryPage (own route)", () => {
       screen.getByRole("columnheader", { name: "Change" }),
     ).toBeDefined();
     expect(screen.getByRole("columnheader", { name: "Date" })).toBeDefined();
+
+    // Every body cell carries its column label for the phone row-card layout.
+    for (const row of Array.from(table.querySelectorAll("tbody tr"))) {
+      expect(
+        Array.from(row.querySelectorAll("td")).map((cell) =>
+          cell.getAttribute("data-label"),
+        ),
+      ).toEqual(["Reason", "Change", "Date"]);
+    }
+
+    // Only Date is sortable, so only its header is a button.
+    expect(screen.getByRole("button", { name: "Date" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Reason" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Change" })).toBeNull();
   });
 
   it("unknown item id shows an error, not a table", async () => {

@@ -1,12 +1,15 @@
 import { useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { fetchLoanPayments } from "../api/finance";
+import { fetchLoanPayments, type LoanPayment } from "../api/finance";
 import { formatPeso } from "../lib/formatPeso";
+import DataTable, { type Column } from "../components/DataTable";
+import { Button } from "../components/ui";
 
 /**
  * Dedicated payment history for one loan (?loan=<id>).
  * Owns the payments read so FinancePage keeps only the inline pay form.
- * Lazy route chunk with the finance fallback (see routes.tsx).
+ * Motion-free ledger on the shared responsive DataTable (row-cards on
+ * phones); lazy route chunk with the finance fallback (see routes.tsx).
  */
 export default function FinanceHistoryPage() {
   const [params] = useSearchParams();
@@ -18,6 +21,24 @@ export default function FinanceHistoryPage() {
     queryFn: () => fetchLoanPayments(loanId as number),
     enabled: loanId !== null,
   });
+
+  const columns: Column<LoanPayment>[] = [
+    {
+      key: "amount",
+      label: "Amount",
+      sortable: true,
+      align: "right",
+      value: (payment) => payment.amount_cents,
+      render: (payment) => formatPeso(payment.amount_cents),
+    },
+    {
+      key: "paid_at",
+      label: "Paid at",
+      sortable: true,
+      value: (payment) => payment.paid_at,
+      render: (payment) => payment.paid_at,
+    },
+  ];
 
   const payments = paymentsQuery.data ?? [];
 
@@ -46,44 +67,23 @@ export default function FinanceHistoryPage() {
             <p role="alert" className="text-lg">
               Could not load history.
             </p>
-            <button
-              type="button"
-              className="border border-ink px-4 py-2 text-sm font-semibold"
+            <Button
+              variant="outline"
               onClick={() => {
                 void paymentsQuery.refetch();
               }}
             >
               Retry
-            </button>
+            </Button>
           </div>
-        ) : payments.length === 0 ? (
-          <p className="text-muted">No payments yet.</p>
         ) : (
-          <table
-            aria-label="Payment history"
-            className="w-full border-collapse text-left text-base"
-          >
-            <thead>
-              <tr className="border-b border-ink/20">
-                <th scope="col" className="py-2 pr-4 font-semibold">
-                  Amount
-                </th>
-                <th scope="col" className="py-2 font-semibold">
-                  Paid at
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {payments.map((payment) => (
-                <tr key={payment.id} className="border-b border-ink/10">
-                  <td className="py-2 pr-4">
-                    {formatPeso(payment.amount_cents)}
-                  </td>
-                  <td className="py-2">{payment.paid_at}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <DataTable
+            label="Payment history"
+            columns={columns}
+            rows={payments}
+            rowKey={(payment) => payment.id}
+            emptyMessage="No payments yet."
+          />
         )}
       </div>
     </main>
