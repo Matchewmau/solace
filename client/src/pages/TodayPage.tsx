@@ -12,6 +12,7 @@ import {
 import { formatPeso } from "../lib/formatPeso";
 import { useOrders } from "../store/orders";
 import SalesTable from "../components/SalesTable";
+import { Badge, StatChip } from "../components/ui";
 
 /**
  * Today's UTC-date sales popup page. Rows carry Void/Unvoid only — zero
@@ -125,22 +126,30 @@ export default function TodayPage() {
           </p>
         </header>
         {summaryQuery.data ? (
-          <p className="text-lg">
-            Cash{" "}
-            <span className="font-semibold text-accent">
-              {formatPeso(summaryQuery.data.cash_total_cents)}
-            </span>{" "}
-            &middot; GCash{" "}
-            <span className="font-semibold text-accent">
-              {formatPeso(summaryQuery.data.gcash_total_cents)}
-            </span>{" "}
-            &middot; {summaryQuery.data.sale_count}{" "}
-            {summaryQuery.data.sale_count === 1 ? "sale" : "sales"}
-            {summaryQuery.data.voided_count > 0
-              ? ` · ${summaryQuery.data.voided_count} voided`
-              : ""}{" "}
-            &middot; Next Order #{summaryQuery.data.next_order_number}
-          </p>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <StatChip
+              label="Cash"
+              value={formatPeso(summaryQuery.data.cash_total_cents)}
+            />
+            <StatChip
+              label="GCash"
+              value={formatPeso(summaryQuery.data.gcash_total_cents)}
+            />
+            <StatChip
+              label="Sales"
+              value={`${summaryQuery.data.sale_count} ${
+                summaryQuery.data.sale_count === 1 ? "sale" : "sales"
+              }${
+                summaryQuery.data.voided_count > 0
+                  ? ` · ${summaryQuery.data.voided_count} voided`
+                  : ""
+              }`}
+            />
+            <StatChip
+              label="Next Order"
+              value={`#${summaryQuery.data.next_order_number}`}
+            />
+          </div>
         ) : summaryQuery.isLoading ? (
           <p className="text-muted">Loading today&apos;s summary…</p>
         ) : (
@@ -171,7 +180,10 @@ export default function TodayPage() {
         ) : (
           <>
             <section aria-label="Unpaid today" className="flex flex-col gap-4">
-              <h2 className="text-2xl font-semibold">Unpaid</h2>
+              <h2 className="flex items-center gap-3 text-2xl font-semibold">
+                Unpaid
+                <Badge tone="danger">{unpaid.length}</Badge>
+              </h2>
               {unpaid.length === 0 ? (
                 <p className="text-muted">No unpaid sales.</p>
               ) : (

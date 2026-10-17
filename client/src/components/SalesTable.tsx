@@ -1,8 +1,18 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { formatPeso } from "../lib/formatPeso";
+import { Badge } from "./ui";
 import type { SaleRow } from "../api/sales";
 
 export type SalesSortKey = "id" | "date" | "total" | "payment";
+
+/**
+ * Row-card classes copied verbatim from DataTable (Task 4 fix round): below
+ * `md` the `tr` stacks its cells (`block`); each `td` is a flex line whose
+ * label comes from `data-label` (value on the right). Do not merge these —
+ * `block` + `flex` on the same element loses to stylesheet order.
+ */
+const ROW_CARD = "max-md:block";
+const CELL_CARD = `max-md:flex max-md:justify-between max-md:before:content-[attr(data-label)] max-md:text-muted`;
 
 function compareRows(key: SalesSortKey, a: SaleRow, b: SaleRow): number {
   switch (key) {
@@ -17,12 +27,20 @@ function compareRows(key: SalesSortKey, a: SaleRow, b: SaleRow): number {
   }
 }
 
+/** Voided wins over paid; a settled row is green, an open row is red. */
+function statusBadge(row: SaleRow) {
+  if (row.voided === 1) return <Badge tone="neutral">Voided</Badge>;
+  if (row.paid === 1) return <Badge tone="ok">Paid</Badge>;
+  return <Badge tone="danger">Unpaid</Badge>;
+}
+
 /**
  * Sortable sales table (semantic <table>, sort buttons with aria-sort).
  * First click on a column sorts descending (newest/largest first — the
  * useful direction for a sales ledger); a second click flips to ascending.
  * History renders it bare (read-only); Today passes row actions
- * (Void/Unvoid + Reopen) via `renderActions`.
+ * (Void/Unvoid + Reopen) via `renderActions`. Below `md` each row becomes a
+ * label+value card via the shared Task 4 row-card classes.
  */
 export default function SalesTable({
   rows,
@@ -66,7 +84,7 @@ export default function SalesTable({
       aria-label={label}
       className="w-full border-collapse text-left text-base"
     >
-      <thead>
+      <thead className="max-md:hidden">
         <tr className="border-b border-ink/20">
           <th scope="col" aria-sort={ariaSort("id")} className="py-2 pr-4">
             <button
@@ -108,7 +126,7 @@ export default function SalesTable({
             </button>
           </th>
           <th scope="col" className="py-2 pr-4">
-            Voided
+            Status
           </th>
           {renderActions ? (
             <th scope="col" className="py-2">
@@ -119,22 +137,33 @@ export default function SalesTable({
       </thead>
       <tbody>
         {sorted.map((row) => (
-          <tr key={row.id} className="border-b border-ink/10">
-            <td className="py-2 pr-4 font-semibold">
+          <tr
+            key={row.id}
+            className={`border-b border-ink/10 ${ROW_CARD}${
+              row.voided === 1 ? " text-muted" : ""
+            }`}
+          >
+            <td data-label="Sale #" className={`py-2 pr-4 font-semibold ${CELL_CARD}`}>
               Sale #{row.id}
               {rowNote?.(row) ? ` (${rowNote(row)})` : ""}
             </td>
-            <td className="py-2 pr-4 text-muted">{row.created_at.slice(0, 10)}</td>
-            <td className="py-2 pr-4 text-muted">{row.created_at.slice(11, 16)}</td>
-            <td className="py-2 pr-4">
+            <td data-label="Date" className={`py-2 pr-4 text-muted ${CELL_CARD}`}>
+              {row.created_at.slice(0, 10)}
+            </td>
+            <td data-label="Time" className={`py-2 pr-4 text-muted ${CELL_CARD}`}>
+              {row.created_at.slice(11, 16)}
+            </td>
+            <td data-label="Payment" className={`py-2 pr-4 ${CELL_CARD}`}>
               {row.payment === "cash" ? "Cash" : "GCash"}
             </td>
-            <td className="py-2 pr-4 text-accent">
+            <td data-label="Total" className={`py-2 pr-4 text-accent ${CELL_CARD}`}>
               {formatPeso(row.total_cents)}
             </td>
-            <td className="py-2 pr-4">{row.voided === 1 ? "Voided" : "—"}</td>
+            <td data-label="Status" className={`py-2 pr-4 ${CELL_CARD}`}>
+              {statusBadge(row)}
+            </td>
             {renderActions ? (
-              <td className="py-2">
+              <td data-label="Actions" className={`py-2 ${CELL_CARD}`}>
                 <span className="flex flex-wrap gap-2">
                   {renderActions(row)}
                 </span>

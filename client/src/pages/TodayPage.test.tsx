@@ -149,6 +149,65 @@ describe("TodayPage", () => {
     expect(screen.queryByRole("button", { name: /Mark unpaid/ })).toBeNull();
   });
 
+  it("summary strip renders Cash/GCash/sales/Next Order stat chips", async () => {
+    globalThis.fetch = vi.fn(async (url: unknown) => {
+      const u = String(url);
+      if (u.startsWith("/api/sales/summary"))
+        return ok(
+          summary({
+            cash_total_cents: 16000,
+            gcash_total_cents: 9000,
+            sale_count: 2,
+            voided_count: 0,
+            next_order_number: 4,
+          }),
+        );
+      if (u.startsWith("/api/sales?")) return ok([]);
+      throw new Error(`unexpected fetch ${u}`);
+    }) as typeof fetch;
+
+    renderAt("/today");
+    await screen.findByText("Cash");
+
+    expect(screen.getByText("GCash")).toBeDefined();
+    expect(screen.getByText("₱160")).toBeDefined();
+    expect(screen.getByText("₱90")).toBeDefined();
+    expect(screen.getByText("2 sales")).toBeDefined();
+    expect(screen.getByText("Next Order")).toBeDefined();
+    expect(screen.getByText("#4")).toBeDefined();
+  });
+
+  it("summary strip appends the voided suffix to the sales chip", async () => {
+    globalThis.fetch = vi.fn(async (url: unknown) => {
+      const u = String(url);
+      if (u.startsWith("/api/sales/summary"))
+        return ok(summary({ sale_count: 3, voided_count: 1, next_order_number: 5 }));
+      if (u.startsWith("/api/sales?")) return ok([]);
+      throw new Error(`unexpected fetch ${u}`);
+    }) as typeof fetch;
+
+    renderAt("/today");
+    expect(await screen.findByText("3 sales · 1 voided")).toBeDefined();
+  });
+
+  it("unpaid section header badge shows the unpaid count in red", async () => {
+    globalThis.fetch = vi.fn(async (url: unknown) => {
+      const u = String(url);
+      if (u.startsWith("/api/sales/summary"))
+        return ok(summary({ next_order_number: 3 }));
+      if (u.startsWith("/api/sales?"))
+        return ok([row({ id: 1, paid: 0 }), row({ id: 2, paid: 0 })]);
+      throw new Error(`unexpected fetch ${u}`);
+    }) as typeof fetch;
+
+    renderAt("/today");
+    const section = await screen.findByRole("region", { name: "Unpaid today" });
+    const heading = within(section).getByRole("heading", { level: 2 });
+    expect(heading.textContent).toContain("Unpaid");
+    const badge = within(heading).getByText("2");
+    expect(badge.className).toContain("text-danger");
+  });
+
   it("void button issues PATCH {voided} and refreshes the list + summary", async () => {
     let rows = [row({ id: 1, total_cents: 16000, paid: 0 })];
     const patchBodies: unknown[] = [];
@@ -189,8 +248,12 @@ describe("TodayPage", () => {
       expect(screen.getByRole("button", { name: "Unvoid sale 1" })).toBeDefined();
     });
     expect(patchBodies).toEqual([{ voided: 1 }]);
-    // Header "Voided" column + the voided row's flag cell.
-    expect(within(unpaid).getAllByText("Voided")).toHaveLength(2);
+    // Status column header + the voided row's Status badge ("Voided" now
+    // lives in the Status column, which replaced the old Voided column).
+    expect(
+      within(unpaid).getByRole("columnheader", { name: "Status" }),
+    ).toBeDefined();
+    expect(within(unpaid).getByText("Voided")).toBeDefined();
     await waitFor(() => {
       expect(screen.getAllByText("₱160")).toHaveLength(1);
     });
