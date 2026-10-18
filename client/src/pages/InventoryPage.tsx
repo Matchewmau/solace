@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -13,6 +13,9 @@ import {
   type StockItem,
 } from "../api/stock";
 import { formatPeso } from "../lib/formatPeso";
+import DataTable, { type Column } from "../components/DataTable";
+import { Dialog } from "../components/Dialog";
+import { Badge, Box, Button, StatChip } from "../components/ui";
 
 function LoadingSkeleton() {
   return (
@@ -24,136 +27,106 @@ function LoadingSkeleton() {
   );
 }
 
-function readAmount(form: HTMLFormElement, field: string): number | null {
-  const raw = new FormData(form).get(field);
-  const value = typeof raw === "string" ? Number(raw) : NaN;
-  return Number.isFinite(value) ? value : null;
-}
+/** The three movement kinds, in the order the dialog offers them. */
+const MOVEMENT_OPTIONS: { value: MovementReason; label: string }[] = [
+  { value: "delivery", label: "Delivery" },
+  { value: "waste", label: "Waste" },
+  { value: "adjustment", label: "Set count" },
+];
 
-interface RowControlsProps {
+interface MovementDialogProps {
   item: StockItem;
-  onMove: (item: StockItem, delta: number, reason: MovementReason) => void;
   pending: boolean;
-  formError: string | null;
+  error: string | null;
+  onClose: () => void;
+  onRecord: (item: StockItem, delta: number, reason: MovementReason) => void;
 }
 
-function RowControls({ item, onMove, pending, formError }: RowControlsProps) {
+/**
+ * Record a stock movement: Delivery adds, Waste subtracts, Set count records
+ * the difference to a new counted total. qty is never written directly — every
+ * change travels through the movements ledger.
+ */
+function MovementDialog({
+  item,
+  pending,
+  error,
+  onClose,
+  onRecord,
+}: MovementDialogProps) {
+  const [reason, setReason] = useState<MovementReason>("delivery");
+  const isSetCount = reason === "adjustment";
+
   return (
-    <div className="mt-2 flex flex-col gap-2">
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          aria-label={`Waste one ${item.name}`}
-          title="Use one (waste)"
-          disabled={pending}
-          onClick={() => onMove(item, -1, "waste")}
-          className="border border-ink px-3 py-1 text-sm font-semibold"
-        >
-          −1
-        </button>
-        <button
-          type="button"
-          aria-label={`Restock one ${item.name}`}
-          title="Restock one (delivery)"
-          disabled={pending}
-          onClick={() => onMove(item, 1, "delivery")}
-          className="border border-ink px-3 py-1 text-sm font-semibold"
-        >
-          +1
-        </button>
-        <form
-          aria-label={`Deliver ${item.name}`}
-          className="flex gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const amount = readAmount(event.currentTarget, "amount");
-            if (amount === null || amount <= 0) return;
-            onMove(item, amount, "delivery");
-            event.currentTarget.reset();
-          }}
-        >
-          <input
-            name="amount"
-            type="number"
-            min="0"
-            step="any"
-            placeholder="+ qty"
-            aria-label={`Delivery quantity for ${item.name}`}
-            className="w-24 border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
-          />
-          <button
-            type="submit"
-            disabled={pending}
-            className="border border-ink px-3 py-1 text-sm font-semibold"
-          >
-            Deliver
-          </button>
-        </form>
-        <form
-          aria-label={`Waste ${item.name}`}
-          className="flex gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const amount = readAmount(event.currentTarget, "amount");
-            if (amount === null || amount <= 0) return;
-            onMove(item, -amount, "waste");
-            event.currentTarget.reset();
-          }}
-        >
-          <input
-            name="amount"
-            type="number"
-            min="0"
-            step="any"
-            placeholder="− qty"
-            aria-label={`Waste quantity for ${item.name}`}
-            className="w-24 border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
-          />
-          <button
-            type="submit"
-            disabled={pending}
-            className="border border-ink px-3 py-1 text-sm font-semibold"
-          >
-            Waste
-          </button>
-        </form>
-        <form
-          aria-label={`Set count ${item.name}`}
-          className="flex gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const count = readAmount(event.currentTarget, "count");
-            if (count === null || count < 0) return;
-            const delta = adjustmentDelta(item.qty, count);
+    <Dialog open onClose={onClose} title={`Record movement — ${item.name}`}>
+      <form
+        aria-label={`Record movement for ${item.name}`}
+        className="flex flex-col gap-3"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const data = new FormData(event.currentTarget);
+          const selected = String(data.get("reason") ?? "delivery") as MovementReason;
+          const qty = Number(String(data.get("qty") ?? ""));
+          if (!Number.isFinite(qty) || qty < 0) return;
+          if (selected === "adjustment") {
+            const delta = adjustmentDelta(item.qty, qty);
             if (delta === 0) return;
-            onMove(item, delta, "adjustment");
-            event.currentTarget.reset();
-          }}
-        >
+            onRecord(item, delta, "adjustment");
+            return;
+          }
+          if (qty <= 0) return;
+          onRecord(item, selected === "waste" ? -qty : qty, selected);
+        }}
+      >
+        <label className="flex flex-col gap-1 text-sm">
+          <span>Type</span>
+          <select
+            name="reason"
+            value={reason}
+            onChange={(event) => setReason(event.target.value as MovementReason)}
+            aria-label="Movement type"
+            className="border border-ink/20 bg-paper px-2 py-1 text-base text-ink"
+          >
+            {MOVEMENT_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          <span>Quantity</span>
           <input
-            name="count"
+            name="qty"
             type="number"
             min="0"
             step="any"
-            placeholder="new count"
-            aria-label={`New count for ${item.name}`}
-            className="w-24 border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+            required
+            placeholder={isSetCount ? "New count" : "Qty"}
+            aria-label="Quantity"
+            className="border border-ink/20 bg-paper px-2 py-1 text-base text-ink"
           />
-          <button
-            type="submit"
-            disabled={pending}
-            className="border border-ink px-3 py-1 text-sm font-semibold"
-          >
-            Set count
-          </button>
-        </form>
-      </div>
-      {formError ? (
-        <p role="alert" className="text-sm text-accent">
-          {formError}
+        </label>
+        <p className="text-sm text-muted">
+          {isSetCount
+            ? `Records the difference from ${item.qty} to the new count.`
+            : "How many units to deliver or waste."}
         </p>
-      ) : null}
-    </div>
+        <div className="flex gap-2">
+          <Button type="submit" variant="primary" disabled={pending}>
+            Save
+          </Button>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+        </div>
+        {error ? (
+          <p role="alert" className="text-sm text-accent">
+            {error}
+          </p>
+        ) : null}
+      </form>
+    </Dialog>
   );
 }
 
@@ -182,14 +155,10 @@ function EditDialog({ item, pending, error, onClose, onSave }: EditDialogProps) 
       ? String(item.price_cents / 100)
       : (item.price_cents / 100).toFixed(2);
   return (
-    <div
-      role="dialog"
-      aria-label={`Edit ${item.name}`}
-      className="mt-2 border border-ink/20 p-3"
-    >
+    <Dialog open onClose={onClose} title={`Edit ${item.name}`}>
       <form
         aria-label={`Edit ${item.name} form`}
-        className="flex flex-wrap gap-2"
+        className="flex flex-col gap-3"
         onSubmit={(event) => {
           event.preventDefault();
           const data = new FormData(event.currentTarget);
@@ -197,8 +166,7 @@ function EditDialog({ item, pending, error, onClose, onSave }: EditDialogProps) 
           const unit = String(data.get("unit") ?? "");
           const priceValue = Number(String(data.get("price") ?? ""));
           const thresholdRaw = String(data.get("threshold") ?? "");
-          const low_threshold =
-            thresholdRaw === "" ? 0 : Number(thresholdRaw);
+          const low_threshold = thresholdRaw === "" ? 0 : Number(thresholdRaw);
           if (name === "") return;
           if (!Number.isFinite(priceValue) || priceValue < 0) return;
           if (!Number.isFinite(low_threshold) || !Number.isInteger(low_threshold) || low_threshold < 0) return;
@@ -217,7 +185,7 @@ function EditDialog({ item, pending, error, onClose, onSave }: EditDialogProps) 
           defaultValue={item.name}
           placeholder="Item name"
           aria-label="Item name"
-          className="w-32 border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+          className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
         />
         <input
           name="price"
@@ -228,7 +196,7 @@ function EditDialog({ item, pending, error, onClose, onSave }: EditDialogProps) 
           defaultValue={pricePesos}
           placeholder="Price (₱)"
           aria-label="Price in pesos"
-          className="w-24 border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+          className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
         />
         <input
           name="unit"
@@ -236,7 +204,7 @@ function EditDialog({ item, pending, error, onClose, onSave }: EditDialogProps) 
           defaultValue={item.unit}
           placeholder="Unit"
           aria-label="Unit"
-          className="w-24 border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+          className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
         />
         <input
           name="threshold"
@@ -246,46 +214,127 @@ function EditDialog({ item, pending, error, onClose, onSave }: EditDialogProps) 
           defaultValue={item.low_threshold}
           placeholder="Threshold"
           aria-label="Low threshold"
-          className="w-28 border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+          className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
         />
-        <button
-          type="submit"
-          disabled={pending}
-          className="border border-ink px-3 py-1 text-sm font-semibold"
-        >
-          Save
-        </button>
-        <button
-          type="button"
-          onClick={onClose}
-          className="border border-ink/20 px-3 py-1 text-sm"
-        >
-          Cancel
-        </button>
+        <div className="flex gap-2">
+          <Button type="submit" variant="primary" disabled={pending}>
+            Save
+          </Button>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+        </div>
+        {error ? (
+          <p role="alert" className="text-sm text-accent">
+            {error}
+          </p>
+        ) : null}
       </form>
-      {error ? (
-        <p role="alert" className="mt-2 text-sm text-accent">
-          {error}
-        </p>
-      ) : null}
-    </div>
+    </Dialog>
+  );
+}
+
+interface AddItemDialogProps {
+  pending: boolean;
+  error: string | null;
+  onClose: () => void;
+  onAdd: (input: {
+    name: string;
+    unit: string;
+    qty: number;
+    low_threshold: number;
+  }) => void;
+}
+
+/** Add dialog: the same five catalog fields the always-open form carried. */
+function AddItemDialog({ pending, error, onClose, onAdd }: AddItemDialogProps) {
+  return (
+    <Dialog open onClose={onClose} title="Add stock item">
+      <form
+        aria-label="Add stock item form"
+        className="flex flex-col gap-3"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const data = new FormData(event.currentTarget);
+          const name = String(data.get("name") ?? "").trim();
+          const unit = String(data.get("unit") ?? "");
+          const qtyRaw = String(data.get("qty") ?? "");
+          const thresholdRaw = String(data.get("threshold") ?? "");
+          const qty = qtyRaw === "" ? 0 : Number(qtyRaw);
+          const low_threshold = thresholdRaw === "" ? 0 : Number(thresholdRaw);
+          if (name === "") return;
+          if (!Number.isFinite(qty) || qty < 0) return;
+          if (!Number.isFinite(low_threshold) || low_threshold < 0) return;
+          onAdd({ name, unit, qty, low_threshold });
+        }}
+      >
+        <input
+          name="name"
+          type="text"
+          required
+          placeholder="Item name"
+          aria-label="Stock item name"
+          className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+        />
+        <input
+          name="unit"
+          type="text"
+          placeholder="Unit"
+          aria-label="Stock item unit"
+          className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+        />
+        <input
+          name="qty"
+          type="number"
+          min="0"
+          step="any"
+          placeholder="Qty (0)"
+          aria-label="Stock item quantity"
+          className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+        />
+        <input
+          name="threshold"
+          type="number"
+          min="0"
+          step="any"
+          placeholder="Threshold (0)"
+          aria-label="Stock item threshold"
+          className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+        />
+        <div className="flex gap-2">
+          <Button type="submit" variant="primary" disabled={pending}>
+            Add item
+          </Button>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+        </div>
+        {error ? (
+          <p role="alert" className="text-sm text-accent">
+            {error}
+          </p>
+        ) : null}
+      </form>
+    </Dialog>
   );
 }
 
 export default function InventoryPage() {
   const queryClient = useQueryClient();
-  const [moveError, setMoveError] = useState<string | null>(null);
-  const [addError, setAddError] = useState<string | null>(null);
-  const [editingId, setEditingId] = useState<number | null>(null);
+  const [query, setQuery] = useState("");
+  const [movementItem, setMovementItem] = useState<StockItem | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<StockItem | null>(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<number | null>(
     null,
   );
+  const [moveError, setMoveError] = useState<string | null>(null);
+  const [addError, setAddError] = useState<string | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<{
     id: number;
     message: string;
   } | null>(null);
-  const addFormRef = useRef<HTMLFormElement | null>(null);
 
   const itemsQuery = useQuery({
     queryKey: ["stock-items"],
@@ -304,6 +353,7 @@ export default function InventoryPage() {
     }) => postStockMovement(item.id, delta, reason),
     onSuccess: () => {
       setMoveError(null);
+      setMovementItem(null);
       void queryClient.invalidateQueries({ queryKey: ["stock-items"] });
     },
     onError: () => {
@@ -320,7 +370,7 @@ export default function InventoryPage() {
     }) => postStockItem(input),
     onSuccess: () => {
       setAddError(null);
-      addFormRef.current?.reset();
+      setAddOpen(false);
       void queryClient.invalidateQueries({ queryKey: ["stock-items"] });
     },
     onError: () => {
@@ -333,7 +383,7 @@ export default function InventoryPage() {
       patchStockItem(id, patch),
     onSuccess: () => {
       setEditError(null);
-      setEditingId(null);
+      setEditingItem(null);
       void queryClient.invalidateQueries({ queryKey: ["stock-items"] });
     },
     onError: () => {
@@ -346,7 +396,7 @@ export default function InventoryPage() {
     onSuccess: (_data, item) => {
       setDeleteError(null);
       setConfirmingDeleteId(null);
-      if (editingId === item.id) setEditingId(null);
+      if (editingItem?.id === item.id) setEditingItem(null);
       void queryClient.invalidateQueries({ queryKey: ["stock-items"] });
     },
     onError: (err, item) => {
@@ -356,7 +406,38 @@ export default function InventoryPage() {
   });
 
   const items = itemsQuery.data ?? [];
-  const lowItems = items.filter(isLowStock);
+  const lowCount = items.filter(isLowStock).length;
+  const totalValueCents = items.reduce(
+    (sum, item) => sum + item.qty * item.price_cents,
+    0,
+  );
+  const needle = query.trim().toLowerCase();
+  const visibleItems =
+    needle === ""
+      ? items
+      : items.filter((item) => item.name.toLowerCase().includes(needle));
+
+  const columns: Column<StockItem>[] = [
+    { key: "item", label: "Item", render: (item) => item.name },
+    { key: "unit", label: "Unit", render: (item) => item.unit },
+    { key: "qty", label: "Qty", align: "right", render: (item) => item.qty },
+    {
+      key: "threshold",
+      label: "Threshold",
+      align: "right",
+      render: (item) => item.low_threshold,
+    },
+    {
+      key: "status",
+      label: "Status",
+      render: (item) =>
+        isLowStock(item) ? (
+          <Badge tone="danger">Low</Badge>
+        ) : (
+          <Badge tone="neutral">OK</Badge>
+        ),
+    },
+  ];
 
   return (
     <main className="min-h-screen bg-paper text-ink">
@@ -373,224 +454,167 @@ export default function InventoryPage() {
             <p role="alert" className="text-lg">
               Could not load inventory.
             </p>
-            <button
-              type="button"
-              className="border border-ink px-4 py-2 text-sm font-semibold"
+            <Button
+              variant="outline"
               onClick={() => {
                 void itemsQuery.refetch();
               }}
             >
               Retry
-            </button>
+            </Button>
           </div>
         ) : (
-          <div className="flex flex-col gap-10">
-            <section aria-label="New stock item">
-              <p className="label text-xs text-muted">Solace &middot; New item</p>
-              <h2 className="mt-2 text-2xl font-semibold">Add stock item</h2>
-              <form
-                ref={addFormRef}
-                aria-label="Add stock item"
-                className="mt-4 flex flex-wrap gap-2"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  const data = new FormData(event.currentTarget);
-                  const name = String(data.get("name") ?? "").trim();
-                  const unit = String(data.get("unit") ?? "");
-                  const qtyRaw = String(data.get("qty") ?? "");
-                  const thresholdRaw = String(data.get("threshold") ?? "");
-                  const qty = qtyRaw === "" ? 0 : Number(qtyRaw);
-                  const low_threshold =
-                    thresholdRaw === "" ? 0 : Number(thresholdRaw);
-                  if (name === "") return;
-                  if (!Number.isFinite(qty) || qty < 0) return;
-                  if (!Number.isFinite(low_threshold) || low_threshold < 0)
-                    return;
-                  addMutation.mutate({ name, unit, qty, low_threshold });
+          <div className="flex flex-col gap-6">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <StatChip label="Total value" value={formatPeso(totalValueCents)} />
+              <StatChip
+                label="Low stock"
+                value={lowCount}
+                tone={lowCount > 0 ? "danger" : "default"}
+              />
+              <StatChip label="Items" value={items.length} />
+            </div>
+            <Box className="flex flex-wrap items-end gap-4">
+              <label className="flex flex-1 flex-col gap-2">
+                <span className="label text-xs text-muted">Search stock</span>
+                <input
+                  type="search"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Search stock…"
+                  aria-label="Search stock"
+                  className="border border-ink/20 bg-paper px-4 py-2 text-base text-ink"
+                />
+              </label>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  setAddError(null);
+                  setAddOpen(true);
                 }}
               >
-                <input
-                  name="name"
-                  type="text"
-                  required
-                  placeholder="Item name"
-                  aria-label="Stock item name"
-                  className="w-32 border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
-                />
-                <input
-                  name="unit"
-                  type="text"
-                  placeholder="Unit"
-                  aria-label="Stock item unit"
-                  className="w-24 border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
-                />
-                <input
-                  name="qty"
-                  type="number"
-                  min="0"
-                  step="any"
-                  placeholder="Qty (0)"
-                  aria-label="Stock item quantity"
-                  className="w-24 border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
-                />
-                <input
-                  name="threshold"
-                  type="number"
-                  min="0"
-                  step="any"
-                  placeholder="Threshold (0)"
-                  aria-label="Stock item threshold"
-                  className="w-28 border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
-                />
-                <button
-                  type="submit"
-                  disabled={addMutation.isPending}
-                  className="border border-ink px-3 py-1 text-sm font-semibold"
-                >
-                  Add item
-                </button>
-              </form>
-              {addError ? (
-                <p role="alert" className="mt-2 text-sm text-accent">
-                  {addError}
-                </p>
-              ) : null}
-            </section>
-            {items.length === 0 ? (
-              <p className="py-8 text-center text-muted">No stock items yet</p>
-            ) : (
-          <div className="flex flex-col gap-10">
-            <section aria-label="Low stock">
-              <p className="label text-xs text-muted">Solace &middot; Low stock</p>
-              <h2 className="mt-2 text-2xl font-semibold">Low stock</h2>
-              {lowItems.length === 0 ? (
-                <p className="mt-4 text-muted">Nothing is low right now.</p>
-              ) : (
-                <ul className="mt-4 flex flex-col gap-2">
-                  {lowItems.map((item) => (
-                    <li key={item.id} className="text-base">
-                      {item.name} — {item.qty} {item.unit} (threshold{" "}
-                      {item.low_threshold}){" "}
-                      <span className="font-semibold text-accent">LOW</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-            <section aria-label="Stock">
-              <p className="label text-xs text-muted">Solace &middot; Stock</p>
-              <h2 className="mt-2 text-2xl font-semibold">Stock</h2>
-              <ul className="mt-4 flex flex-col gap-6">
-                {items.map((item) => (
-                  <li
-                    key={item.id}
-                    className="flex flex-col gap-1 border-b border-ink/10 pb-4"
+                + Add item
+              </Button>
+            </Box>
+            <DataTable
+              label="Stock"
+              columns={columns}
+              rows={visibleItems}
+              rowKey={(item) => item.id}
+              emptyMessage={
+                items.length === 0
+                  ? "No stock items yet"
+                  : "No items match your search."
+              }
+              renderActions={(item) => (
+                <>
+                  <Button
+                    variant="outline"
+                    ariaLabel={`Record movement for ${item.name}`}
+                    onClick={() => {
+                      setMoveError(null);
+                      setMovementItem(item);
+                    }}
                   >
-                    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                      <span className="text-lg font-semibold">{item.name}</span>
-                      <span className="text-base font-semibold text-accent">
-                        {formatPeso(item.price_cents)}
-                      </span>
-                      <span className="text-base">
-                        {item.qty}
-                        {item.unit ? ` ${item.unit}` : ""} (threshold{" "}
-                        {item.low_threshold})
-                      </span>
-                      {isLowStock(item) ? (
-                        <span className="border border-accent px-2 py-0.5 text-xs font-semibold text-accent">
-                          LOW
-                        </span>
-                      ) : null}
-                      <span className="ml-auto flex flex-wrap gap-2">
-                        <Link
-                          to={`/inventory/history?item=${item.id}`}
-                          aria-label={`Show history for ${item.name}`}
-                          className="border border-ink/20 px-3 py-1 text-sm"
-                        >
-                          History
-                        </Link>
-                        <button
-                          type="button"
-                          aria-label={`Edit ${item.name}`}
-                          onClick={() => {
-                            setEditingId(item.id);
-                            setEditError(null);
-                          }}
-                          className="border border-ink/20 px-3 py-1 text-sm"
-                        >
-                          Edit
-                        </button>
-                        {confirmingDeleteId === item.id ? (
-                          <>
-                            <button
-                              type="button"
-                              aria-label={`Confirm delete ${item.name}`}
-                              disabled={deleteMutation.isPending}
-                              onClick={() => deleteMutation.mutate(item)}
-                              className="border border-accent px-3 py-1 text-sm font-semibold text-accent"
-                            >
-                              Confirm delete
-                            </button>
-                            <button
-                              type="button"
-                              aria-label={`Cancel delete ${item.name}`}
-                              onClick={() => setConfirmingDeleteId(null)}
-                              className="border border-ink/20 px-3 py-1 text-sm"
-                            >
-                              Cancel
-                            </button>
-                          </>
-                        ) : (
-                          <button
-                            type="button"
-                            aria-label={`Delete ${item.name}`}
-                            onClick={() => {
-                              setConfirmingDeleteId(item.id);
-                              setDeleteError(null);
-                            }}
-                            className="border border-ink/20 px-3 py-1 text-sm"
-                          >
-                            Delete
-                          </button>
-                        )}
-                      </span>
-                    </div>
-                    <RowControls
-                      item={item}
-                      pending={moveMutation.isPending}
-                      formError={moveError}
-                      onMove={(target, delta, reason) =>
-                        moveMutation.mutate({ item: target, delta, reason })
-                      }
-                    />
-                    {deleteError !== null && deleteError.id === item.id ? (
-                      <p role="alert" className="text-sm text-accent">
-                        {deleteError.message}
-                      </p>
-                    ) : null}
-                    {editingId === item.id ? (
-                      <EditDialog
-                        item={item}
-                        pending={editMutation.isPending}
-                        error={editError}
-                        onClose={() => {
-                          setEditingId(null);
-                          setEditError(null);
-                        }}
-                        onSave={(id, patch) =>
-                          editMutation.mutate({ id, patch })
-                        }
-                      />
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            </section>
-          </div>
-            )}
+                    Record movement
+                  </Button>
+                  <Link
+                    to={`/inventory/history?item=${item.id}`}
+                    aria-label={`Show history for ${item.name}`}
+                    className="border border-ink/20 px-3 py-1 text-sm"
+                  >
+                    History
+                  </Link>
+                  <Button
+                    variant="outline"
+                    ariaLabel={`Edit ${item.name}`}
+                    onClick={() => {
+                      setEditingItem(item);
+                      setEditError(null);
+                    }}
+                  >
+                    Edit
+                  </Button>
+                  {confirmingDeleteId === item.id ? (
+                    <>
+                      <Button
+                        variant="danger"
+                        disabled={deleteMutation.isPending}
+                        ariaLabel={`Confirm delete ${item.name}`}
+                        onClick={() => deleteMutation.mutate(item)}
+                      >
+                        Confirm delete
+                      </Button>
+                      <Button
+                        variant="outline"
+                        ariaLabel={`Cancel delete ${item.name}`}
+                        onClick={() => setConfirmingDeleteId(null)}
+                      >
+                        Cancel
+                      </Button>
+                    </>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      ariaLabel={`Delete ${item.name}`}
+                      onClick={() => {
+                        setConfirmingDeleteId(item.id);
+                        setDeleteError(null);
+                      }}
+                    >
+                      Delete
+                    </Button>
+                  )}
+                </>
+              )}
+            />
+            {deleteError ? (
+              <p role="alert" className="text-sm text-accent">
+                {deleteError.message}
+              </p>
+            ) : null}
           </div>
         )}
       </div>
+      {movementItem ? (
+        <MovementDialog
+          key={movementItem.id}
+          item={movementItem}
+          pending={moveMutation.isPending}
+          error={moveError}
+          onClose={() => {
+            setMovementItem(null);
+            setMoveError(null);
+          }}
+          onRecord={(item, delta, reason) =>
+            moveMutation.mutate({ item, delta, reason })
+          }
+        />
+      ) : null}
+      {editingItem ? (
+        <EditDialog
+          key={editingItem.id}
+          item={editingItem}
+          pending={editMutation.isPending}
+          error={editError}
+          onClose={() => {
+            setEditingItem(null);
+            setEditError(null);
+          }}
+          onSave={(id, patch) => editMutation.mutate({ id, patch })}
+        />
+      ) : null}
+      {addOpen ? (
+        <AddItemDialog
+          pending={addMutation.isPending}
+          error={addError}
+          onClose={() => {
+            setAddOpen(false);
+            setAddError(null);
+          }}
+          onAdd={(input) => addMutation.mutate(input)}
+        />
+      ) : null}
     </main>
   );
 }

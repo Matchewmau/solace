@@ -68,6 +68,32 @@ function renderInventory() {
   );
 }
 
+/** The StatChip container whose label text is `label`. */
+function chip(label: string): HTMLElement {
+  return screen.getByText(label).closest("div") as HTMLElement;
+}
+
+/** The stock table row whose Item cell reads `name`. */
+function row(name: string): HTMLElement {
+  return screen.getByText(name).closest("tr") as HTMLElement;
+}
+
+/** Clicks the row's Record movement action and returns the opened dialog. */
+function openMovementDialog(name: string): Promise<HTMLElement> {
+  fireEvent.click(
+    screen.getByRole("button", { name: `Record movement for ${name}` }),
+  );
+  return screen.findByRole("dialog", { name: `Record movement — ${name}` });
+}
+
+function submitMovement(dialog: HTMLElement, name: string) {
+  fireEvent.submit(
+    within(dialog).getByLabelText(`Record movement for ${name}`).closest(
+      "form",
+    ) as HTMLFormElement,
+  );
+}
+
 describe("stock helpers (pure)", () => {
   it("isLowStock flags qty == threshold (boundary) and below, not above", () => {
     expect(isLowStock({ qty: 5, low_threshold: 5 })).toBe(true);
@@ -82,32 +108,128 @@ describe("stock helpers (pure)", () => {
 });
 
 describe("InventoryPage with mocked data", () => {
-  it("renders LOW badges for low items only", async () => {
-    stubFetch();
-    renderInventory();
-
-    expect(await screen.findByText("Milk")).toBeDefined();
-    expect(screen.getByText("Ice")).toBeDefined();
-    // Ice (0 <= 0) is LOW in both the low-stock section and the table row.
-    expect(screen.getAllByText("LOW").length).toBeGreaterThanOrEqual(2);
-    // Milk (45 > 10) has no LOW badge: badges only sit next to low rows.
-    const milkRow = screen.getByText("Milk").closest("li") as HTMLElement;
-    expect(milkRow.textContent).not.toContain("LOW");
-  });
-
-  it("set-count posts an adjustment with delta = newCount - currentQty", async () => {
+  it("renders total value, low stock, and items chips from the fixtures", async () => {
     stubFetch();
     renderInventory();
     await screen.findByText("Milk");
 
-    const setCountForm = screen.getByLabelText("Set count Milk").closest("form") as HTMLFormElement;
-    const input = setCountForm.querySelector('input[name="count"]') as HTMLInputElement;
-    fireEvent.change(input, { target: { value: "100" } });
-    fireEvent.submit(setCountForm);
+    // 45 × ₱2.50 = ₱112.50; Ice is free.
+    expect(within(chip("Total value")).getByText("₱112.50")).toBeDefined();
+    // Ice (0 <= 0) is the only low row.
+    const low = within(chip("Low stock")).getByText("1");
+    expect(low.className).toContain("text-danger");
+    expect(within(chip("Items")).getByText("2")).toBeDefined();
+  });
+
+  it("search narrows the stock rows by name", async () => {
+    stubFetch();
+    renderInventory();
+    await screen.findByText("Milk");
+
+    fireEvent.change(screen.getByLabelText("Search stock"), {
+      target: { value: "mil" },
+    });
+    expect(screen.getByText("Milk")).toBeDefined();
+    expect(screen.queryByText("Ice")).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Search stock"), {
+      target: { value: "zzz" },
+    });
+    expect(screen.queryByText("Milk")).toBeNull();
+    expect(screen.getByText("No items match your search.")).toBeDefined();
+  });
+
+  it("shows a danger Low badge on low rows and a neutral OK otherwise", async () => {
+    stubFetch();
+    renderInventory();
+    await screen.findByText("Milk");
+
+    const milkRow = row("Milk");
+    const okBadge = within(milkRow).getByText("OK");
+    expect(okBadge.className).toContain("text-muted");
+    expect(within(milkRow).queryByText("Low")).toBeNull();
+
+    const iceRow = row("Ice");
+    const lowBadge = within(iceRow).getByText("Low");
+    expect(lowBadge.className).toContain("text-danger");
+  });
+
+  it("drops the quick −1/+1 buttons and inline movement forms", async () => {
+    stubFetch();
+    renderInventory();
+    await screen.findByText("Milk");
+
+    expect(screen.queryByLabelText("Waste one Milk")).toBeNull();
+    expect(screen.queryByLabelText("Restock one Milk")).toBeNull();
+    expect(screen.queryByLabelText("Deliver Milk")).toBeNull();
+    expect(screen.queryByLabelText("Waste Milk")).toBeNull();
+    expect(screen.queryByLabelText("Set count Milk")).toBeNull();
+  });
+
+  it("records a Delivery through the movement dialog as +qty", async () => {
+    stubFetch();
+    renderInventory();
+    await screen.findByText("Milk");
+
+    const dialog = await openMovementDialog("Milk");
+    // Delivery is the default movement type.
+    fireEvent.change(within(dialog).getByLabelText("Quantity"), {
+      target: { value: "2" },
+    });
+    submitMovement(dialog, "Milk");
 
     await vi.waitFor(() => {
       expect(posted).toHaveLength(1);
     });
+    expect(posted[0].body).toEqual({
+      stock_item_id: 1,
+      delta: 2,
+      reason: "delivery",
+    });
+  });
+
+  it("records a Waste through the movement dialog as −qty", async () => {
+    stubFetch();
+    renderInventory();
+    await screen.findByText("Milk");
+
+    const dialog = await openMovementDialog("Milk");
+    fireEvent.change(within(dialog).getByLabelText("Movement type"), {
+      target: { value: "waste" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Quantity"), {
+      target: { value: "3" },
+    });
+    submitMovement(dialog, "Milk");
+
+    await vi.waitFor(() => {
+      expect(posted).toHaveLength(1);
+    });
+    expect(posted[0].body).toEqual({
+      stock_item_id: 1,
+      delta: -3,
+      reason: "waste",
+    });
+  });
+
+  it("records Set count as the computed adjustment delta", async () => {
+    stubFetch();
+    renderInventory();
+    await screen.findByText("Milk");
+
+    const dialog = await openMovementDialog("Milk");
+    fireEvent.change(within(dialog).getByLabelText("Movement type"), {
+      target: { value: "adjustment" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Quantity"), {
+      target: { value: "100" },
+    });
+    submitMovement(dialog, "Milk");
+
+    await vi.waitFor(() => {
+      expect(posted).toHaveLength(1);
+    });
+    // Milk starts at 45, so a target of 100 records +55.
     expect(posted[0].body).toEqual({
       stock_item_id: 1,
       delta: 55,
@@ -130,8 +252,8 @@ describe("InventoryPage with mocked data", () => {
   });
 });
 
-describe("InventoryPage create form (review fix wave)", () => {
-  it("add-stock-item form POSTs name/unit/qty/threshold with the auth header", async () => {
+describe("InventoryPage add-item dialog (review fix wave)", () => {
+  it("POSTs name/unit/qty/threshold with the auth header", async () => {
     const created: Array<{ url: string; body: unknown; headers: unknown }> = [];
     setStoredAuth("solace123");
     globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
@@ -152,9 +274,11 @@ describe("InventoryPage create form (review fix wave)", () => {
     renderInventory();
     await screen.findByText("Milk");
 
-    const form = screen.getByLabelText("Add stock item").closest(
-      "form",
-    ) as HTMLFormElement;
+    fireEvent.click(screen.getByRole("button", { name: "+ Add item" }));
+    const dialog = await screen.findByRole("dialog", { name: "Add stock item" });
+    const form = within(dialog)
+      .getByLabelText("Add stock item form")
+      .closest("form") as HTMLFormElement;
     fireEvent.change(
       form.querySelector('input[name="name"]') as HTMLInputElement,
       { target: { value: "Sugar" } },
@@ -187,7 +311,7 @@ describe("InventoryPage create form (review fix wave)", () => {
     );
   });
 
-  it("add-stock-item form shows on an empty list (fresh DB)", async () => {
+  it("opens from the empty list (fresh DB)", async () => {
     globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
       const u = String(url);
       if (u === "/api/stock_items" && (!init || init.method === undefined)) {
@@ -197,10 +321,13 @@ describe("InventoryPage create form (review fix wave)", () => {
     }) as typeof fetch;
     renderInventory();
     await screen.findByText("No stock items yet");
-    expect(screen.getByLabelText("Add stock item")).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: "+ Add item" }));
+    const dialog = await screen.findByRole("dialog", { name: "Add stock item" });
+    expect(within(dialog).getByLabelText("Add stock item form")).toBeDefined();
   });
 
-  it("add-stock-item form succeeds with an empty unit", async () => {
+  it("succeeds with an empty unit", async () => {
     const created: Array<{ url: string; body: unknown }> = [];
     globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
       const u = String(url);
@@ -220,9 +347,11 @@ describe("InventoryPage create form (review fix wave)", () => {
     renderInventory();
     await screen.findByText("Milk");
 
-    const form = screen.getByLabelText("Add stock item").closest(
-      "form",
-    ) as HTMLFormElement;
+    fireEvent.click(screen.getByRole("button", { name: "+ Add item" }));
+    const dialog = await screen.findByRole("dialog", { name: "Add stock item" });
+    const form = within(dialog)
+      .getByLabelText("Add stock item form")
+      .closest("form") as HTMLFormElement;
     // Unit is optional on add, matching the edit dialog and server.
     expect(
       (form.querySelector('input[name="unit"]') as HTMLInputElement).required,
@@ -310,15 +439,13 @@ describe("InventoryPage price, edit, delete, restock (Task 8)", () => {
     }) as typeof fetch;
   }
 
-  it("renders each row price formatted via formatPeso", async () => {
+  it("sums qty × price into the Total value chip (formatPeso)", async () => {
     stubInventoryApi();
     renderInventory();
     await screen.findByText("Milk");
 
-    const milkRow = screen.getByText("Milk").closest("li") as HTMLElement;
-    expect(milkRow.textContent).toContain("₱2.50");
-    const iceRow = screen.getByText("Ice").closest("li") as HTMLElement;
-    expect(iceRow.textContent).toContain("₱70");
+    // 45 × ₱2.50 = ₱112.50 (Ice and Sugar carry no price).
+    expect(within(chip("Total value")).getByText("₱112.50")).toBeDefined();
   });
 
   it("edit dialog saves name/price/unit/threshold and never edits qty", async () => {
@@ -356,9 +483,11 @@ describe("InventoryPage price, edit, delete, restock (Task 8)", () => {
     });
     expect("qty" in (requests[0].body as Record<string, unknown>)).toBe(false);
 
-    // Saved values render back on the row.
+    // Saved values render back: the name on the row, the new price in Total value.
     expect(await screen.findByText("Oat Milk")).toBeDefined();
-    expect(await screen.findByText("₱3.75")).toBeDefined();
+    await vi.waitFor(() => {
+      expect(within(chip("Total value")).getByText("₱168.75")).toBeDefined();
+    });
   });
 
   it("delete removes an item with no history", async () => {
@@ -436,31 +565,5 @@ describe("InventoryPage price, edit, delete, restock (Task 8)", () => {
     expect(requests).toHaveLength(0);
     // Dialog stays open for correction.
     expect(screen.getByRole("dialog", { name: "Edit Milk" })).toBeDefined();
-  });
-
-  it("−1 posts waste and +1 posts delivery", async () => {
-    stubInventoryApi();
-    renderInventory();
-    await screen.findByText("Milk");
-
-    fireEvent.click(screen.getByLabelText("Waste one Milk"));
-    await vi.waitFor(() => {
-      expect(requests).toHaveLength(1);
-    });
-    expect(requests[0].body).toEqual({
-      stock_item_id: 1,
-      delta: -1,
-      reason: "waste",
-    });
-
-    fireEvent.click(screen.getByLabelText("Restock one Milk"));
-    await vi.waitFor(() => {
-      expect(requests).toHaveLength(2);
-    });
-    expect(requests[1].body).toEqual({
-      stock_item_id: 1,
-      delta: 1,
-      reason: "delivery",
-    });
   });
 });
