@@ -510,11 +510,15 @@ useOrders.subscribe((state) => {
 if (typeof window !== "undefined") {
   window.addEventListener("storage", (event) => {
     if (event.key !== ORDERS_STORAGE_KEY) return;
-    const snapshot = loadOrdersSnapshot(event.newValue, utcToday());
+    const today = utcToday();
+    const snapshot = loadOrdersSnapshot(event.newValue, today);
     if (snapshot === null) return;
     useOrders.setState({
       orders: snapshot.orders,
       activeKey: snapshot.activeKey,
+      // Carry the validated day so the adopted rail survives the next
+      // guarded write on a tab that was open overnight.
+      day: today,
     });
   });
 }

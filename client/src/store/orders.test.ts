@@ -718,6 +718,40 @@ describe("orders store cross-tab sync and day rollover", () => {
     expect(state.activeKey).toBe("order-2");
   });
 
+  it("adopts the writer's day with the rail on an overnight tab", () => {
+    // A tab left open across the UTC day boundary holds yesterday's day;
+    // adopting another tab's snapshot must carry today along so the next
+    // guarded write does not reset the just-adopted rail.
+    useOrders.setState({ day: "2000-01-01", rolloverCue: false });
+    const raw = JSON.stringify({
+      version: 1,
+      utcDate: utcToday(),
+      activeKey: "order-9",
+      orders: [
+        {
+          key: "order-9",
+          label: "Order #9",
+          lines: [{ menu_item_id: 1, qty: 2 }],
+          payment: "cash",
+          status: "open",
+          sale: null,
+          dailySeq: null,
+          tempNo: 9,
+        },
+      ],
+    });
+
+    window.dispatchEvent(
+      new StorageEvent("storage", {
+        key: ORDERS_STORAGE_KEY,
+        newValue: raw,
+      }),
+    );
+
+    expect(useOrders.getState().day).toBe(utcToday());
+    expect(keys()).toEqual(["order-9"]);
+  });
+
   it("ignores storage events for other keys or malformed values", () => {
     const before = useOrders.getState().orders;
 
