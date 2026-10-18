@@ -55,6 +55,29 @@ function firstRow(): string {
   return first?.textContent ?? "";
 }
 
+function bodyRowCount(): number {
+  return document.querySelectorAll("tbody tr").length;
+}
+
+function datedRow(id: number, date: string): SaleRow {
+  return {
+    id,
+    daily_seq: id,
+    total_cents: id * 100,
+    payment: "cash",
+    voided: 0,
+    paid: 1,
+    created_at: `${date} 12:00:00`,
+  };
+}
+
+/** 25 sales on consecutive days: 2026-10-01 … 2026-10-25. */
+function datedFixture(): SaleRow[] {
+  return Array.from({ length: 25 }, (_, i) =>
+    datedRow(i + 1, `2026-10-${String(i + 1).padStart(2, "0")}`),
+  );
+}
+
 describe("HistoryPage table", () => {
   it("history table sorts by total and has no action buttons", async () => {
     renderHistory([row(31, 5000), row(32, 9000)]);
@@ -94,5 +117,83 @@ describe("HistoryPage table", () => {
       </QueryClientProvider>,
     );
     await screen.findByRole("heading", { name: "Login" });
+  });
+});
+
+describe("HistoryPage filters and pagination", () => {
+  it("shows 20 rows on page 1 and the last 5 on page 2", async () => {
+    renderHistory(datedFixture());
+    await screen.findByRole("table");
+    expect(bodyRowCount()).toBe(20);
+    expect(screen.getByText("Showing 1–20 of 25")).toBeDefined();
+    expect(
+      (screen.getByRole("button", { name: "Previous" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Next" }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(bodyRowCount()).toBe(5);
+    expect(screen.getByText("Showing 21–25 of 25")).toBeDefined();
+    expect(
+      (screen.getByRole("button", { name: "Next" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Previous" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Previous" }));
+    expect(bodyRowCount()).toBe(20);
+    expect(screen.getByText("Showing 1–20 of 25")).toBeDefined();
+  });
+
+  it("narrows rows inclusively on the From date", async () => {
+    renderHistory(datedFixture());
+    await screen.findByRole("table");
+    fireEvent.change(screen.getByLabelText("From date"), {
+      target: { value: "2026-10-21" },
+    });
+    expect(bodyRowCount()).toBe(5);
+    expect(screen.getByText("Showing 1–5 of 5")).toBeDefined();
+    expect(firstRow()).toContain("Sale #21");
+  });
+
+  it("resets to page 1 when the filter changes", async () => {
+    renderHistory(datedFixture());
+    await screen.findByRole("table");
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(bodyRowCount()).toBe(5);
+
+    fireEvent.change(screen.getByLabelText("From date"), {
+      target: { value: "2026-10-02" },
+    });
+    // 24 rows remain, so page 2 would still exist — resetting to page 1 is what
+    // makes the first 20 rows show.
+    expect(bodyRowCount()).toBe(20);
+    expect(screen.getByText("Showing 1–20 of 24")).toBeDefined();
+  });
+
+  it("Clear restores the unfiltered ledger", async () => {
+    renderHistory(datedFixture());
+    await screen.findByRole("table");
+    fireEvent.change(screen.getByLabelText("From date"), {
+      target: { value: "2026-10-21" },
+    });
+    fireEvent.change(screen.getByLabelText("To date"), {
+      target: { value: "2026-10-22" },
+    });
+    expect(bodyRowCount()).toBe(2);
+    expect(screen.getByText("Showing 1–2 of 2")).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(bodyRowCount()).toBe(20);
+    expect(screen.getByText("Showing 1–20 of 25")).toBeDefined();
+    expect((screen.getByLabelText("From date") as HTMLInputElement).value).toBe(
+      "",
+    );
+    expect((screen.getByLabelText("To date") as HTMLInputElement).value).toBe("");
   });
 });
