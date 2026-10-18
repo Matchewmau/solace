@@ -302,9 +302,9 @@ export default function PosPage() {
           <p className="text-lg">{active.label} · Sale #{doneSale.id}</p>
           <p className="text-sm text-muted">{doneSale.created_at}</p>
           {doneSale.paid === 1 ? (
-            <span className="text-base font-semibold text-accent">PAID</span>
+            <span className="text-base font-semibold text-ok">PAID</span>
           ) : (
-            <span className="text-base font-semibold text-red-600">UNPAID</span>
+            <span className="text-base font-semibold text-danger">UNPAID</span>
           )}
           <p className="text-lg font-semibold text-accent">
             {formatPeso(doneSale.total_cents)}

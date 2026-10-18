@@ -612,7 +612,7 @@ describe("POS paid flow with history", () => {
     });
     expect(payload).toMatchObject({ paid: 0 });
     const badge = screen.getByText("UNPAID");
-    expect(badge.className).toMatch(/red/);
+    expect(badge.className).toContain("text-danger");
     // Order details carry the UTC date.
     expect(screen.getAllByText(new RegExp(today)).length).toBeGreaterThan(0);
   });
