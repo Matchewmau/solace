@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchDashboard, type UpcomingDue } from "../api/dashboard";
 import { formatPeso } from "../lib/formatPeso";
 import { Bars, Donut } from "../components/charts";
-import { Badge, Box, Button, EmptyState, StatChip } from "../components/ui";
+import { Badge, Box, Button, EmptyState, PageFrame, StatChip } from "../components/ui";
 import { Reveal, StaggerGroup, StaggerSection } from "../components/motion";
 
 /**
@@ -101,9 +101,9 @@ export default function DashboardPage() {
 
   return (
     <main className="min-h-screen bg-paper text-ink">
-      <div className="mx-auto flex max-w-6xl flex-col gap-10 px-6 py-12">
+      <PageFrame>
         <Reveal className="flex flex-col gap-3">
-          <p className="label text-xs text-muted">Cafe &middot; LAN</p>
+          <p className="label text-xs text-muted">Cafe</p>
           <h1 className="text-4xl font-semibold">Dashboard</h1>
           <p className="text-sm text-muted">
             Net is money in minus money out (payments). Bills, payables, and
@@ -238,7 +238,7 @@ export default function DashboardPage() {
             </StaggerSection>
           </StaggerGroup>
         )}
-      </div>
+      </PageFrame>
     </main>
   );
 }

@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchDashboard } from "../api/dashboard";
 import { formatPeso } from "../lib/formatPeso";
 import { Donut } from "../components/charts";
-import { Badge, Box, Button, StatChip } from "../components/ui";
+import { Badge, Box, Button, PageFrame, StatChip } from "../components/ui";
 import { Reveal, StaggerGroup, StaggerSection } from "../components/motion";
 import type { ReactNode } from "react";
 
@@ -92,9 +92,9 @@ export default function FinancePage() {
 
   return (
     <main className="min-h-screen bg-paper text-ink">
-      <div className="mx-auto flex max-w-6xl flex-col gap-10 px-6 py-12">
+      <PageFrame>
         <Reveal className="flex flex-col gap-3">
-          <p className="label text-xs text-muted">Cafe &middot; LAN</p>
+          <p className="label text-xs text-muted">Cafe</p>
           <h1 className="text-4xl font-semibold">Finance</h1>
           <p className="text-sm text-muted">
             Money in vs money out this month, and where it goes.
@@ -190,7 +190,7 @@ export default function FinancePage() {
             </StaggerSection>
           </StaggerGroup>
         )}
-      </div>
+      </PageFrame>
     </main>
   );
 }

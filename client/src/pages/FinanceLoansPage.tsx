@@ -11,7 +11,7 @@ import { formatPeso } from "../lib/formatPeso";
 import { Reveal } from "../components/motion";
 import DataTable, { type Column } from "../components/DataTable";
 import { Dialog } from "../components/Dialog";
-import { Badge, Button } from "../components/ui";
+import { Badge, Button, PageFrame } from "../components/ui";
 
 function LoadingSkeleton() {
   return (
@@ -121,9 +121,9 @@ export default function FinanceLoansPage() {
 
   return (
     <main className="min-h-screen bg-paper text-ink">
-      <div className="mx-auto flex max-w-4xl flex-col gap-10 px-6 py-12">
+      <PageFrame>
         <Reveal className="flex flex-col gap-3">
-          <p className="label text-xs text-muted">Cafe &middot; LAN</p>
+          <p className="label text-xs text-muted">Cafe</p>
           <Link
             to="/finance"
             aria-label="Back to finance"
@@ -189,7 +189,7 @@ export default function FinanceLoansPage() {
             )}
           />
         )}
-      </div>
+      </PageFrame>
       <Dialog
         open={payingLoan !== null}
         onClose={() => setPayingLoan(null)}

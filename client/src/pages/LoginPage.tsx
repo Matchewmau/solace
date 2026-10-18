@@ -44,7 +44,7 @@ export default function LoginPage() {
     <main className="flex min-h-screen items-center justify-center bg-paper px-6 py-12 text-ink">
       <Box className="flex w-full max-w-sm flex-col gap-4">
         <div className="flex flex-col gap-2">
-          <p className="label text-xs text-muted">Cafe &middot; LAN</p>
+          <p className="label text-xs text-muted">Cafe</p>
           <h1 className="text-3xl font-semibold">Login</h1>
           <p className="text-sm text-muted">
             Staff login to open the register, stock, and guide.

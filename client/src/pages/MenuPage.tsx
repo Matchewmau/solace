@@ -21,7 +21,7 @@ import {
   StaggerList,
   StaggerSection,
 } from "../components/motion";
-import { Badge, Box, Button } from "../components/ui";
+import { Badge, Box, Button, PageFrame } from "../components/ui";
 import { Dialog, useDialogFocus } from "../components/Dialog";
 
 interface ShowcaseProps {
@@ -560,9 +560,9 @@ export default function MenuPage() {
 
   return (
     <main className="min-h-screen bg-paper text-ink">
-      <div className="mx-auto flex max-w-3xl flex-col gap-10 px-6 py-12">
+      <PageFrame>
         <Reveal className="flex flex-col gap-3">
-          <p className="label text-xs text-muted">Cafe &middot; LAN</p>
+          <p className="label text-xs text-muted">Cafe</p>
           <h1 className="text-4xl font-semibold">Solace</h1>
           <p className="text-sm text-muted">Warm espresso, quiet room.</p>
         </Reveal>
@@ -590,7 +590,7 @@ export default function MenuPage() {
             items={itemsQuery.data ?? []}
           />
         )}
-      </div>
+      </PageFrame>
     </main>
   );
 }

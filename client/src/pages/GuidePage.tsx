@@ -20,7 +20,7 @@ import {
 } from "../api/menu";
 import { sortCategories } from "../lib/sortCategories";
 import { Reveal, StaggerItem, StaggerList } from "../components/motion";
-import { Badge, Box, Button } from "../components/ui";
+import { Badge, Box, Button, PageFrame } from "../components/ui";
 import { Dialog } from "../components/Dialog";
 
 /**
@@ -547,9 +547,9 @@ export default function GuidePage() {
 
   return (
     <main className="min-h-screen bg-paper text-ink">
-      <div className="mx-auto flex max-w-3xl flex-col gap-10 px-6 py-12">
+      <PageFrame>
         <Reveal className="flex flex-col gap-3">
-          <p className="label text-xs text-muted">Cafe &middot; LAN</p>
+          <p className="label text-xs text-muted">Cafe</p>
           <h1 className="text-4xl font-semibold">Barista Guide</h1>
           <p className="text-sm text-muted">Brew steps for every drink.</p>
         </Reveal>
@@ -702,7 +702,7 @@ export default function GuidePage() {
             ) : null}
           </div>
         )}
-      </div>
+      </PageFrame>
     </main>
   );
 }

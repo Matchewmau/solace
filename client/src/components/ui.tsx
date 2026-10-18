@@ -16,6 +16,20 @@ const TONE_TEXT: Record<Tone, string> = {
   danger: "text-danger",
 };
 
+/**
+ * One consistent content frame for every standard page: the same max
+ * width, page padding, and section rhythm on every route (enforced by
+ * page-frame-guard.test.ts). Login (centered login card) and POS
+ * (full-bleed register) are the only deliberate exceptions.
+ */
+export function PageFrame({ children }: { children?: ReactNode }) {
+  return (
+    <div className="mx-auto flex max-w-6xl flex-col gap-10 px-6 py-12">
+      {children}
+    </div>
+  );
+}
+
 /** Rounded bordered paper container with an optional `title` + `action` header. */
 export function Box({
   title,

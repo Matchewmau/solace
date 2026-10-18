@@ -12,7 +12,7 @@ import {
 import { formatPeso } from "../lib/formatPeso";
 import { useOrders } from "../store/orders";
 import SalesTable from "../components/SalesTable";
-import { Badge, StatChip } from "../components/ui";
+import { Badge, PageFrame, StatChip } from "../components/ui";
 
 /**
  * Today's UTC-date sales popup page. Rows carry Void/Unvoid only — zero
@@ -116,9 +116,9 @@ export default function TodayPage() {
 
   return (
     <main className="min-h-screen bg-paper text-ink">
-      <div className="mx-auto flex max-w-4xl flex-col gap-10 px-6 py-12">
+      <PageFrame>
         <header className="flex flex-col gap-3">
-          <p className="label text-xs text-muted">Cafe &middot; LAN</p>
+          <p className="label text-xs text-muted">Cafe</p>
           <h1 className="text-4xl font-semibold">Today &middot; {today}</h1>
           <p className="text-sm text-muted">
             Today&apos;s sales — void corrections only. Settling happens in
@@ -218,7 +218,7 @@ export default function TodayPage() {
             </section>
           </>
         )}
-      </div>
+      </PageFrame>
     </main>
   );
 }

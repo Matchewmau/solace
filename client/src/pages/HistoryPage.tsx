@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchPastSales, utcToday } from "../api/sales";
 import SalesTable from "../components/SalesTable";
-import { Button } from "../components/ui";
+import { Button, PageFrame } from "../components/ui";
 
 /** Rows per page in the history pager. */
 const PAGE_SIZE = 20;
@@ -63,9 +63,9 @@ export default function HistoryPage() {
 
   return (
     <main className="min-h-screen bg-paper text-ink">
-      <div className="mx-auto flex max-w-4xl flex-col gap-10 px-6 py-12">
+      <PageFrame>
         <header className="flex flex-col gap-3">
-          <p className="label text-xs text-muted">Cafe &middot; LAN</p>
+          <p className="label text-xs text-muted">Cafe</p>
           <h1 className="text-4xl font-semibold">History</h1>
           <p className="text-sm text-muted">
             Past sales ledger — read-only, sortable, never alterable.
@@ -149,7 +149,7 @@ export default function HistoryPage() {
             )}
           </div>
         )}
-      </div>
+      </PageFrame>
     </main>
   );
 }

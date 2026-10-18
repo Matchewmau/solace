@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import { Badge, Box, Button, EmptyState, StatChip } from "./ui";
+import { Badge, Box, Button, EmptyState, PageFrame, StatChip } from "./ui";
 
 afterEach(() => cleanup());
 
@@ -68,5 +68,19 @@ describe("Box", () => {
     );
     expect(screen.getByRole("heading", { name: "Bills" })).toBeDefined();
     expect(screen.getByText("Water bill")).toBeDefined();
+  });
+});
+
+describe("PageFrame", () => {
+  it("frames children at the shared page width and margins", () => {
+    render(
+      <PageFrame>
+        <p>Content</p>
+      </PageFrame>,
+    );
+    const frame = screen.getByText("Content").parentElement as HTMLElement;
+    for (const cls of ["mx-auto", "max-w-6xl", "gap-10", "px-6", "py-12"]) {
+      expect(frame.className).toContain(cls);
+    }
   });
 });

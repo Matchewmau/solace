@@ -9,6 +9,7 @@ import HistoryPage from "./pages/HistoryPage";
 import LoginPage from "./pages/LoginPage";
 import { AuthedLayout } from "./components/AppHeader";
 import { useAuth } from "./components/AuthProvider";
+import { PageFrame } from "./components/ui";
 
 /**
  * Binding route table for Tasks 7, 9–14.
@@ -51,13 +52,13 @@ function RouteFallback({
 }) {
   return (
     <main className="min-h-screen bg-paper text-ink">
-      <div className="mx-auto flex max-w-3xl flex-col gap-10 px-6 py-12">
+      <PageFrame>
         <div className="flex flex-col gap-3">
           <p className="label text-xs text-muted">{eyebrow}</p>
           <h1 className="text-4xl font-semibold">{title}</h1>
           <p className="text-sm text-muted">{tagline}</p>
         </div>
-      </div>
+      </PageFrame>
     </main>
   );
 }
@@ -71,28 +72,28 @@ function withBrandFallback(
 
 const MenuFallback = (
   <RouteFallback
-    eyebrow="Cafe · LAN"
+    eyebrow="Cafe"
     title="Solace"
     tagline="Warm espresso, quiet room."
   />
 );
 const GuideFallback = (
   <RouteFallback
-    eyebrow="Cafe · LAN"
+    eyebrow="Cafe"
     title="Barista Guide"
     tagline="Brew steps for every drink."
   />
 );
 const FinanceFallback = (
   <RouteFallback
-    eyebrow="Cafe · LAN"
+    eyebrow="Cafe"
     title="Finance"
     tagline="Bills, expenses, and payables."
   />
 );
 const DashboardFallback = (
   <RouteFallback
-    eyebrow="Cafe · LAN"
+    eyebrow="Cafe"
     title="Dashboard"
     tagline="Day and month net, dues, and best sellers."
   />

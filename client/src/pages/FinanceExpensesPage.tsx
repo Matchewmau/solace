@@ -10,7 +10,7 @@ import { formatPeso } from "../lib/formatPeso";
 import { Reveal } from "../components/motion";
 import DataTable, { type Column } from "../components/DataTable";
 import { Dialog } from "../components/Dialog";
-import { Button } from "../components/ui";
+import { Button, PageFrame } from "../components/ui";
 
 function LoadingSkeleton() {
   return (
@@ -82,9 +82,9 @@ export default function FinanceExpensesPage() {
 
   return (
     <main className="min-h-screen bg-paper text-ink">
-      <div className="mx-auto flex max-w-4xl flex-col gap-10 px-6 py-12">
+      <PageFrame>
         <Reveal className="flex flex-col gap-3">
-          <p className="label text-xs text-muted">Cafe &middot; LAN</p>
+          <p className="label text-xs text-muted">Cafe</p>
           <Link
             to="/finance"
             aria-label="Back to finance"
@@ -128,7 +128,7 @@ export default function FinanceExpensesPage() {
             emptyMessage="No expenses recorded."
           />
         )}
-      </div>
+      </PageFrame>
       <Dialog
         open={addOpen}
         onClose={() => setAddOpen(false)}

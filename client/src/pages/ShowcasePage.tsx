@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { Reveal } from "../components/motion";
+import { PageFrame } from "../components/ui";
 
 /**
  * /showcase — isolated 3D showcase. Static brand hero always renders
@@ -95,7 +96,7 @@ export default function ShowcasePage({
 
   return (
     <main className="min-h-screen bg-paper text-ink">
-      <div className="mx-auto flex max-w-3xl flex-col gap-10 px-6 py-12">
+      <PageFrame>
         <Reveal className="flex flex-col gap-3">
           <ShowcaseHero />
         </Reveal>
@@ -108,7 +109,7 @@ export default function ShowcasePage({
         ) : (
           <ShowcaseFallback />
         )}
-      </div>
+      </PageFrame>
     </main>
   );
 }

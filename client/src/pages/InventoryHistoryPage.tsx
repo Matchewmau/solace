@@ -2,7 +2,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { fetchMovements, type StockMovement } from "../api/stock";
 import DataTable, { type Column } from "../components/DataTable";
-import { Button } from "../components/ui";
+import { Button, PageFrame } from "../components/ui";
 
 /**
  * Dedicated movement history for one stock item (?item=<id>).
@@ -36,9 +36,9 @@ export default function InventoryHistoryPage() {
 
   return (
     <main className="min-h-screen bg-paper text-ink">
-      <div className="mx-auto flex max-w-4xl flex-col gap-10 px-6 py-12">
+      <PageFrame>
         <header className="flex flex-col gap-3">
-          <p className="label text-xs text-muted">Cafe &middot; LAN</p>
+          <p className="label text-xs text-muted">Cafe</p>
           <h1 className="text-4xl font-semibold">Inventory history</h1>
           <p className="text-sm text-muted">
             {itemId === null
@@ -86,7 +86,7 @@ export default function InventoryHistoryPage() {
             ← Back to inventory
           </Link>
         </div>
-      </div>
+      </PageFrame>
     </main>
   );
 }

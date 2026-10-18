@@ -15,7 +15,7 @@ import {
 import { formatPeso } from "../lib/formatPeso";
 import DataTable, { type Column } from "../components/DataTable";
 import { Dialog } from "../components/Dialog";
-import { Badge, Box, Button, StatChip } from "../components/ui";
+import { Badge, Box, Button, PageFrame, StatChip } from "../components/ui";
 
 function LoadingSkeleton() {
   return (
@@ -441,9 +441,9 @@ export default function InventoryPage() {
 
   return (
     <main className="min-h-screen bg-paper text-ink">
-      <div className="mx-auto flex max-w-4xl flex-col gap-10 px-6 py-12">
+      <PageFrame>
         <header className="flex flex-col gap-3">
-          <p className="label text-xs text-muted">Cafe &middot; LAN</p>
+          <p className="label text-xs text-muted">Cafe</p>
           <h1 className="text-4xl font-semibold">Inventory</h1>
           <p className="text-sm text-muted">Stock counts and movements.</p>
         </header>
@@ -575,7 +575,7 @@ export default function InventoryPage() {
             ) : null}
           </div>
         )}
-      </div>
+      </PageFrame>
       {movementItem ? (
         <MovementDialog
           key={movementItem.id}
