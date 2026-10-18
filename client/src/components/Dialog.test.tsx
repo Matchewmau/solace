@@ -29,6 +29,7 @@ describe("Dialog", () => {
     renderOpen();
     const panel = screen.getByRole("dialog", { name: "Add bill" });
     expect(panel.getAttribute("aria-modal")).toBe("true");
+    expect(panel.className).toContain("sheet-up");
     expect(panel.contains(document.activeElement)).toBe(true);
   });
 

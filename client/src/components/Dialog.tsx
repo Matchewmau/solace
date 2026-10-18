@@ -113,7 +113,7 @@ export function Dialog({
         aria-label={title}
         tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
-        className={`w-full max-w-lg rounded-box bg-paper p-6 text-ink shadow-sheet ${className}`.trim()}
+        className={`sheet-up w-full max-w-lg rounded-box bg-paper p-6 text-ink shadow-sheet ${className}`.trim()}
       >
         {children}
       </div>
