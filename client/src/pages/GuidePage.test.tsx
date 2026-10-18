@@ -218,13 +218,13 @@ describe("GuidePage recipe modal", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Dark Mocha" }));
     await screen.findByRole("dialog");
-    fireEvent.click(screen.getByTestId("guide-dialog-backdrop"));
+    fireEvent.click(screen.getByTestId("dialog-backdrop"));
     expect(screen.queryByRole("dialog")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Dark Mocha" }));
     await screen.findByRole("dialog");
     fireEvent.keyDown(document, { key: "Escape" });
-    expect(screen.queryByRole("dialog")).toBeNull();
+    await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
   it("a second drink's click swaps the dialog content (no stale recipe)", async () => {
@@ -303,6 +303,60 @@ describe("GuidePage type filter (Task 8)", () => {
   });
 });
 
+describe("GuidePage toolbar and card grid (Task 22)", () => {
+  it("puts the category chips and search box inside one toolbar box", async () => {
+    stubFetch();
+    renderGuide();
+    await screen.findByRole("button", { name: "Spanish Latte" });
+
+    const filter = screen.getByRole("group", { name: "Category filter" });
+    const toolbar = filter.closest("section");
+    expect(toolbar).not.toBeNull();
+    expect(
+      within(toolbar as HTMLElement).getByLabelText("Search drinks"),
+    ).toBeDefined();
+    // Chips are Buttons that keep aria-pressed selection.
+    const pressed = filter.querySelector('[aria-pressed="true"]');
+    expect(pressed?.textContent?.trim()).toBe("All");
+    fireEvent.click(screen.getByRole("button", { name: "Coffee" }));
+    expect(
+      screen
+        .getByRole("button", { name: "Coffee" })
+        .getAttribute("aria-pressed"),
+    ).toBe("true");
+  });
+
+  it("lays the drinks out as a responsive card grid with a hint per card", async () => {
+    stubFetch();
+    renderGuide();
+    await screen.findByRole("button", { name: "Spanish Latte" });
+
+    const list = screen.getByRole("list", { name: "Drinks" });
+    expect(list.className).toContain("grid-cols-1");
+    expect(list.className).toContain("sm:grid-cols-2");
+    expect(list.className).toContain("gap-3");
+
+    const card = screen.getByRole("button", { name: "Spanish Latte" });
+    expect(card.className).toContain("press");
+    expect(card.textContent).toContain("steps");
+  });
+
+  it("keeps aria-pressed selection on the active card", async () => {
+    stubFetch();
+    renderGuide();
+    const card = await screen.findByRole("button", { name: "Spanish Latte" });
+    expect(card.getAttribute("aria-pressed")).toBe("false");
+
+    fireEvent.click(card);
+    await screen.findByRole("dialog", { name: "Recipe — Spanish Latte" });
+    expect(
+      screen
+        .getByRole("button", { name: "Spanish Latte" })
+        .getAttribute("aria-pressed"),
+    ).toBe("true");
+  });
+});
+
 describe("GuidePage add edit delete (Task 8)", () => {
   it("add picker offers only drink items without guides", async () => {
     stubFetch();
@@ -310,7 +364,7 @@ describe("GuidePage add edit delete (Task 8)", () => {
     await screen.findByRole("button", { name: "Spanish Latte" });
 
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
-    await screen.findByRole("dialog", { name: "Add guide" });
+    await screen.findByRole("dialog", { name: "Add recipe" });
 
     const picker = screen.getByLabelText("Drink") as HTMLSelectElement;
     const options = Array.from(picker.querySelectorAll("option")).map((option) =>
@@ -338,6 +392,22 @@ describe("GuidePage add edit delete (Task 8)", () => {
     expect(screen.getByLabelText("Unit 2")).toBeDefined();
   });
 
+  it("lays ingredient rows out as a phone-stacking grid with a danger Delete", async () => {
+    stubFetch();
+    renderGuide();
+    await screen.findByRole("button", { name: "Spanish Latte" });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    await screen.findByLabelText("Ingredient 1");
+
+    const row = screen.getByLabelText("Ingredient 1").closest("label")
+      ?.parentElement as HTMLElement;
+    expect(row.className).toContain("grid-cols-1");
+    expect(row.className).toContain("sm:grid-cols-[1fr_5rem_5rem_auto]");
+
+    const remove = screen.getByRole("button", { name: "Remove ingredient 1" });
+    expect(remove.className).toContain("text-danger");
+  });
+
   it("add submits the picked drink, steps and rows including a description-only line", async () => {
     const postSpy = vi
       .spyOn(recipesApi, "postRecipe")
@@ -362,7 +432,7 @@ describe("GuidePage add edit delete (Task 8)", () => {
       target: { value: "Top with cinnamon" },
     });
     fireEvent.submit(
-      screen.getByLabelText("Add guide form").closest("form") as HTMLFormElement,
+      screen.getByLabelText("Add recipe form").closest("form") as HTMLFormElement,
     );
 
     await vi.waitFor(() => expect(postSpy).toHaveBeenCalledTimes(1));
@@ -375,7 +445,7 @@ describe("GuidePage add edit delete (Task 8)", () => {
       ],
     });
     await vi.waitFor(() =>
-      expect(screen.queryByRole("dialog", { name: "Add guide" })).toBeNull(),
+      expect(screen.queryByRole("dialog", { name: "Add recipe" })).toBeNull(),
     );
   });
 
@@ -390,7 +460,7 @@ describe("GuidePage add edit delete (Task 8)", () => {
     await screen.findByLabelText("Drink");
 
     fireEvent.submit(
-      screen.getByLabelText("Add guide form").closest("form") as HTMLFormElement,
+      screen.getByLabelText("Add recipe form").closest("form") as HTMLFormElement,
     );
     expect(await screen.findByRole("alert")).toBeDefined();
     expect(postSpy).not.toHaveBeenCalled();
@@ -409,11 +479,11 @@ describe("GuidePage add edit delete (Task 8)", () => {
       target: { value: "1. Brew" },
     });
     fireEvent.submit(
-      screen.getByLabelText("Add guide form").closest("form") as HTMLFormElement,
+      screen.getByLabelText("Add recipe form").closest("form") as HTMLFormElement,
     );
 
     const alert = await within(
-      screen.getByRole("dialog", { name: "Add guide" }),
+      screen.getByRole("dialog", { name: "Add recipe" }),
     ).findByRole("alert");
     expect(alert.textContent).toBe("Could not save that guide.");
   });
@@ -446,11 +516,11 @@ describe("GuidePage add edit delete (Task 8)", () => {
       target: { value: "1. Brew" },
     });
     fireEvent.submit(
-      screen.getByLabelText("Add guide form").closest("form") as HTMLFormElement,
+      screen.getByLabelText("Add recipe form").closest("form") as HTMLFormElement,
     );
 
     const alert = await within(
-      screen.getByRole("dialog", { name: "Add guide" }),
+      screen.getByRole("dialog", { name: "Add recipe" }),
     ).findByRole("alert");
     expect(alert.textContent).toBe("recipe already exists for this menu item");
   });
@@ -463,7 +533,9 @@ describe("GuidePage add edit delete (Task 8)", () => {
     renderGuide();
     await screen.findByRole("button", { name: "Spanish Latte" });
     fireEvent.click(screen.getByRole("button", { name: "Spanish Latte" }));
-    const dialog = await screen.findByRole("dialog", { name: "Spanish Latte" });
+    const dialog = await screen.findByRole("dialog", {
+      name: "Recipe — Spanish Latte",
+    });
     await screen.findByText("Condensed Milk — 40 ml");
     expect(within(dialog).getByRole("button", { name: "Edit" })).toBeDefined();
     expect(within(dialog).getByRole("button", { name: "Delete" })).toBeDefined();
@@ -482,7 +554,7 @@ describe("GuidePage add edit delete (Task 8)", () => {
 
     fireEvent.change(steps, { target: { value: "1. Milk\n2. Mix well" } });
     fireEvent.submit(
-      screen.getByLabelText("Edit guide form").closest("form") as HTMLFormElement,
+      screen.getByLabelText("Edit recipe form").closest("form") as HTMLFormElement,
     );
 
     await vi.waitFor(() => expect(patchSpy).toHaveBeenCalledTimes(1));
@@ -504,7 +576,9 @@ describe("GuidePage add edit delete (Task 8)", () => {
     renderGuide();
     await screen.findByRole("button", { name: "Spanish Latte" });
     fireEvent.click(screen.getByRole("button", { name: "Spanish Latte" }));
-    const dialog = await screen.findByRole("dialog", { name: "Spanish Latte" });
+    const dialog = await screen.findByRole("dialog", {
+      name: "Recipe — Spanish Latte",
+    });
     await screen.findByText("Condensed Milk — 40 ml");
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
@@ -522,12 +596,79 @@ describe("GuidePage add edit delete (Task 8)", () => {
     renderGuide();
     await screen.findByRole("button", { name: "Spanish Latte" });
     fireEvent.click(screen.getByRole("button", { name: "Spanish Latte" }));
-    const dialog = await screen.findByRole("dialog", { name: "Spanish Latte" });
+    const dialog = await screen.findByRole("dialog", {
+      name: "Recipe — Spanish Latte",
+    });
     await screen.findByText("Condensed Milk — 40 ml");
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
     const alert = await within(dialog).findByRole("alert");
     expect(alert.textContent).toBe("Could not delete this guide.");
-    expect(screen.getByRole("dialog", { name: "Spanish Latte" })).toBeDefined();
+    expect(
+      screen.getByRole("dialog", { name: "Recipe — Spanish Latte" }),
+    ).toBeDefined();
+  });
+});
+
+describe("GuidePage dialogs on the Dialog primitive (Task 22)", () => {
+  it("opens the detail dialog with focus inside and closes it once on Escape", async () => {
+    stubFetch();
+    renderGuide();
+    await screen.findByRole("button", { name: "Spanish Latte" });
+    fireEvent.click(screen.getByRole("button", { name: "Spanish Latte" }));
+
+    const dialog = await screen.findByRole("dialog", {
+      name: "Recipe — Spanish Latte",
+    });
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+    expect(dialog.contains(document.activeElement)).toBe(true);
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    // The page behind is untouched and still interactive.
+    expect(screen.getByRole("button", { name: "Spanish Latte" })).toBeDefined();
+  });
+
+  it("opens the add form dialog with focus inside and closes it on Escape", async () => {
+    stubFetch();
+    renderGuide();
+    await screen.findByRole("button", { name: "Spanish Latte" });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Add recipe" });
+    expect(dialog.contains(document.activeElement)).toBe(true);
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("keeps the detail dialog mutually exclusive with the edit form", async () => {
+    stubFetch();
+    renderGuide();
+    await screen.findByRole("button", { name: "Spanish Latte" });
+    fireEvent.click(screen.getByRole("button", { name: "Spanish Latte" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Recipe — Spanish Latte",
+    });
+    await screen.findByText("Condensed Milk — 40 ml");
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Edit" }));
+    await screen.findByRole("dialog", { name: "Edit recipe" });
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+  });
+
+  it("styles the detail Delete as a danger button", async () => {
+    stubFetch();
+    renderGuide();
+    await screen.findByRole("button", { name: "Spanish Latte" });
+    fireEvent.click(screen.getByRole("button", { name: "Spanish Latte" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Recipe — Spanish Latte",
+    });
+    await screen.findByText("Condensed Milk — 40 ml");
+
+    expect(
+      within(dialog).getByRole("button", { name: "Delete" }).className,
+    ).toContain("text-danger");
   });
 });

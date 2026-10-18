@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   deleteRecipe,
@@ -20,6 +20,8 @@ import {
 } from "../api/menu";
 import { sortCategories } from "../lib/sortCategories";
 import { Reveal, StaggerItem, StaggerList } from "../components/motion";
+import { Badge, Box, Button } from "../components/ui";
+import { Dialog } from "../components/Dialog";
 
 /**
  * Case-insensitive substring match on the drink name, scoped to the
@@ -48,6 +50,16 @@ export function formatLine(line: RecipeLine): string {
   return `${line.ingredient} — ${amount}`;
 }
 
+/**
+ * Card hint derived from the list payload. The list endpoint carries the
+ * brew steps but not the ingredient lines, so the count of non-empty
+ * steps is the per-card secondary hint.
+ */
+function stepHint(steps: string): string {
+  const count = steps.split("\n").filter((line) => line.trim() !== "").length;
+  return `${count} ${count === 1 ? "step" : "steps"}`;
+}
+
 interface BrowserProps {
   recipes: Recipe[];
   categories: Category[];
@@ -72,9 +84,10 @@ function LoadingSkeleton() {
 
 /**
  * Pure list + type filter + search browser over mocked-or-fetched recipes.
- * The filter row mirrors POS: `All` plus each drink type in the shared
- * `sortCategories` order (Food never lists). The selected drink's detail
- * is fetched by id (see GuidePage).
+ * The toolbar `Box` mirrors POS: `All` plus each drink type in the shared
+ * `sortCategories` order (Food never lists) over the `Search drinks` input.
+ * Matches render as a responsive card grid; the selected drink's detail is
+ * fetched by id (see GuidePage).
  */
 export function GuideBrowser({
   recipes,
@@ -95,67 +108,66 @@ export function GuideBrowser({
   );
   return (
     <div className="flex flex-col gap-6">
-      <div
-        className="flex flex-wrap gap-2"
-        role="group"
-        aria-label="Category filter"
-      >
-        <button
-          type="button"
-          aria-pressed={activeCategory === "all"}
-          onClick={() => onCategoryChange("all")}
-          className={
-            activeCategory === "all"
-              ? "bg-ink px-4 py-2 text-sm font-semibold text-paper"
-              : "border border-ink px-4 py-2 text-sm font-semibold"
-          }
+      <Box className="flex flex-col gap-4">
+        <div
+          className="flex flex-wrap gap-2"
+          role="group"
+          aria-label="Category filter"
         >
-          All
-        </button>
-        {categories.map((category) => (
-          <button
-            key={category.id}
-            type="button"
-            aria-pressed={activeCategory === category.id}
-            onClick={() => onCategoryChange(category.id)}
-            className={
-              activeCategory === category.id
-                ? "bg-ink px-4 py-2 text-sm font-semibold text-paper"
-                : "border border-ink px-4 py-2 text-sm font-semibold"
-            }
+          <Button
+            variant={activeCategory === "all" ? "primary" : "outline"}
+            ariaPressed={activeCategory === "all"}
+            onClick={() => onCategoryChange("all")}
           >
-            {category.name}
-          </button>
-        ))}
-      </div>
-      <label className="flex flex-col gap-2">
-        <span className="label text-xs text-muted">Search drinks</span>
-        <input
-          type="search"
-          value={query}
-          onChange={(event) => onQueryChange(event.target.value)}
-          placeholder="Search drinks…"
-          aria-label="Search drinks"
-          className="border border-ink/20 bg-paper px-4 py-2 text-base text-ink"
-        />
-      </label>
+            All
+          </Button>
+          {categories.map((category) => (
+            <Button
+              key={category.id}
+              variant={activeCategory === category.id ? "primary" : "outline"}
+              ariaPressed={activeCategory === category.id}
+              onClick={() => onCategoryChange(category.id)}
+            >
+              {category.name}
+            </Button>
+          ))}
+        </div>
+        <label className="flex flex-col gap-2">
+          <span className="label text-xs text-muted">Search drinks</span>
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => onQueryChange(event.target.value)}
+            placeholder="Search drinks…"
+            aria-label="Search drinks"
+            className="border border-ink/20 bg-paper px-4 py-2 text-base text-ink"
+          />
+        </label>
+      </Box>
       {filtered.length === 0 ? (
         <p className="py-8 text-center text-muted">No drinks found</p>
       ) : (
-        <StaggerList className="flex flex-col gap-2" ariaLabel="Drinks">
+        <StaggerList
+          className="grid grid-cols-1 gap-3 sm:grid-cols-2"
+          ariaLabel="Drinks"
+        >
           {filtered.map((recipe) => (
             <StaggerItem key={recipe.id}>
               <button
                 type="button"
                 onClick={() => onSelect(recipe.id)}
                 aria-pressed={recipe.id === selectedId}
+                aria-label={recipe.menu_item_name}
                 className={
                   recipe.id === selectedId
-                    ? "w-full border border-accent px-4 py-2 text-left text-base font-semibold text-accent"
-                    : "w-full border border-ink/20 px-4 py-2 text-left text-base"
+                    ? "press flex w-full flex-col items-start gap-2 rounded-box border border-accent px-4 py-3 text-left text-accent"
+                    : "press flex w-full flex-col items-start gap-2 rounded-box border border-ink/20 px-4 py-3 text-left"
                 }
               >
-                {recipe.menu_item_name}
+                <span className="text-base font-semibold">
+                  {recipe.menu_item_name}
+                </span>
+                <Badge tone="neutral">{stepHint(recipe.steps)}</Badge>
               </button>
             </StaggerItem>
           ))}
@@ -198,11 +210,13 @@ export interface GuideFormProps {
 }
 
 /**
- * Owner Add/Edit guide form. The linked drink comes from the picker on
- * Add (drinks without guides only — the menu row must exist first) and
- * is fixed while editing (no relinking). Steps plus ingredient rows
- * carry the recipe; qty/unit are optional, so a bare ingredient saves
- * and displays as a plain description line.
+ * Owner Add/Edit guide form on the shared `Dialog` primitive (focus trap,
+ * Escape, backdrop close and focus restore all live there). The linked
+ * drink comes from the picker on Add (drinks without guides only — the
+ * menu row must exist first) and is fixed while editing (no relinking).
+ * Steps plus ingredient rows carry the recipe; qty/unit are optional, so a
+ * bare ingredient saves and displays as a plain description line. Rows
+ * stack on phone.
  */
 export function GuideForm({
   drinks,
@@ -267,170 +281,143 @@ export function GuideForm({
   }
 
   return (
-    <div
-      data-testid="guide-form-backdrop"
-      onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 px-4"
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={isEdit ? `Edit ${initial.menu_item_name}` : "Add guide"}
-        onClick={(event) => event.stopPropagation()}
-        className="w-full max-w-lg border border-ink/20 bg-paper p-6 text-ink"
+    <Dialog open onClose={onClose} title={isEdit ? "Edit recipe" : "Add recipe"}>
+      <form
+        aria-label={isEdit ? "Edit recipe form" : "Add recipe form"}
+        className="flex flex-col gap-3"
+        onSubmit={handleSubmit}
       >
-        <div className="flex items-start justify-between gap-4">
-          <p className="label text-xs text-muted">Solace &middot; Recipe guide</p>
-          <button
-            type="button"
-            onClick={onClose}
-            className="border border-ink px-3 py-1 text-sm font-semibold"
-          >
-            Close
-          </button>
-        </div>
-        <h2 className="mt-2 text-2xl font-semibold">
-          {isEdit ? `Edit ${initial.menu_item_name}` : "Add guide"}
-        </h2>
-        <form
-          aria-label={isEdit ? "Edit guide form" : "Add guide form"}
-          className="mt-4 flex flex-col gap-3"
-          onSubmit={handleSubmit}
-        >
-          {isEdit ? (
-            <p className="text-sm">
-              Drink: <span className="font-semibold">{initial.menu_item_name}</span>
-            </p>
-          ) : (
-            <label className="flex flex-col gap-1 text-sm">
-              <span>Drink</span>
-              <select
-                value={drinkId}
-                onChange={(event) => setDrinkId(event.target.value)}
-                aria-label="Drink"
-                className="border border-ink/20 bg-paper px-2 py-1 text-base text-ink"
-              >
-                {drinks.map((drink) => (
-                  <option key={drink.id} value={drink.id}>
-                    {drink.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          {!isEdit && drinks.length === 0 ? (
-            <p className="text-sm text-muted">
-              Every drink already has a guide. Add a drink on the Menu page
-              first.
-            </p>
-          ) : null}
+        {isEdit ? (
+          <p className="text-sm">
+            Drink: <span className="font-semibold">{initial.menu_item_name}</span>
+          </p>
+        ) : (
           <label className="flex flex-col gap-1 text-sm">
-            <span>Steps</span>
-            <textarea
-              value={steps}
-              onChange={(event) => setSteps(event.target.value)}
-              required
-              rows={4}
-              placeholder={"1. …\n2. …"}
-              aria-label="Steps"
+            <span>Drink</span>
+            <select
+              value={drinkId}
+              onChange={(event) => setDrinkId(event.target.value)}
+              aria-label="Drink"
               className="border border-ink/20 bg-paper px-2 py-1 text-base text-ink"
-            />
+            >
+              {drinks.map((drink) => (
+                <option key={drink.id} value={drink.id}>
+                  {drink.name}
+                </option>
+              ))}
+            </select>
           </label>
-          <div className="flex flex-col gap-2">
-            <span className="text-sm">Ingredients</span>
-            {rows.map((row, index) => (
-              <div key={row.id} className="flex items-start gap-2">
-                <label className="flex flex-1 flex-col gap-1 text-sm">
-                  <span>Ingredient</span>
-                  <input
-                    type="text"
-                    value={row.ingredient}
-                    onChange={(event) =>
-                      updateRow(row.id, { ingredient: event.target.value })
-                    }
-                    placeholder="Ingredient or description"
-                    aria-label={`Ingredient ${index + 1}`}
-                    className="border border-ink/20 bg-paper px-2 py-1 text-base text-ink"
-                  />
-                </label>
-                <label className="flex w-20 flex-col gap-1 text-sm">
-                  <span>Qty</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="any"
-                    value={row.qty}
-                    onChange={(event) =>
-                      updateRow(row.id, { qty: event.target.value })
-                    }
-                    placeholder="Qty"
-                    aria-label={`Qty ${index + 1}`}
-                    className="border border-ink/20 bg-paper px-2 py-1 text-base text-ink"
-                  />
-                </label>
-                <label className="flex w-20 flex-col gap-1 text-sm">
-                  <span>Unit</span>
-                  <input
-                    type="text"
-                    value={row.unit}
-                    onChange={(event) =>
-                      updateRow(row.id, { unit: event.target.value })
-                    }
-                    placeholder="Unit"
-                    aria-label={`Unit ${index + 1}`}
-                    className="border border-ink/20 bg-paper px-2 py-1 text-base text-ink"
-                  />
-                </label>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setRows((current) =>
-                      current.filter((candidate) => candidate.id !== row.id),
-                    )
-                  }
-                  aria-label={`Remove ingredient ${index + 1}`}
-                  className="border border-ink/20 px-3 py-1 text-sm text-muted"
-                >
-                  &minus;
-                </button>
-              </div>
-            ))}
-            <button
-              type="button"
-              onClick={() => setRows((current) => [...current, emptyRow()])}
-              className="self-start border border-ink px-3 py-1 text-sm font-semibold"
-            >
-              Add ingredient
-            </button>
-            <p className="text-sm text-muted">
-              Qty and unit are optional — leave both blank to save a plain
-              description line.
-            </p>
-          </div>
-          <div className="mt-1 flex gap-2">
-            <button
-              type="submit"
-              disabled={pending || (!isEdit && drinks.length === 0)}
-              className="border border-ink px-4 py-2 text-sm font-semibold disabled:opacity-40"
-            >
-              Save
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="border border-ink/20 px-4 py-2 text-sm"
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
-        {formError ?? error ? (
-          <p role="alert" className="mt-2 text-sm text-accent">
-            {formError ?? error}
+        )}
+        {!isEdit && drinks.length === 0 ? (
+          <p className="text-sm text-muted">
+            Every drink already has a guide. Add a drink on the Menu page
+            first.
           </p>
         ) : null}
-      </div>
-    </div>
+        <label className="flex flex-col gap-1 text-sm">
+          <span>Steps</span>
+          <textarea
+            value={steps}
+            onChange={(event) => setSteps(event.target.value)}
+            required
+            rows={4}
+            placeholder={"1. …\n2. …"}
+            aria-label="Steps"
+            className="border border-ink/20 bg-paper px-2 py-1 text-base text-ink"
+          />
+        </label>
+        <div className="flex flex-col gap-2">
+          <span className="text-sm">Ingredients</span>
+          {rows.map((row, index) => (
+            <div
+              key={row.id}
+              className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_5rem_5rem_auto] sm:items-end"
+            >
+              <label className="flex flex-col gap-1 text-sm">
+                <span>Ingredient</span>
+                <input
+                  type="text"
+                  value={row.ingredient}
+                  onChange={(event) =>
+                    updateRow(row.id, { ingredient: event.target.value })
+                  }
+                  placeholder="Ingredient or description"
+                  aria-label={`Ingredient ${index + 1}`}
+                  className="border border-ink/20 bg-paper px-2 py-1 text-base text-ink"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
+                <span>Qty</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  value={row.qty}
+                  onChange={(event) =>
+                    updateRow(row.id, { qty: event.target.value })
+                  }
+                  placeholder="Qty"
+                  aria-label={`Qty ${index + 1}`}
+                  className="border border-ink/20 bg-paper px-2 py-1 text-base text-ink"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
+                <span>Unit</span>
+                <input
+                  type="text"
+                  value={row.unit}
+                  onChange={(event) =>
+                    updateRow(row.id, { unit: event.target.value })
+                  }
+                  placeholder="Unit"
+                  aria-label={`Unit ${index + 1}`}
+                  className="border border-ink/20 bg-paper px-2 py-1 text-base text-ink"
+                />
+              </label>
+              <Button
+                variant="danger"
+                ariaLabel={`Remove ingredient ${index + 1}`}
+                onClick={() =>
+                  setRows((current) =>
+                    current.filter((candidate) => candidate.id !== row.id),
+                  )
+                }
+              >
+                &minus;
+              </Button>
+            </div>
+          ))}
+          <Button
+            variant="outline"
+            className="self-start"
+            onClick={() => setRows((current) => [...current, emptyRow()])}
+          >
+            Add ingredient
+          </Button>
+          <p className="text-sm text-muted">
+            Qty and unit are optional — leave both blank to save a plain
+            description line.
+          </p>
+        </div>
+        <div className="mt-1 flex gap-2">
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={pending || (!isEdit && drinks.length === 0)}
+          >
+            Save
+          </Button>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+        </div>
+      </form>
+      {formError ?? error ? (
+        <p role="alert" className="mt-2 text-sm text-accent">
+          {formError ?? error}
+        </p>
+      ) : null}
+    </Dialog>
   );
 }
 
@@ -447,7 +434,6 @@ export default function GuidePage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [deletePending, setDeletePending] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
 
   const listQuery = useQuery({ queryKey: ["recipes"], queryFn: fetchRecipes });
   const categoriesQuery = useQuery({
@@ -559,25 +545,6 @@ export default function GuidePage() {
     }
   }
 
-  useEffect(() => {
-    if (!isOpen && form === null) return;
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key !== "Escape") return;
-      if (form !== null) {
-        setForm(null);
-        setSaveError(null);
-      } else {
-        setIsOpen(false);
-      }
-    }
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [isOpen, form]);
-
-  useEffect(() => {
-    if (isOpen) dialogRef.current?.focus();
-  }, [isOpen, selectedId]);
-
   return (
     <main className="min-h-screen bg-paper text-ink">
       <div className="mx-auto flex max-w-3xl flex-col gap-10 px-6 py-12">
@@ -635,107 +602,13 @@ export default function GuidePage() {
                 onSelect={handleSelect}
               />
             )}
-            {isOpen && selectedId !== null && form === null ? (
-              <div
-                data-testid="guide-dialog-backdrop"
-                onClick={handleClose}
-                className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 px-4"
-              >
-                <div
-                  ref={dialogRef}
-                  role="dialog"
-                  aria-modal="true"
-                  aria-label={
-                    detailQuery.data?.menu_item_name ??
-                    active?.menu_item_name ??
-                    "Recipe"
-                  }
-                  tabIndex={-1}
-                  onClick={(event) => event.stopPropagation()}
-                  className="w-full max-w-lg border border-ink/20 bg-paper p-6 text-ink"
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <p className="label text-xs text-muted">
-                      Solace &middot; Recipe
-                    </p>
-                    <button
-                      type="button"
-                      onClick={handleClose}
-                      className="border border-ink px-3 py-1 text-sm font-semibold"
-                    >
-                      Close
-                    </button>
-                  </div>
-                  {detailQuery.isLoading ? (
-                    <p className="mt-4 text-muted" aria-busy="true">
-                      Loading recipe…
-                    </p>
-                  ) : detailQuery.isError ? (
-                    <div className="mt-4 flex flex-col items-start gap-4">
-                      <p role="alert" className="text-lg">
-                        Could not load this recipe.
-                      </p>
-                      <button
-                        type="button"
-                        className="border border-ink px-4 py-2 text-sm font-semibold"
-                        onClick={() => {
-                          void detailQuery.refetch();
-                        }}
-                      >
-                        Retry
-                      </button>
-                    </div>
-                  ) : detailQuery.data ? (
-                    <div>
-                      <h2 className="mt-2 text-2xl font-semibold">
-                        {detailQuery.data.menu_item_name}
-                      </h2>
-                      <h3 className="mt-6 text-sm font-semibold">Steps</h3>
-                      <p className="mt-2 whitespace-pre-line text-base">
-                        {detailQuery.data.steps}
-                      </p>
-                      <h3 className="mt-6 text-sm font-semibold">Ingredients</h3>
-                      <ul className="mt-2 flex flex-col gap-2">
-                        {detailQuery.data.lines.map((line) => (
-                          <li key={line.id} className="text-base">
-                            {formatLine(line)}
-                          </li>
-                        ))}
-                      </ul>
-                      <div className="mt-6 flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSaveError(null);
-                            setIsOpen(false);
-                            setForm({
-                              mode: "edit",
-                              recipe: detailQuery.data,
-                            });
-                          }}
-                          className="border border-ink px-4 py-2 text-sm font-semibold"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleDelete()}
-                          disabled={deletePending}
-                          className="border border-red-600 px-4 py-2 text-sm font-semibold text-red-600 disabled:opacity-40"
-                        >
-                          {deletePending ? "Deleting…" : "Delete"}
-                        </button>
-                      </div>
-                      {deleteError ? (
-                        <p role="alert" className="mt-2 text-sm text-accent">
-                          {deleteError}
-                        </p>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            ) : null}
+            {/*
+              The detail dialog and the add/edit form can never both be
+              open: the form takes priority in this single mount point, and
+              opening Edit clears `isOpen` first. Each Dialog owns its own
+              Escape / backdrop / focus contract — there is no document-level
+              key handler doubling it.
+            */}
             {form !== null ? (
               <GuideForm
                 drinks={addableDrinks}
@@ -745,6 +618,87 @@ export default function GuidePage() {
                 onClose={handleFormClose}
                 onSubmit={(input) => void handleFormSubmit(input)}
               />
+            ) : isOpen && selectedId !== null ? (
+              <Dialog
+                open
+                onClose={handleClose}
+                title={`Recipe — ${
+                  detailQuery.data?.menu_item_name ?? active?.menu_item_name ?? "…"
+                }`}
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <p className="label text-xs text-muted">
+                    Solace &middot; Recipe
+                  </p>
+                  <Button variant="outline" onClick={handleClose}>
+                    Close
+                  </Button>
+                </div>
+                {detailQuery.isLoading ? (
+                  <p className="mt-4 text-muted" aria-busy="true">
+                    Loading recipe…
+                  </p>
+                ) : detailQuery.isError ? (
+                  <div className="mt-4 flex flex-col items-start gap-4">
+                    <p role="alert" className="text-lg">
+                      Could not load this recipe.
+                    </p>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        void detailQuery.refetch();
+                      }}
+                    >
+                      Retry
+                    </Button>
+                  </div>
+                ) : detailQuery.data ? (
+                  <div>
+                    <h2 className="mt-2 text-2xl font-semibold">
+                      {detailQuery.data.menu_item_name}
+                    </h2>
+                    <h3 className="mt-6 text-sm font-semibold">Steps</h3>
+                    <p className="mt-2 whitespace-pre-line text-base">
+                      {detailQuery.data.steps}
+                    </p>
+                    <h3 className="mt-6 text-sm font-semibold">Ingredients</h3>
+                    <ul className="mt-2 flex flex-col gap-2">
+                      {detailQuery.data.lines.map((line) => (
+                        <li key={line.id} className="text-base">
+                          {formatLine(line)}
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="mt-6 flex gap-2">
+                      <Button
+                        variant="primary"
+                        onClick={() => {
+                          setSaveError(null);
+                          setIsOpen(false);
+                          setForm({
+                            mode: "edit",
+                            recipe: detailQuery.data,
+                          });
+                        }}
+                      >
+                        Edit
+                      </Button>
+                      <Button
+                        variant="danger"
+                        disabled={deletePending}
+                        onClick={() => void handleDelete()}
+                      >
+                        {deletePending ? "Deleting…" : "Delete"}
+                      </Button>
+                    </div>
+                    {deleteError ? (
+                      <p role="alert" className="mt-2 text-sm text-accent">
+                        {deleteError}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+              </Dialog>
             ) : null}
           </div>
         )}
