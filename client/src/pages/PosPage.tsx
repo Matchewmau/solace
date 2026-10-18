@@ -717,7 +717,7 @@ export default function PosPage() {
           <button
             type="button"
             onClick={() => setCartOpen(true)}
-            className="press fixed inset-x-0 bottom-14 z-30 flex min-h-11 items-center justify-center gap-2 border-t border-ink/10 bg-paper px-4 text-sm font-semibold md:bottom-0 md:left-28 lg:hidden"
+            className="press fixed inset-x-0 bottom-14 z-30 flex min-h-11 items-center justify-center gap-2 border-t border-ink/10 bg-paper px-4 text-sm font-semibold md:bottom-0 md:left-44 lg:hidden"
           >
             {cartQty} items · {formatPeso(totalCents)} · View order
           </button>

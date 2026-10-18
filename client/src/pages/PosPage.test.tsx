@@ -1483,7 +1483,7 @@ describe("POS phone register layout", () => {
     expect(bar.textContent).toContain("₱70");
     // 44 px touch target on the cart bar.
     expect(bar.className).toContain("min-h-11");
-    expect(bar.className).toContain("md:left-28");
+    expect(bar.className).toContain("md:left-44");
 
     fireEvent.click(bar);
     const dialog = screen.getByRole("dialog", { name: "Your order" });

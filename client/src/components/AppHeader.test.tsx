@@ -87,8 +87,16 @@ describe("SideNav shell", () => {
     expect(pages.className).toContain("sticky");
     expect(pages.className).toContain("top-0");
     expect(pages.className).toContain("h-screen");
+    // Wide enough for icon+word rows, and nothing scrolls inside: every
+    // tab shows at once for quick navigation.
+    expect(pages.className).toContain("w-44");
+    const list = rail().getByRole("link", { name: "Dashboard" }).parentElement;
+    expect(list?.className).not.toContain("overflow");
     for (const name of tabs) {
-      const icon = rail().getByRole("link", { name }).querySelector("svg");
+      const link = rail().getByRole("link", { name });
+      expect(link.className).toContain("flex-row");
+      expect(link.className).not.toContain("flex-col");
+      const icon = link.querySelector("svg");
       expect(icon).not.toBeNull();
       expect(icon?.getAttribute("aria-hidden")).toBe("true");
     }

@@ -59,9 +59,9 @@ function isTabActive(pathname: string, to: string): boolean {
 
 /**
  * Global side rail (md and up) on every authed page: a pinned, full-height
- * frame with the logo in a white tile up top, a scrollable icon+label item
- * list between it and a pinned Log out. The current page carries a soft
- * accent pill. Logout really logs out. Motion/three-free.
+ * frame with the logo in a white tile up top, every tab as an icon-first
+ * row (nothing scrolls inside) between it and a pinned Log out. The current
+ * page carries a soft accent pill. Logout really logs out. Motion/three-free.
  */
 export function SideNav() {
   const { logout } = useAuth();
@@ -76,7 +76,7 @@ export function SideNav() {
   return (
     <nav
       aria-label="Pages"
-      className="sticky top-0 hidden h-screen w-28 shrink-0 flex-col items-center gap-4 overflow-hidden bg-ink px-3 py-6 text-paper md:flex"
+      className="sticky top-0 hidden h-screen w-44 shrink-0 flex-col items-center gap-4 overflow-hidden bg-ink px-3 py-6 text-paper md:flex"
     >
       <img
         src="/solace-logo.png"
@@ -85,7 +85,7 @@ export function SideNav() {
         height={244}
         className="h-auto w-20 shrink-0 rounded-box"
       />
-      <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-1.5 overflow-y-auto">
+      <div className="flex w-full flex-col gap-1.5">
         {tabs.map(({ name, to, Icon: TabIcon }) => {
           const active = isTabActive(pathname, to);
           return (
@@ -93,13 +93,13 @@ export function SideNav() {
               key={to}
               to={to}
               aria-current={active ? "page" : undefined}
-              className={`press flex w-full shrink-0 flex-col items-center gap-1 rounded-box px-1 py-2 text-[11px] font-semibold ${
+              className={`press flex w-full shrink-0 flex-row items-center gap-3 rounded-box px-3 py-2 text-sm font-semibold ${
                 active
                   ? "bg-accent text-paper"
                   : "text-paper/70 hover:bg-paper/5 hover:text-paper"
               }`}
             >
-              <TabIcon className="h-5 w-5" />
+              <TabIcon className="h-5 w-5 shrink-0" />
               {name}
             </Link>
           );
@@ -108,9 +108,9 @@ export function SideNav() {
       <button
         type="button"
         onClick={onLogout}
-        className="press flex w-full shrink-0 flex-col items-center gap-1 rounded-box px-1 py-2 text-[11px] font-semibold text-paper/60 hover:bg-paper/5 hover:text-paper"
+        className="press mt-auto flex w-full shrink-0 flex-row items-center gap-3 rounded-box px-3 py-2 text-sm font-semibold text-paper/60 hover:bg-paper/5 hover:text-paper"
       >
-        <LogoutIcon className="h-5 w-5" />
+        <LogoutIcon className="h-5 w-5 shrink-0" />
         Log out
       </button>
     </nav>
