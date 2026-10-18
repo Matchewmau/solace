@@ -54,7 +54,10 @@ h3 {
 /* Motion utilities — pure CSS so the eager/POS chain never pulls motion/react. */
 
 .press {
-  transition: transform 120ms ease;
+  transition:
+    transform 120ms ease,
+    color 150ms ease,
+    background-color 150ms ease;
 }
 
 .press:active {

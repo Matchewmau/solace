@@ -75,7 +75,7 @@ export function BookIcon({ className }: IconProps) {
   );
 }
 
-/** 2×2 grid — menu. */
+/** 2×2 grid. */
 export function GridIcon({ className }: IconProps) {
   return (
     <Icon className={className}>
@@ -87,7 +87,17 @@ export function GridIcon({ className }: IconProps) {
   );
 }
 
-/** Bar chart — dashboard. */
+/** Cafe cup — menu. */
+export function CupIcon({ className }: IconProps) {
+  return (
+    <Icon className={className}>
+      <path d="M4 6.5h9.5V13a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3z" />
+      <path d="M13.5 8h1a2.2 2.2 0 0 1 0 4.4h-1" />
+    </Icon>
+  );
+}
+
+/** Bar chart. */
 export function ChartIcon({ className }: IconProps) {
   return (
     <Icon className={className}>

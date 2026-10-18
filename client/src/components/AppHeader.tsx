@@ -7,6 +7,7 @@ import {
   BookIcon,
   CartIcon,
   ChartIcon,
+  CupIcon,
   GridIcon,
   LogoutIcon,
   MoreIcon,
@@ -15,16 +16,17 @@ import {
   type IconProps,
 } from "./icons";
 
-const tabs = [
-  { name: "Dashboard", to: "/dashboard" },
-  { name: "POS", to: "/pos" },
-  { name: "Guide", to: "/guide" },
-  { name: "Menu", to: "/menu" },
-  { name: "Finance", to: "/finance" },
-  { name: "Today", to: "/today" },
-  { name: "History", to: "/history" },
-  { name: "Inventory", to: "/inventory" },
-] as const;
+const tabs: Array<{ name: string; to: string; Icon: ComponentType<IconProps> }> =
+  [
+    { name: "Dashboard", to: "/dashboard", Icon: GridIcon },
+    { name: "POS", to: "/pos", Icon: CartIcon },
+    { name: "Guide", to: "/guide", Icon: BookIcon },
+    { name: "Menu", to: "/menu", Icon: CupIcon },
+    { name: "Finance", to: "/finance", Icon: ChartIcon },
+    { name: "Today", to: "/today", Icon: WalletIcon },
+    { name: "History", to: "/history", Icon: ReceiptIcon },
+    { name: "Inventory", to: "/inventory", Icon: BoxIcon },
+  ];
 
 /** The four phone targets: three links + the More trigger. */
 const phoneTabs: Array<{
@@ -56,9 +58,10 @@ function isTabActive(pathname: string, to: string): boolean {
 }
 
 /**
- * Global side rail (md and up) on every authed page. Tabs match the POS rail
- * visual (ink bg, paper text, coffee fill on the current tab). Logout is
- * pinned at the bottom via mt-auto and really logs out. Motion/three-free.
+ * Global side rail (md and up) on every authed page: a pinned, full-height
+ * frame with the logo in a white tile up top, a scrollable icon+label item
+ * list between it and a pinned Log out. The current page carries a soft
+ * accent pill. Logout really logs out. Motion/three-free.
  */
 export function SideNav() {
   const { logout } = useAuth();
@@ -73,33 +76,41 @@ export function SideNav() {
   return (
     <nav
       aria-label="Pages"
-      className="hidden w-24 shrink-0 flex-col items-center gap-3 bg-ink py-6 text-paper md:flex"
+      className="sticky top-0 hidden h-screen w-28 shrink-0 flex-col items-center gap-4 overflow-hidden bg-ink px-3 py-6 text-paper md:flex"
     >
-      <span className="px-2 text-center text-xs font-bold tracking-widest">
-        SOLACE
-      </span>
-      {tabs.map((tab) => {
-        const active = isTabActive(pathname, tab.to);
-        return (
-          <Link
-            key={tab.to}
-            to={tab.to}
-            aria-current={active ? "page" : undefined}
-            className={
-              active
-                ? "w-full bg-accent px-2 py-2 text-center text-sm font-semibold text-paper"
-                : "w-full px-2 py-2 text-center text-sm font-semibold text-paper/80"
-            }
-          >
-            {tab.name}
-          </Link>
-        );
-      })}
+      <img
+        src="/solace-logo.png"
+        alt="Solace Cafe"
+        width={480}
+        height={244}
+        className="h-auto w-20 shrink-0 rounded-box"
+      />
+      <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-1.5 overflow-y-auto">
+        {tabs.map(({ name, to, Icon: TabIcon }) => {
+          const active = isTabActive(pathname, to);
+          return (
+            <Link
+              key={to}
+              to={to}
+              aria-current={active ? "page" : undefined}
+              className={`press flex w-full shrink-0 flex-col items-center gap-1 rounded-box px-1 py-2 text-[11px] font-semibold ${
+                active
+                  ? "bg-accent text-paper"
+                  : "text-paper/70 hover:bg-paper/5 hover:text-paper"
+              }`}
+            >
+              <TabIcon className="h-5 w-5" />
+              {name}
+            </Link>
+          );
+        })}
+      </div>
       <button
         type="button"
         onClick={onLogout}
-        className="mt-auto w-full px-2 py-2 text-center text-sm font-semibold text-paper/60"
+        className="press flex w-full shrink-0 flex-col items-center gap-1 rounded-box px-1 py-2 text-[11px] font-semibold text-paper/60 hover:bg-paper/5 hover:text-paper"
       >
+        <LogoutIcon className="h-5 w-5" />
         Log out
       </button>
     </nav>

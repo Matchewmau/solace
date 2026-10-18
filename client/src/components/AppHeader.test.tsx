@@ -72,11 +72,34 @@ describe("SideNav shell", () => {
         routes[name],
       );
     }
+    const logo = rail().getByRole("img", { name: "Solace Cafe" });
+    expect(logo.getAttribute("src")).toBe("/solace-logo.png");
     expect(
       rail().getByRole("link", { name: "POS" }).getAttribute("aria-current"),
     ).toBe("page");
     expect(screen.queryByLabelText("Back to dashboard")).toBeNull();
     expect(screen.queryByText("Solace · Staff")).toBeNull();
+  });
+
+  it("keeps the rail pinned with an icon on every item", () => {
+    renderAt("/pos");
+    const pages = screen.getByRole("navigation", { name: "Pages" });
+    expect(pages.className).toContain("sticky");
+    expect(pages.className).toContain("top-0");
+    expect(pages.className).toContain("h-screen");
+    for (const name of tabs) {
+      const icon = rail().getByRole("link", { name }).querySelector("svg");
+      expect(icon).not.toBeNull();
+      expect(icon?.getAttribute("aria-hidden")).toBe("true");
+    }
+    expect(
+      rail().getByRole("button", { name: "Log out" }).querySelector("svg"),
+    ).not.toBeNull();
+  });
+
+  it("ships the rail logo asset", () => {
+    const assets = import.meta.glob("../../public/solace-logo.png");
+    expect(Object.keys(assets)).toHaveLength(1);
   });
 
   it("hides the phone nav below md and shows the rail from md up", () => {
@@ -100,14 +123,18 @@ describe("SideNav shell", () => {
     ["/inventory", "Inventory"],
   ] as const)("%s marks only %s current in the rail", (path, name) => {
     renderAt(path);
-    expect(
-      rail().getByRole("link", { name }).getAttribute("aria-current"),
-    ).toBe("page");
+    const active = rail().getByRole("link", { name });
+    expect(active.getAttribute("aria-current")).toBe("page");
+    expect(active.className).toContain("bg-accent");
+    expect(active.className).toContain("rounded-box");
     for (const other of tabs) {
       if (other === name) continue;
       expect(
         rail().getByRole("link", { name: other }).getAttribute("aria-current"),
       ).toBeNull();
+      expect(
+        rail().getByRole("link", { name: other }).className,
+      ).not.toContain("bg-accent");
     }
   });
 
