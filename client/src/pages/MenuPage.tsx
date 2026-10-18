@@ -21,6 +21,8 @@ import {
   StaggerList,
   StaggerSection,
 } from "../components/motion";
+import { Badge, Box, Button } from "../components/ui";
+import { Dialog, useDialogFocus } from "../components/Dialog";
 
 interface ShowcaseProps {
   categories: Category[];
@@ -68,148 +70,116 @@ export function MenuItemDialog({
         : (initial.price_cents / 100).toFixed(2);
   const variantsDefault = initial?.variants.join(", ") ?? "";
   const defaultCategoryId = initial?.category_id ?? categories[0]?.id ?? 0;
+  const title = isEdit ? `Edit ${initial.name}` : "Add menu item";
 
   return (
-    <div
-      data-testid="menu-dialog-backdrop"
-      onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 px-4"
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={isEdit ? `Edit ${initial.name}` : "Add menu item"}
-        onClick={(event) => event.stopPropagation()}
-        className="w-full max-w-lg border border-ink/20 bg-paper p-6 text-ink"
+    <Dialog open onClose={onClose} title={title}>
+      <form
+        aria-label={isEdit ? `Edit ${initial.name} form` : "Add menu item form"}
+        className="flex flex-col gap-3"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const data = new FormData(event.currentTarget);
+          const name = String(data.get("name") ?? "").trim();
+          const category_id = Number(data.get("category_id"));
+          const priceValue = Number(String(data.get("price") ?? ""));
+          const variantsRaw = String(data.get("variants") ?? "");
+          if (name === "") {
+            setFormError("Enter a name.");
+            return;
+          }
+          if (!Number.isFinite(category_id)) {
+            setFormError("Choose a type.");
+            return;
+          }
+          if (!categories.some((c) => c.id === category_id)) {
+            setFormError("Choose a type.");
+            return;
+          }
+          if (!Number.isFinite(priceValue) || priceValue < 0) {
+            setFormError("Enter a valid price.");
+            return;
+          }
+          setFormError(null);
+          onSubmit({
+            category_id,
+            name,
+            price_cents: Math.round(priceValue * 100),
+            variants: parseVariants(variantsRaw),
+          });
+        }}
       >
-        <div className="flex items-start justify-between gap-4">
-          <p className="label text-xs text-muted">Solace &middot; Menu item</p>
-          <button
-            type="button"
-            onClick={onClose}
-            className="border border-ink px-3 py-1 text-sm font-semibold"
+        <label className="flex flex-col gap-1 text-sm">
+          <span>Name</span>
+          <input
+            name="name"
+            type="text"
+            required
+            defaultValue={initial?.name ?? ""}
+            placeholder="Item name"
+            aria-label="Name"
+            className="border border-ink/20 bg-paper px-2 py-1 text-base text-ink"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          <span>Type</span>
+          <select
+            name="category_id"
+            aria-label="Type"
+            defaultValue={defaultCategoryId}
+            className="border border-ink/20 bg-paper px-2 py-1 text-base text-ink"
           >
-            Close
-          </button>
+            {categories.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          <span>Price</span>
+          <input
+            name="price"
+            type="number"
+            min="0"
+            step="any"
+            required
+            defaultValue={pricePesos}
+            placeholder="Price (₱)"
+            aria-label="Price"
+            className="border border-ink/20 bg-paper px-2 py-1 text-base text-ink"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          <span>Variants</span>
+          <input
+            name="variants"
+            type="text"
+            defaultValue={variantsDefault}
+            placeholder="Hot, Iced"
+            aria-label="Variants"
+            className="border border-ink/20 bg-paper px-2 py-1 text-base text-ink"
+          />
+        </label>
+        <p className="text-sm text-muted">
+          Separate variants with commas, e.g. Hot, Iced. POS will prompt for a
+          choice when variants exist.
+        </p>
+        <div className="mt-1 flex gap-2">
+          <Button type="submit" variant="primary" disabled={pending}>
+            Save
+          </Button>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
         </div>
-        <h2 className="mt-2 text-2xl font-semibold">
-          {isEdit ? `Edit ${initial.name}` : "Add menu item"}
-        </h2>
-        <form
-          aria-label={isEdit ? `Edit ${initial.name} form` : "Add menu item form"}
-          className="mt-4 flex flex-col gap-3"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const data = new FormData(event.currentTarget);
-            const name = String(data.get("name") ?? "").trim();
-            const category_id = Number(data.get("category_id"));
-            const priceValue = Number(String(data.get("price") ?? ""));
-            const variantsRaw = String(data.get("variants") ?? "");
-            if (name === "") {
-              setFormError("Enter a name.");
-              return;
-            }
-            if (!Number.isFinite(category_id)) {
-              setFormError("Choose a type.");
-              return;
-            }
-            if (!categories.some((c) => c.id === category_id)) {
-              setFormError("Choose a type.");
-              return;
-            }
-            if (!Number.isFinite(priceValue) || priceValue < 0) {
-              setFormError("Enter a valid price.");
-              return;
-            }
-            setFormError(null);
-            onSubmit({
-              category_id,
-              name,
-              price_cents: Math.round(priceValue * 100),
-              variants: parseVariants(variantsRaw),
-            });
-          }}
-        >
-          <label className="flex flex-col gap-1 text-sm">
-            <span>Name</span>
-            <input
-              name="name"
-              type="text"
-              required
-              defaultValue={initial?.name ?? ""}
-              placeholder="Item name"
-              aria-label="Name"
-              className="border border-ink/20 bg-paper px-2 py-1 text-base text-ink"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            <span>Type</span>
-            <select
-              name="category_id"
-              aria-label="Type"
-              defaultValue={defaultCategoryId}
-              className="border border-ink/20 bg-paper px-2 py-1 text-base text-ink"
-            >
-              {categories.map((category) => (
-                <option key={category.id} value={category.id}>
-                  {category.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            <span>Price</span>
-            <input
-              name="price"
-              type="number"
-              min="0"
-              step="any"
-              required
-              defaultValue={pricePesos}
-              placeholder="Price (₱)"
-              aria-label="Price"
-              className="border border-ink/20 bg-paper px-2 py-1 text-base text-ink"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            <span>Variants</span>
-            <input
-              name="variants"
-              type="text"
-              defaultValue={variantsDefault}
-              placeholder="Hot, Iced"
-              aria-label="Variants"
-              className="border border-ink/20 bg-paper px-2 py-1 text-base text-ink"
-            />
-          </label>
-          <p className="text-sm text-muted">
-            Separate variants with commas, e.g. Hot, Iced. POS will prompt for a
-            choice when variants exist.
-          </p>
-          <div className="mt-1 flex gap-2">
-            <button
-              type="submit"
-              disabled={pending}
-              className="border border-ink px-4 py-2 text-sm font-semibold disabled:opacity-40"
-            >
-              Save
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="border border-ink/20 px-4 py-2 text-sm"
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
-        {formError ?? error ? (
-          <p role="alert" className="mt-2 text-sm text-accent">
-            {formError ?? error}
-          </p>
-        ) : null}
-      </div>
-    </div>
+      </form>
+      {formError ?? error ? (
+        <p role="alert" className="mt-2 text-sm text-accent">
+          {formError ?? error}
+        </p>
+      ) : null}
+    </Dialog>
   );
 }
 
@@ -239,6 +209,9 @@ export function ItemPopup({
   const [totals, setTotals] = useState<ItemTotals | null>(null);
   const [totalsLoading, setTotalsLoading] = useState(true);
   const [totalsError, setTotalsError] = useState<string | null>(null);
+  // Inline panel, but it still owns the shared dialog contract: Escape /
+  // backdrop close, focus trap, and focus restore to the row that opened it.
+  const panelRef = useDialogFocus(true, onClose);
 
   useEffect(() => {
     let cancelled = false;
@@ -268,21 +241,19 @@ export function ItemPopup({
       className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 px-4"
     >
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label={item.name}
+        tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
         className="w-full max-w-lg border border-ink/20 bg-paper p-6 text-ink"
       >
         <div className="flex items-start justify-between gap-4">
           <p className="label text-xs text-muted">Solace &middot; Menu item</p>
-          <button
-            type="button"
-            onClick={onClose}
-            className="border border-ink px-3 py-1 text-sm font-semibold"
-          >
+          <Button variant="outline" onClick={onClose}>
             Close
-          </button>
+          </Button>
         </div>
         <h2 className="mt-2 text-2xl font-semibold">{item.name}</h2>
         <p className="mt-2 text-base">{categoryName}</p>
@@ -416,18 +387,6 @@ export function MenuShowcase({ categories, items }: ShowcaseProps) {
     }
   }
 
-  useEffect(() => {
-    if (dialog === null && popupItem === null) return;
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setDialog(null);
-        setPopupItem(null);
-      }
-    }
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [dialog, popupItem]);
-
   const visible = items.filter((item) => item.active === 1);
   const inactive = items.filter((item) => item.active !== 1);
   const byCategory = new Map<number, MenuItem[]>();
@@ -463,33 +422,30 @@ export function MenuShowcase({ categories, items }: ShowcaseProps) {
         <p className="py-16 text-center text-muted">No items available</p>
       ) : (
         <>
-          <StaggerGroup className="flex flex-col gap-12">
+          <StaggerGroup className="flex flex-col gap-6">
             {sortCategories(categories).map((category) => (
-              <StaggerSection key={category.id} ariaLabel={category.name}>
-                <p className="label text-xs text-muted">Solace &middot; Menu</p>
-                <h2 className="mt-2 text-2xl font-semibold">{category.name}</h2>
-                <StaggerList className="mt-6 flex flex-col gap-5">
-                  {(byCategory.get(category.id) ?? []).map((item) => (
-                    <StaggerItem
-                      key={item.id}
-                      className="flex items-baseline justify-between gap-6"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setToggleError(null);
-                          setPopupItem(item);
-                        }}
-                        className="flex w-full items-baseline justify-between gap-6 text-left"
-                      >
-                        <span className="text-lg">{item.name}</span>
-                        <span className="text-lg font-semibold text-accent">
-                          {formatPeso(item.price_cents)}
-                        </span>
-                      </button>
-                    </StaggerItem>
-                  ))}
-                </StaggerList>
+              <StaggerSection key={category.id}>
+                <Box title={category.name}>
+                  <StaggerList className="flex flex-col gap-3">
+                    {(byCategory.get(category.id) ?? []).map((item) => (
+                      <StaggerItem key={item.id}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setToggleError(null);
+                            setPopupItem(item);
+                          }}
+                          className="grid w-full grid-cols-[1fr_auto] items-baseline gap-4 text-left"
+                        >
+                          <span className="text-lg">{item.name}</span>
+                          <span className="text-lg font-semibold text-accent">
+                            {formatPeso(item.price_cents)}
+                          </span>
+                        </button>
+                      </StaggerItem>
+                    ))}
+                  </StaggerList>
+                </Box>
               </StaggerSection>
             ))}
           </StaggerGroup>
@@ -504,43 +460,31 @@ export function MenuShowcase({ categories, items }: ShowcaseProps) {
                 {showInactive ? "Hide inactive" : "Show inactive"}
               </button>
               {showInactive ? (
-                <section aria-label="Inactive">
-                  <p className="label text-xs text-muted">
-                    Solace &middot; Inactive ({inactive.length})
-                  </p>
-                  <h2 className="mt-2 text-2xl font-semibold">Inactive</h2>
-                  <ul className="mt-6 flex flex-col gap-5">
+                <Box title={`Inactive (${inactive.length})`}>
+                  <ul className="flex flex-col gap-3">
                     {sortCategories(categories).flatMap((category) =>
-                      (inactiveByCategory.get(category.id) ?? []).map(
-                        (item) => (
-                          <li
-                            key={item.id}
-                            className="flex items-baseline justify-between gap-6"
+                      (inactiveByCategory.get(category.id) ?? []).map((item) => (
+                        <li key={item.id}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setToggleError(null);
+                              setPopupItem(item);
+                            }}
+                            className="grid w-full grid-cols-[1fr_auto] items-baseline gap-4 text-left text-muted"
                           >
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setToggleError(null);
-                                setPopupItem(item);
-                              }}
-                              className="flex w-full items-baseline justify-between gap-6 text-left"
-                            >
-                              <span className="text-lg">
-                                {item.name}{" "}
-                                <span className="border border-ink/20 px-2 py-0.5 text-xs font-semibold text-muted">
-                                  Inactive
-                                </span>
-                              </span>
-                              <span className="text-lg font-semibold text-accent">
-                                {formatPeso(item.price_cents)}
-                              </span>
-                            </button>
-                          </li>
-                        ),
-                      ),
+                            <span className="text-lg">
+                              {item.name} <Badge tone="neutral">Inactive</Badge>
+                            </span>
+                            <span className="text-lg font-semibold">
+                              {formatPeso(item.price_cents)}
+                            </span>
+                          </button>
+                        </li>
+                      )),
                     )}
                   </ul>
-                </section>
+                </Box>
               ) : null}
             </div>
           ) : null}

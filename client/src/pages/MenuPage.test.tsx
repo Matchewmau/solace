@@ -75,6 +75,48 @@ describe("MenuShowcase with mocked query data", () => {
   });
 });
 
+describe("MenuShowcase category boxes and aligned rows (Task 21)", () => {
+  it("wraps each category in a Box titled with the category name", () => {
+    render(<MenuShowcase categories={categories} items={items} />);
+    const espresso = screen.getByLabelText("Espresso") as HTMLElement;
+    expect(espresso.tagName).toBe("SECTION");
+    expect(within(espresso).getByRole("heading", { name: "Espresso" })).toBeDefined();
+  });
+
+  it("aligns the price inside a two-column row grid", () => {
+    render(<MenuShowcase categories={categories} items={items} />);
+    const row = screen.getByRole("button", { name: /Cortado/ });
+    expect(row.className).toContain("grid-cols-[1fr_auto]");
+    expect(row.className).toContain("items-baseline");
+    expect(row.className).toContain("gap-4");
+    expect(within(row).getByText("₱70")).toBeDefined();
+  });
+
+  it("shows a neutral Inactive badge and mutes inactive rows", async () => {
+    renderShowcase();
+    fireEvent.click(screen.getByRole("button", { name: "Show inactive" }));
+
+    const row = await screen.findByRole("button", { name: /Retired Blend/ });
+    expect(row.className).toContain("text-muted");
+    expect(row.className).toContain("grid-cols-[1fr_auto]");
+    expect(within(row).getByText("₱90")).toBeDefined();
+
+    const badge = within(row).getByText("Inactive");
+    expect(badge.className).toContain("rounded-full");
+    expect(badge.className).toContain("text-muted");
+  });
+
+  it("keeps the Show inactive / Hide inactive toggle", async () => {
+    renderShowcase();
+    const toggle = screen.getByRole("button", { name: "Show inactive" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(toggle);
+    expect(await screen.findByText("Retired Blend")).toBeDefined();
+    const hide = screen.getByRole("button", { name: "Hide inactive" });
+    expect(hide.getAttribute("aria-expanded")).toBe("true");
+  });
+});
+
 describe("MenuShowcase add/edit and popup (Task 7)", () => {
   it("opens the add form from the Add button", async () => {
     render(<MenuShowcase categories={categories} items={items} />);
@@ -137,10 +179,40 @@ describe("MenuShowcase add/edit and popup (Task 7)", () => {
     expect(dialog.textContent).toContain("Espresso");
     expect(dialog.textContent).toContain("₱70");
     expect(dialog.textContent).toMatch(/Active/);
-    expect(dialog.textContent).toContain("12");
-    expect(dialog.textContent).toContain("₱840");
+    // Totals arrive a microtask after the popup mounts — await them so the
+    // assertion cannot race under parallel load (the historical flake).
+    expect(await within(dialog).findByText("Total sold: 12")).toBeDefined();
+    expect(await within(dialog).findByText(/Total revenue: ₱840/)).toBeDefined();
     expect(within(dialog).getByRole("button", { name: "Edit" })).toBeDefined();
     expect(within(dialog).getByRole("button", { name: "Deactivate" })).toBeDefined();
+  });
+
+  it("popup keeps its heading and Close button", async () => {
+    vi.spyOn(menuApi, "fetchItemTotals").mockResolvedValue({
+      menu_item_id: 1,
+      total_qty: 0,
+      total_revenue_cents: 0,
+    });
+    renderShowcase();
+    fireEvent.click(screen.getByText("Cortado"));
+    const dialog = await screen.findByRole("dialog", { name: "Cortado" });
+
+    expect(within(dialog).getByRole("heading", { name: "Cortado" })).toBeDefined();
+    expect(within(dialog).getByRole("button", { name: "Close" })).toBeDefined();
+  });
+
+  it("popup closes on Escape", async () => {
+    vi.spyOn(menuApi, "fetchItemTotals").mockResolvedValue({
+      menu_item_id: 1,
+      total_qty: 0,
+      total_revenue_cents: 0,
+    });
+    renderShowcase();
+    fireEvent.click(screen.getByText("Cortado"));
+    await screen.findByRole("dialog", { name: "Cortado" });
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
   it("popup shows Activate for inactive items", async () => {
@@ -289,5 +361,44 @@ describe("MenuShowcase add/edit and popup (Task 7)", () => {
     );
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toBe("variant option must be 1-30 characters");
+  });
+});
+
+describe("MenuShowcase menu item dialog on the Dialog primitive (Task 21)", () => {
+  it("opens the add dialog labelled with focus inside it and Save/Cancel", async () => {
+    renderShowcase();
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Add menu item" });
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    expect(within(dialog).getByRole("button", { name: "Save" })).toBeDefined();
+    expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeDefined();
+  });
+
+  it("closes the add dialog on Escape", async () => {
+    renderShowcase();
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    await screen.findByRole("dialog", { name: "Add menu item" });
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("closes the edit dialog on Escape without touching the page", async () => {
+    vi.spyOn(menuApi, "fetchItemTotals").mockResolvedValue({
+      menu_item_id: 1,
+      total_qty: 0,
+      total_revenue_cents: 0,
+    });
+    renderShowcase();
+    fireEvent.click(screen.getByText("Cortado"));
+    const popup = await screen.findByRole("dialog", { name: "Cortado" });
+    fireEvent.click(within(popup).getByRole("button", { name: "Edit" }));
+    await screen.findByRole("dialog", { name: "Edit Cortado" });
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.getByText("Cortado")).toBeDefined();
   });
 });
