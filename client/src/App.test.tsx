@@ -53,7 +53,9 @@ describe("Solace shell", () => {
     expect(
       screen.getByRole("heading", { name: "Dashboard" }).textContent,
     ).toBe("Dashboard");
-    expect(screen.getByRole("button", { name: "Log out" })).toBeDefined();
+    // Exactly one visible "Log out" (the rail) — the More sheet is closed.
+    expect(screen.getAllByRole("button", { name: "Log out" })).toHaveLength(1);
+    expect(screen.getByRole("navigation", { name: "Primary" })).toBeDefined();
   });
 
   it("showcase renders inside the authed layout (global rail present)", async () => {
