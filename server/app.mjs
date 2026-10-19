@@ -18,6 +18,44 @@ function nowStamp() {
   return new Date().toISOString().slice(0, 19).replace("T", " ");
 }
 
+// Shared UTC date helpers: dates are plain YYYY-MM-DD strings so plain
+// lexicographic comparison is also chronological comparison.
+function utcToday() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function addDays(date, n) {
+  const day = new Date(`${date}T00:00:00Z`);
+  day.setUTCDate(day.getUTCDate() + n);
+  return day.toISOString().slice(0, 10);
+}
+
+// Month is 1-based and overflow rolls into following years (13 -> Jan next
+// year). The day clamps to that month's last day (Jan 31 -> Feb 28/29).
+function clampedDate(year, month, day) {
+  const index = month - 1;
+  const y = year + Math.floor(index / 12);
+  const m = ((index % 12) + 12) % 12;
+  const last = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(y, m, Math.min(day, last))).toISOString().slice(0, 10);
+}
+
+// This month's clamped due day when it is on/after `from`, else next month's.
+function nextDateForDay(dueDay, from = utcToday()) {
+  const year = Number(from.slice(0, 4));
+  const month = Number(from.slice(5, 7));
+  const thisMonth = clampedDate(year, month, dueDay);
+  return thisMonth >= from ? thisMonth : clampedDate(year, month + 1, dueDay);
+}
+
+function addFrequency(date, frequency) {
+  if (frequency === "weekly") return addDays(date, 7);
+  const year = Number(date.slice(0, 4));
+  const month = Number(date.slice(5, 7));
+  const day = Number(date.slice(8, 10));
+  return clampedDate(year, month + 1, day);
+}
+
 function openDb(dbPath) {
   const resolved = resolve(dbPath);
   mkdirSync(dirname(resolved), { recursive: true });
@@ -82,13 +120,47 @@ function openDb(dbPath) {
   if (!saleItemCols.includes("variant")) {
     db.exec("ALTER TABLE sale_items ADD COLUMN variant TEXT");
   }
-  // Payment-date columns (Task 7): pre-change DBs lack bills.paid_at /
-  // payables.paid_at. No DEFAULT — old and unpaid rows stay NULL (never
-  // paid), and only a paid 0→1 toggle stamps a time.
+  // Recurring-schedule columns (recurring bills Task 2): old DBs only have
+  // due_day. Add due_date nullable first, then backfill from due_day, so
+  // CREATE TABLE IF NOT EXISTS never needs a table rebuild. due_day stays as
+  // a compatibility mirror; new code reads due_date only.
   const billCols = db
     .prepare("PRAGMA table_info(bills)")
     .all()
     .map((col) => col.name);
+  if (!billCols.includes("due_date")) {
+    db.exec("ALTER TABLE bills ADD COLUMN due_date TEXT");
+    const backfill = db.transaction(() => {
+      const update = db.prepare("UPDATE bills SET due_date = ? WHERE id = ?");
+      for (const row of db.prepare("SELECT id, due_day FROM bills").all()) {
+        update.run(nextDateForDay(row.due_day), row.id);
+      }
+    });
+    backfill();
+  }
+  if (!billCols.includes("frequency")) {
+    db.exec("ALTER TABLE bills ADD COLUMN frequency TEXT NOT NULL DEFAULT 'monthly'");
+  }
+  if (!billCols.includes("end_date")) {
+    db.exec("ALTER TABLE bills ADD COLUMN end_date TEXT");
+  }
+  if (!billCols.includes("alert_days")) {
+    db.exec(
+      "ALTER TABLE bills ADD COLUMN alert_days INTEGER NOT NULL DEFAULT 3",
+    );
+  }
+  if (!billCols.includes("series_id")) {
+    db.exec("ALTER TABLE bills ADD COLUMN series_id INTEGER");
+  }
+  if (!billCols.includes("source_bill_id")) {
+    db.exec("ALTER TABLE bills ADD COLUMN source_bill_id INTEGER");
+  }
+  db.exec("UPDATE bills SET series_id = id WHERE series_id IS NULL");
+  // Created here (not schema.sql) so legacy DBs get it too.
+  db.exec("CREATE INDEX IF NOT EXISTS idx_bills_due_date ON bills(due_date)");
+  // Payment-date columns (Task 7): pre-change DBs lack bills.paid_at /
+  // payables.paid_at. No DEFAULT — old and unpaid rows stay NULL (never
+  // paid), and only a paid 0→1 toggle stamps a time.
   if (!billCols.includes("paid_at")) {
     db.exec("ALTER TABLE bills ADD COLUMN paid_at TEXT");
   }
@@ -1235,10 +1307,6 @@ export function createApp(dbPath, opts = {}) {
   // is valid because due_date is stored zero-padded as YYYY-MM-DD. Same
   // reasoning as the /api/sales/summary day-boundary ruling above: shop
   // hours 2pm-10pm PHT always fall inside one UTC date.
-  function utcToday() {
-    return new Date().toISOString().slice(0, 10);
-  }
-
   function isValidDateString(value) {
     if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
       return false;
@@ -1264,21 +1332,44 @@ export function createApp(dbPath, opts = {}) {
     return isInt(amount_cents) && amount_cents >= 0;
   }
 
-  const BILL_COLS = "id, name, amount_cents, due_day, paid, paid_at";
+  const BILL_COLS =
+    "id, name, amount_cents, due_date, due_day, frequency, end_date, alert_days, paid, paid_at, series_id, source_bill_id";
 
   function billRow(id) {
     return db.prepare(`SELECT ${BILL_COLS} FROM bills WHERE id = ?`).get(id);
   }
 
-  function validateBillFields({ name, amount_cents, due_day, paid }) {
+  function validateBillFields({
+    name,
+    amount_cents,
+    due_date,
+    frequency,
+    end_date,
+    alert_days,
+    paid,
+  }) {
     if (typeof name !== "string" || name.trim() === "") {
       return "name is required";
     }
     if (!validateMoney(amount_cents)) {
       return "amount_cents must be a non-negative integer";
     }
-    if (!isInt(due_day) || due_day < 1 || due_day > 31) {
-      return "due_day must be an integer from 1 to 31";
+    if (!isValidDateString(due_date)) {
+      return "due_date must be YYYY-MM-DD";
+    }
+    if (frequency !== "weekly" && frequency !== "monthly") {
+      return "frequency must be weekly or monthly";
+    }
+    if (end_date !== null && end_date !== undefined) {
+      if (!isValidDateString(end_date)) {
+        return "end_date must be YYYY-MM-DD";
+      }
+      if (end_date < due_date) {
+        return "end_date must be on or after due_date";
+      }
+    }
+    if (!isInt(alert_days) || alert_days < 1 || alert_days > 30) {
+      return "alert_days must be an integer from 1 to 30";
     }
     if (paid !== 0 && paid !== 1) {
       return "paid must be 0 or 1";
@@ -1295,33 +1386,67 @@ export function createApp(dbPath, opts = {}) {
       where.push(paid.clause);
       params.push(paid.param);
     }
-    if (req.query.due_day !== undefined) {
-      const dueDay = Number(req.query.due_day);
-      if (!isInt(dueDay) || dueDay < 1 || dueDay > 31) {
-        return sendError(res, 400, "due_day must be an integer from 1 to 31");
+    if (req.query.due_before !== undefined) {
+      const cutoff = String(req.query.due_before);
+      if (!isValidDateString(cutoff)) {
+        return sendError(res, 400, "due_before must be YYYY-MM-DD");
       }
-      where.push("due_day = ?");
-      params.push(dueDay);
+      where.push("due_date <= ?");
+      params.push(cutoff);
     }
     const rows = db
       .prepare(
-        `SELECT ${BILL_COLS} FROM bills${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY id`,
+        `SELECT ${BILL_COLS} FROM bills${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY paid ASC, due_date ASC, id ASC`,
       )
       .all(...params);
     res.json(rows);
   });
 
   app.post("/api/bills", (req, res) => {
-    const { name, amount_cents, due_day, paid = 0 } = req.body ?? {};
-    const error = validateBillFields({ name, amount_cents, due_day, paid });
+    const {
+      name,
+      amount_cents,
+      due_date,
+      frequency = "monthly",
+      end_date = null,
+      alert_days = 3,
+      paid = 0,
+    } = req.body ?? {};
+    const error = validateBillFields({
+      name,
+      amount_cents,
+      due_date,
+      frequency,
+      end_date,
+      alert_days,
+      paid,
+    });
     if (error) return sendError(res, 400, error);
     const paidAt = paid === 1 ? nowStamp() : null;
-    const info = db
-      .prepare(
-        "INSERT INTO bills (name, amount_cents, due_day, paid, paid_at) VALUES (?, ?, ?, ?, ?)",
-      )
-      .run(name.trim(), amount_cents, due_day, paid, paidAt);
-    res.status(201).json(billRow(info.lastInsertRowid));
+    const dueDay = Number(due_date.slice(8, 10));
+    const insert = db.transaction(() => {
+      const info = db
+        .prepare(
+          "INSERT INTO bills (name, amount_cents, due_date, due_day, frequency, end_date, alert_days, paid, paid_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .run(
+          name.trim(),
+          amount_cents,
+          due_date,
+          dueDay,
+          frequency,
+          end_date,
+          alert_days,
+          paid,
+          paidAt,
+        );
+      db.prepare("UPDATE bills SET series_id = ? WHERE id = ?").run(
+        info.lastInsertRowid,
+        info.lastInsertRowid,
+      );
+      return info.lastInsertRowid;
+    });
+    res.status(201).json(billRow(insert()));
   });
 
   app.get("/api/bills/:id", (req, res) => {
@@ -1338,16 +1463,88 @@ export function createApp(dbPath, opts = {}) {
     const {
       name = current.name,
       amount_cents = current.amount_cents,
-      due_day = current.due_day,
+      due_date = current.due_date,
+      frequency = current.frequency,
+      end_date = current.end_date,
+      alert_days = current.alert_days,
       paid = current.paid,
     } = req.body ?? {};
-    const error = validateBillFields({ name, amount_cents, due_day, paid });
+    const error = validateBillFields({
+      name,
+      amount_cents,
+      due_date,
+      frequency,
+      end_date,
+      alert_days,
+      paid,
+    });
     if (error) return sendError(res, 400, error);
+    const dueDay = Number(due_date.slice(8, 10));
     const paidAt =
       paid === 1 ? (current.paid === 1 ? current.paid_at : nowStamp()) : null;
-    db.prepare(
-      "UPDATE bills SET name = ?, amount_cents = ?, due_day = ?, paid = ?, paid_at = ? WHERE id = ?",
-    ).run(name.trim(), amount_cents, due_day, paid, paidAt, id);
+    const update = db.prepare(
+      "UPDATE bills SET name = ?, amount_cents = ?, due_date = ?, due_day = ?, frequency = ?, end_date = ?, alert_days = ?, paid = ?, paid_at = ? WHERE id = ?",
+    );
+    const applyUpdate = (nextPaid) =>
+      update.run(
+        name.trim(),
+        amount_cents,
+        due_date,
+        dueDay,
+        frequency,
+        end_date,
+        alert_days,
+        nextPaid,
+        paidAt,
+        id,
+      );
+
+    if (current.paid === 0 && paid === 1) {
+      // Paying a cycle finishes it and spawns the next occurrence unless the
+      // inclusive end date has passed or a child already exists.
+      const markPaid = db.transaction(() => {
+        applyUpdate(1);
+        const nextDue = addFrequency(due_date, frequency);
+        const child = db
+          .prepare("SELECT id FROM bills WHERE source_bill_id = ? LIMIT 1")
+          .get(id);
+        if (!child && (end_date === null || nextDue <= end_date)) {
+          db.prepare(
+            "INSERT INTO bills (name, amount_cents, due_date, due_day, frequency, end_date, alert_days, paid, paid_at, series_id, source_bill_id) VALUES (?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?)",
+          ).run(
+            name.trim(),
+            amount_cents,
+            nextDue,
+            Number(nextDue.slice(8, 10)),
+            frequency,
+            end_date,
+            alert_days,
+            current.series_id ?? current.id,
+            id,
+          );
+        }
+      });
+      markPaid();
+    } else if (current.paid === 1 && paid === 0) {
+      const child = db
+        .prepare(
+          "SELECT id, paid FROM bills WHERE source_bill_id = ? ORDER BY id LIMIT 1",
+        )
+        .get(id);
+      if (child && child.paid === 1) {
+        return sendError(res, 400, "cannot unpay after the next cycle is paid");
+      }
+      const unpay = db.transaction(() => {
+        if (child) {
+          db.prepare("DELETE FROM bills WHERE id = ?").run(child.id);
+        }
+        applyUpdate(0);
+      });
+      unpay();
+    } else {
+      // No paid transition: schedule edits only; paid_at is kept as-is.
+      applyUpdate(paid);
+    }
     res.json(billRow(id));
   });
 

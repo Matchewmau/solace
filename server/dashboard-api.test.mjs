@@ -69,11 +69,11 @@ const seed = db.transaction(() => {
   addExpense.run("2026-09-01", "Old", 99999);
 
   const addBill = db.prepare(
-    "INSERT INTO bills (name, amount_cents, due_day, paid) VALUES (?, ?, ?, ?)",
+    "INSERT INTO bills (name, amount_cents, due_date, due_day, paid) VALUES (?, ?, ?, ?, ?)",
   );
-  addBill.run("Meralco", 250000, 5, 0);
-  addBill.run("Water", 50000, 20, 0);
-  addBill.run("Paid Bill", 99999, 1, 1);
+  addBill.run("Meralco", 250000, "2026-10-05", 5, 0);
+  addBill.run("Water", 50000, "2026-10-20", 20, 0);
+  addBill.run("Paid Bill", 99999, "2026-10-01", 1, 1);
 
   const addPayable = db.prepare(
     "INSERT INTO payables (label, amount_cents, due_date, paid) VALUES (?, ?, ?, ?)",
@@ -95,10 +95,22 @@ const seed = db.transaction(() => {
   // are deterministic. The paid=1 rows with NULL paid_at above ("Paid Bill",
   // "Paid Due") are legacy and must never count as money-out.
   const addPaidBill = db.prepare(
-    "INSERT INTO bills (name, amount_cents, due_day, paid, paid_at) VALUES (?, ?, ?, 1, ?)",
+    "INSERT INTO bills (name, amount_cents, due_date, due_day, paid, paid_at) VALUES (?, ?, ?, ?, 1, ?)",
   );
-  addPaidBill.run("Paid Oct Bill", 15000, 13, "2026-10-13 09:00:00");
-  addPaidBill.run("Paid Sep Bill", 7000, 20, "2026-09-20 09:00:00");
+  addPaidBill.run(
+    "Paid Oct Bill",
+    15000,
+    "2026-10-13",
+    13,
+    "2026-10-13 09:00:00",
+  );
+  addPaidBill.run(
+    "Paid Sep Bill",
+    7000,
+    "2026-09-20",
+    20,
+    "2026-09-20 09:00:00",
+  );
 
   const addPaidPayable = db.prepare(
     "INSERT INTO payables (label, amount_cents, due_date, paid, paid_at) VALUES (?, ?, ?, 1, ?)",
@@ -386,7 +398,11 @@ describe("dashboard reconciliation (Task 13)", () => {
     ).body;
     const created = await api
       .post("/api/bills")
-      .send({ name: "Patched Bill", amount_cents: 12345, due_day: 3 })
+      .send({
+        name: "Patched Bill",
+        amount_cents: 12345,
+        due_date: "2026-11-03",
+      })
       .expect(201);
     expect(created.body.paid).toBe(0);
     expect(created.body.paid_at).toBeNull();

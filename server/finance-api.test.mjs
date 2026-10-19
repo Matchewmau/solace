@@ -25,30 +25,76 @@ describe("bills CRUD (Task 11)", () => {
   it("POST creates a bill -> 201 with round-trip fields", async () => {
     const res = await api
       .post("/api/bills")
-      .send({ name: "Meralco", amount_cents: 250000, due_day: 15 })
+      .send({ name: "Meralco", amount_cents: 250000, due_date: "2026-11-15" })
       .expect(201);
     expect(res.body).toMatchObject({
       name: "Meralco",
       amount_cents: 250000,
+      due_date: "2026-11-15",
       due_day: 15,
+      frequency: "monthly",
+      end_date: null,
+      alert_days: 3,
       paid: 0,
+      paid_at: null,
+      source_bill_id: null,
     });
     expect(res.body.id).toEqual(expect.any(Number));
+    expect(res.body.series_id).toBe(res.body.id);
   });
 
-  it("POST validates: name, amount_cents, due_day, paid -> 400 {error}", async () => {
+  it("POST validates: name, amount_cents, due_date, frequency, end_date, alert_days, paid -> 400 {error}", async () => {
     const bad = [
       {},
-      { amount_cents: 100, due_day: 5 },
-      { name: "  ", amount_cents: 100, due_day: 5 },
-      { name: "Water", amount_cents: -1, due_day: 5 },
-      { name: "Water", amount_cents: 10.5, due_day: 5 },
-      { name: "Water", amount_cents: "100", due_day: 5 },
+      { amount_cents: 100, due_date: "2026-11-05" },
+      { name: "  ", amount_cents: 100, due_date: "2026-11-05" },
+      { name: "Water", amount_cents: -1, due_date: "2026-11-05" },
+      { name: "Water", amount_cents: 10.5, due_date: "2026-11-05" },
+      { name: "Water", amount_cents: "100", due_date: "2026-11-05" },
       { name: "Water", amount_cents: 100 },
-      { name: "Water", amount_cents: 100, due_day: 0 },
-      { name: "Water", amount_cents: 100, due_day: 32 },
-      { name: "Water", amount_cents: 100, due_day: "15" },
-      { name: "Water", amount_cents: 100, due_day: 5, paid: 2 },
+      { name: "Water", amount_cents: 100, due_date: "2026-02-30" },
+      {
+        name: "Water",
+        amount_cents: 100,
+        due_date: "2026-11-05",
+        frequency: "daily",
+      },
+      {
+        name: "Water",
+        amount_cents: 100,
+        due_date: "2026-11-05",
+        end_date: "2026-11-04",
+      },
+      {
+        name: "Water",
+        amount_cents: 100,
+        due_date: "2026-11-05",
+        end_date: "tomorrow",
+      },
+      {
+        name: "Water",
+        amount_cents: 100,
+        due_date: "2026-11-05",
+        alert_days: 0,
+      },
+      {
+        name: "Water",
+        amount_cents: 100,
+        due_date: "2026-11-05",
+        alert_days: 31,
+      },
+      {
+        name: "Water",
+        amount_cents: 100,
+        due_date: "2026-11-05",
+        alert_days: "3",
+      },
+      {
+        name: "Water",
+        amount_cents: 100,
+        due_date: "2026-11-05",
+        paid: 2,
+      },
     ];
     for (const body of bad) {
       const res = await api.post("/api/bills").send(body).expect(400);
@@ -60,13 +106,13 @@ describe("bills CRUD (Task 11)", () => {
     const created = (
       await api
         .post("/api/bills")
-        .send({ name: "Internet", amount_cents: 150000, due_day: 10 })
+        .send({ name: "Internet", amount_cents: 150000, due_date: "2026-11-10" })
         .expect(201)
     ).body;
     const list = await api.get("/api/bills").expect(200);
     expect(
       list.body.find((row) => row.id === created.id),
-    ).toMatchObject({ name: "Internet", due_day: 10 });
+    ).toMatchObject({ name: "Internet", due_date: "2026-11-10", due_day: 10 });
     const fetched = await api
       .get(`/api/bills/${created.id}`)
       .expect(200);
@@ -79,7 +125,7 @@ describe("bills CRUD (Task 11)", () => {
     const created = (
       await api
         .post("/api/bills")
-        .send({ name: "Rent", amount_cents: 500000, due_day: 1 })
+        .send({ name: "Rent", amount_cents: 500000, due_date: "2026-11-01" })
         .expect(201)
     ).body;
     const patched = await api
@@ -89,12 +135,13 @@ describe("bills CRUD (Task 11)", () => {
     expect(patched.body).toMatchObject({
       name: "Rent",
       amount_cents: 500000,
+      due_date: "2026-11-01",
       due_day: 1,
       paid: 1,
     });
     await api
       .patch(`/api/bills/${created.id}`)
-      .send({ due_day: 99 })
+      .send({ due_date: "2026-99-01" })
       .expect(400);
     await api
       .patch(`/api/bills/${created.id}`)
@@ -110,7 +157,7 @@ describe("bills CRUD (Task 11)", () => {
     const doomed = (
       await api
         .post("/api/bills")
-        .send({ name: "Doomed Bill", amount_cents: 100, due_day: 20 })
+        .send({ name: "Doomed Bill", amount_cents: 100, due_date: "2026-11-20" })
         .expect(201)
     ).body;
     await api.delete(`/api/bills/${doomed.id}`).expect(204);
@@ -118,17 +165,22 @@ describe("bills CRUD (Task 11)", () => {
     await api.delete("/api/bills/999999").expect(404);
   });
 
-  it("?paid filters; ?due_day=N filters; bad filter values -> 400", async () => {
+  it("?paid filters; ?due_before filters; bad filter values -> 400", async () => {
     const unpaid = (
       await api
         .post("/api/bills")
-        .send({ name: "Unpaid Filter", amount_cents: 100, due_day: 7 })
+        .send({ name: "Unpaid Filter", amount_cents: 100, due_date: "2026-11-07" })
         .expect(201)
     ).body;
     const paid = (
       await api
         .post("/api/bills")
-        .send({ name: "Paid Filter", amount_cents: 100, due_day: 7, paid: 1 })
+        .send({
+          name: "Paid Filter",
+          amount_cents: 100,
+          due_date: "2026-11-08",
+          paid: 1,
+        })
         .expect(201)
     ).body;
     const unpaidList = await api.get("/api/bills?paid=0").expect(200);
@@ -137,16 +189,20 @@ describe("bills CRUD (Task 11)", () => {
     const paidList = await api.get("/api/bills?paid=1").expect(200);
     expect(paidList.body.map((row) => row.id)).toContain(paid.id);
     expect(paidList.body.map((row) => row.id)).not.toContain(unpaid.id);
-    const dayList = await api.get("/api/bills?due_day=7").expect(200);
-    expect(dayList.body.map((row) => row.id)).toContain(unpaid.id);
-    expect(dayList.body.map((row) => row.id)).toContain(paid.id);
-    for (const row of dayList.body) {
-      expect(row.due_day).toBe(7);
+    const dueList = await api
+      .get("/api/bills?due_before=2026-11-08")
+      .expect(200);
+    expect(dueList.body.map((row) => row.id)).toContain(unpaid.id);
+    expect(dueList.body.map((row) => row.id)).toContain(paid.id);
+    for (const row of dueList.body) {
+      expect(row.due_date <= "2026-11-08").toBe(true);
     }
     const badPaid = await api.get("/api/bills?paid=2").expect(400);
     expect(badPaid.body.error).toEqual(expect.any(String));
-    const badDay = await api.get("/api/bills?due_day=99").expect(400);
-    expect(badDay.body.error).toEqual(expect.any(String));
+    const badDate = await api
+      .get("/api/bills?due_before=2026-02-30")
+      .expect(400);
+    expect(badDate.body.error).toEqual(expect.any(String));
   });
 });
 
@@ -403,7 +459,7 @@ describe("bill payment dates (Task 7)", () => {
     const created = (
       await api
         .post("/api/bills")
-        .send({ name: "Stamp Bill", amount_cents: 1000, due_day: 3 })
+        .send({ name: "Stamp Bill", amount_cents: 1000, due_date: "2026-11-03" })
         .expect(201)
     ).body;
     expect(created.paid_at).toBeNull();
@@ -419,7 +475,7 @@ describe("bill payment dates (Task 7)", () => {
     const created = (
       await api
         .post("/api/bills")
-        .send({ name: "Keep Bill", amount_cents: 1000, due_day: 3 })
+        .send({ name: "Keep Bill", amount_cents: 1000, due_date: "2026-11-03" })
         .expect(201)
     ).body;
     const first = await api
@@ -456,7 +512,12 @@ describe("bill payment dates (Task 7)", () => {
     const created = (
       await api
         .post("/api/bills")
-        .send({ name: "Clear Bill", amount_cents: 1000, due_day: 3, paid: 1 })
+        .send({
+          name: "Clear Bill",
+          amount_cents: 1000,
+          due_date: "2026-11-03",
+          paid: 1,
+        })
         .expect(201)
     ).body;
     expect(created.paid_at).toMatch(STAMP_RE);

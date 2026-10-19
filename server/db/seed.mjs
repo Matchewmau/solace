@@ -20,6 +20,12 @@ export function seedDb(dbPath) {
   db.exec(readFileSync(join(DB_DIR, "schema.sql"), "utf8"));
 
   const stamp = nowStamp();
+  const now = new Date();
+  const billDueDate = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 15),
+  )
+    .toISOString()
+    .slice(0, 10);
   const insert = db.transaction(() => {
     const categoryId = db
       .prepare("INSERT INTO categories (name, sort) VALUES ('Smoke', 0)")
@@ -55,8 +61,8 @@ export function seedDb(dbPath) {
       "INSERT INTO expenses (date, category, amount_cents, note) VALUES ('2026-10-13', 'Smoke', 5000, '')",
     ).run();
     db.prepare(
-      "INSERT INTO bills (name, amount_cents, due_day, paid) VALUES ('Smoke Power', 300000, 15, 0)",
-    ).run();
+      "INSERT INTO bills (name, amount_cents, due_date, due_day, paid) VALUES ('Smoke Power', 300000, ?, 15, 0)",
+    ).run(billDueDate);
     db.prepare(
       "INSERT INTO payables (label, amount_cents, due_date, paid) VALUES ('Smoke Supplier', 10000, '2026-10-20', 0)",
     ).run();

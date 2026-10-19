@@ -80,9 +80,15 @@ CREATE TABLE IF NOT EXISTS bills (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
   amount_cents INTEGER NOT NULL,
+  due_date TEXT NOT NULL,
   due_day INTEGER NOT NULL,
+  frequency TEXT NOT NULL DEFAULT 'monthly',
+  end_date TEXT,
+  alert_days INTEGER NOT NULL DEFAULT 3,
   paid INTEGER NOT NULL DEFAULT 0,
-  paid_at TEXT
+  paid_at TEXT,
+  series_id INTEGER,
+  source_bill_id INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS payables (
