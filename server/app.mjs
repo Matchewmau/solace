@@ -2035,6 +2035,96 @@ export function createApp(dbPath, opts = {}) {
     );
   });
 
+  // --- due alerts (Task 4: read-only collector for the global bar) ---
+  // Windows are per-item for bills and loans; payables use a fixed 3-day
+  // window. Overdue items are included regardless of lead time, and the key
+  // carries due_date so each recurring cycle re-alerts after dismissal.
+  function collectDueAlerts(date) {
+    const todayMs = Date.parse(`${date}T00:00:00Z`);
+    const daysUntil = (dueDate) =>
+      Math.round((Date.parse(`${dueDate}T00:00:00Z`) - todayMs) / 86400000);
+    const alerts = [];
+
+    for (const bill of db
+      .prepare(
+        "SELECT id, name, amount_cents, due_date, alert_days FROM bills WHERE paid = 0",
+      )
+      .all()) {
+      const days_until = daysUntil(bill.due_date);
+      if (days_until <= bill.alert_days || days_until < 0) {
+        alerts.push({
+          key: `bill:${bill.id}:${bill.due_date}`,
+          kind: "bill",
+          id: bill.id,
+          label: bill.name,
+          amount_cents: bill.amount_cents,
+          due_date: bill.due_date,
+          days_until,
+          overdue: days_until < 0,
+          alert_days: bill.alert_days,
+        });
+      }
+    }
+
+    for (const loan of db
+      .prepare(
+        "SELECT id, lender, installment_cents, due_date, alert_days FROM loans WHERE balance_cents > 0",
+      )
+      .all()) {
+      const days_until = daysUntil(loan.due_date);
+      if (days_until <= loan.alert_days || days_until < 0) {
+        alerts.push({
+          key: `loan:${loan.id}:${loan.due_date}`,
+          kind: "loan",
+          id: loan.id,
+          label: loan.lender,
+          amount_cents: loan.installment_cents,
+          due_date: loan.due_date,
+          days_until,
+          overdue: days_until < 0,
+          alert_days: loan.alert_days,
+        });
+      }
+    }
+
+    for (const payable of db
+      .prepare(
+        "SELECT id, label, amount_cents, due_date FROM payables WHERE paid = 0",
+      )
+      .all()) {
+      const days_until = daysUntil(payable.due_date);
+      if (days_until <= 3 || days_until < 0) {
+        alerts.push({
+          key: `payable:${payable.id}:${payable.due_date}`,
+          kind: "payable",
+          id: payable.id,
+          label: payable.label,
+          amount_cents: payable.amount_cents,
+          due_date: payable.due_date,
+          days_until,
+          overdue: days_until < 0,
+          alert_days: 3,
+        });
+      }
+    }
+
+    alerts.sort((a, b) => {
+      if (a.due_date !== b.due_date) return a.due_date < b.due_date ? -1 : 1;
+      if (a.label !== b.label) return a.label < b.label ? -1 : 1;
+      return 0;
+    });
+    return alerts;
+  }
+
+  app.get("/api/due-alerts", (req, res) => {
+    const date =
+      req.query.date === undefined ? utcToday() : String(req.query.date);
+    if (!isValidDateString(date)) {
+      return sendError(res, 400, "date must be YYYY-MM-DD");
+    }
+    res.json({ date, alerts: collectDueAlerts(date) });
+  });
+
   // --- dashboard (Task 13: closing-time reconciliation; Task 8 money-out) ---
   // NET RULE (Task 8, spec §3 option A — supersedes the Task 13 expenses-only
   // rule): net_day = income_day.total - money_out_day and net_month =
