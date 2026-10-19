@@ -85,11 +85,17 @@ const seed = db.transaction(() => {
   addPayable.run("Paid Due", 99999, "2026-10-14", 1);
 
   const addLoan = db.prepare(
-    "INSERT INTO loans (lender, principal_cents, balance_cents, installment_cents, due_day) VALUES (?, ?, ?, ?, ?)",
+    "INSERT INTO loans (lender, principal_cents, balance_cents, installment_cents, due_date, due_day) VALUES (?, ?, ?, ?, ?, ?)",
   );
-  const bdoLoanId = addLoan.run("BDO", 100000, 90000, 10000, 15)
-    .lastInsertRowid;
-  addLoan.run("Settled Lender", 50000, 0, 5000, 5);
+  const bdoLoanId = addLoan.run(
+    "BDO",
+    100000,
+    90000,
+    10000,
+    "2026-10-15",
+    15,
+  ).lastInsertRowid;
+  addLoan.run("Settled Lender", 50000, 0, 5000, "2026-10-05", 5);
 
   // Task 8 money-out fixtures with explicit paid_at so the day/month buckets
   // are deterministic. The paid=1 rows with NULL paid_at above ("Paid Bill",

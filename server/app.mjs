@@ -171,6 +171,41 @@ function openDb(dbPath) {
   if (!payableCols.includes("paid_at")) {
     db.exec("ALTER TABLE payables ADD COLUMN paid_at TEXT");
   }
+  // Recurring-schedule columns (recurring loans Task 3): old DBs only have
+  // due_day. Add due_date nullable first, then backfill from due_day, so
+  // CREATE TABLE IF NOT EXISTS never needs a table rebuild. due_day stays as
+  // a compatibility mirror; new code reads due_date only.
+  const loanCols = db
+    .prepare("PRAGMA table_info(loans)")
+    .all()
+    .map((col) => col.name);
+  if (!loanCols.includes("due_date")) {
+    db.exec("ALTER TABLE loans ADD COLUMN due_date TEXT");
+    const backfill = db.transaction(() => {
+      const update = db.prepare("UPDATE loans SET due_date = ? WHERE id = ?");
+      for (const row of db.prepare("SELECT id, due_day FROM loans").all()) {
+        update.run(nextDateForDay(row.due_day), row.id);
+      }
+    });
+    backfill();
+  }
+  if (!loanCols.includes("frequency")) {
+    db.exec(
+      "ALTER TABLE loans ADD COLUMN frequency TEXT NOT NULL DEFAULT 'monthly'",
+    );
+  }
+  if (!loanCols.includes("end_date")) {
+    db.exec("ALTER TABLE loans ADD COLUMN end_date TEXT");
+  }
+  if (!loanCols.includes("alert_days")) {
+    db.exec(
+      "ALTER TABLE loans ADD COLUMN alert_days INTEGER NOT NULL DEFAULT 3",
+    );
+  }
+  // Created here (not schema.sql) so legacy DBs get it too.
+  db.exec(
+    "CREATE INDEX IF NOT EXISTS idx_loans_due_date ON loans(due_date)",
+  );
   return db;
 }
 
@@ -1746,11 +1781,22 @@ export function createApp(dbPath, opts = {}) {
 
   // --- loans (Task 12: money YOU owe; no interest or amortization) ---
   const LOAN_COLS =
-    "id, lender, principal_cents, balance_cents, installment_cents, due_day";
+    "id, lender, principal_cents, balance_cents, installment_cents, due_date, due_day, frequency, end_date, alert_days";
   const LOAN_PAYMENT_COLS = "id, loan_id, amount_cents, paid_at";
 
   function loanRow(id) {
     return db.prepare(`SELECT ${LOAN_COLS} FROM loans WHERE id = ?`).get(id);
+  }
+
+  // Legacy clients (pre-recurring) send due_day only; derive the canonical
+  // due_date from it so they keep working. New clients send due_date, which
+  // always wins and derives due_day.
+  function resolveLoanDueDate(dueDate, dueDay) {
+    if (dueDate !== undefined && dueDate !== null) return dueDate;
+    if (isInt(dueDay) && dueDay >= 1 && dueDay <= 31) {
+      return nextDateForDay(dueDay);
+    }
+    return undefined;
   }
 
   function validateLoanFields({
@@ -1758,7 +1804,10 @@ export function createApp(dbPath, opts = {}) {
     principal_cents,
     balance_cents,
     installment_cents,
-    due_day,
+    due_date,
+    frequency,
+    end_date,
+    alert_days,
   }) {
     if (typeof lender !== "string" || lender.trim() === "") {
       return "lender is required";
@@ -1772,8 +1821,22 @@ export function createApp(dbPath, opts = {}) {
     if (!isInt(installment_cents) || installment_cents <= 0) {
       return "installment_cents must be a positive integer";
     }
-    if (!isInt(due_day) || due_day < 1 || due_day > 31) {
-      return "due_day must be an integer from 1 to 31";
+    if (!isValidDateString(due_date)) {
+      return "due_date must be YYYY-MM-DD";
+    }
+    if (frequency !== "weekly" && frequency !== "monthly") {
+      return "frequency must be weekly or monthly";
+    }
+    if (end_date !== null && end_date !== undefined) {
+      if (!isValidDateString(end_date)) {
+        return "end_date must be YYYY-MM-DD";
+      }
+      if (end_date < due_date) {
+        return "end_date must be on or after due_date";
+      }
+    }
+    if (!isInt(alert_days) || alert_days < 1 || alert_days > 30) {
+      return "alert_days must be an integer from 1 to 30";
     }
     return null;
   }
@@ -1793,29 +1856,46 @@ export function createApp(dbPath, opts = {}) {
   });
 
   app.post("/api/loans", (req, res) => {
-    const { lender, principal_cents, installment_cents, due_day } =
-      req.body ?? {};
+    const {
+      lender,
+      principal_cents,
+      installment_cents,
+      due_date: rawDueDate,
+      due_day: rawDueDay,
+      frequency = "monthly",
+      end_date = null,
+      alert_days = 3,
+    } = req.body ?? {};
     // Fresh-loan default: omitted balance starts at the full principal.
     let { balance_cents } = req.body ?? {};
     if (balance_cents === undefined) balance_cents = principal_cents;
+    const due_date = resolveLoanDueDate(rawDueDate, rawDueDay);
     const error = validateLoanFields({
       lender,
       principal_cents,
       balance_cents,
       installment_cents,
-      due_day,
+      due_date,
+      frequency,
+      end_date,
+      alert_days,
     });
     if (error) return sendError(res, 400, error);
+    const dueDay = Number(due_date.slice(8, 10));
     const info = db
       .prepare(
-        "INSERT INTO loans (lender, principal_cents, balance_cents, installment_cents, due_day) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO loans (lender, principal_cents, balance_cents, installment_cents, due_date, due_day, frequency, end_date, alert_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
       )
       .run(
         lender.trim(),
         principal_cents,
         balance_cents,
         installment_cents,
-        due_day,
+        due_date,
+        dueDay,
+        frequency,
+        end_date,
+        alert_days,
       );
     res.status(201).json(loanRow(info.lastInsertRowid));
   });
@@ -1831,29 +1911,47 @@ export function createApp(dbPath, opts = {}) {
     const id = parseId(req.params.id);
     const current = id ? loanRow(id) : undefined;
     if (!current) return sendError(res, 404, "loan not found");
+    const body = req.body ?? {};
     const {
       lender = current.lender,
       principal_cents = current.principal_cents,
       balance_cents = current.balance_cents,
       installment_cents = current.installment_cents,
-      due_day = current.due_day,
-    } = req.body ?? {};
+      frequency = current.frequency,
+      end_date = current.end_date,
+      alert_days = current.alert_days,
+    } = body;
+    // due_date wins; due_day is the legacy input; otherwise keep current.
+    const due_date =
+      body.due_date !== undefined && body.due_date !== null
+        ? body.due_date
+        : body.due_day !== undefined && body.due_day !== null
+          ? resolveLoanDueDate(undefined, body.due_day)
+          : current.due_date;
     const error = validateLoanFields({
       lender,
       principal_cents,
       balance_cents,
       installment_cents,
-      due_day,
+      due_date,
+      frequency,
+      end_date,
+      alert_days,
     });
     if (error) return sendError(res, 400, error);
+    const dueDay = Number(due_date.slice(8, 10));
     db.prepare(
-      "UPDATE loans SET lender = ?, principal_cents = ?, balance_cents = ?, installment_cents = ?, due_day = ? WHERE id = ?",
+      "UPDATE loans SET lender = ?, principal_cents = ?, balance_cents = ?, installment_cents = ?, due_date = ?, due_day = ?, frequency = ?, end_date = ?, alert_days = ? WHERE id = ?",
     ).run(
       lender.trim(),
       principal_cents,
       balance_cents,
       installment_cents,
-      due_day,
+      due_date,
+      dueDay,
+      frequency,
+      end_date,
+      alert_days,
       id,
     );
     res.json(loanRow(id));
@@ -1892,27 +1990,36 @@ export function createApp(dbPath, opts = {}) {
     if (amount_cents > current.balance_cents) {
       return sendError(res, 400, "payment exceeds outstanding balance");
     }
+    const newBalance = current.balance_cents - amount_cents;
     const apply = db.transaction(() => {
       const info = db
         .prepare(
           "INSERT INTO loan_payments (loan_id, amount_cents, paid_at) VALUES (?, ?, ?)",
         )
         .run(id, amount_cents, nowStamp());
-      db.prepare("UPDATE loans SET balance_cents = ? WHERE id = ?").run(
-        current.balance_cents - amount_cents,
-        id,
-      );
-      return info.lastInsertRowid;
+      // While the balance remains, roll the due date one cycle forward. The
+      // end date is inclusive: the next date may land exactly on it, never
+      // past it. A payoff (balance 0) leaves the due date where it was.
+      let dueDate = current.due_date;
+      if (newBalance > 0) {
+        const nextDue = addFrequency(current.due_date, current.frequency);
+        if (current.end_date === null || nextDue <= current.end_date) {
+          dueDate = nextDue;
+        }
+      }
+      db.prepare(
+        "UPDATE loans SET balance_cents = ?, due_date = ?, due_day = ? WHERE id = ?",
+      ).run(newBalance, dueDate, Number(dueDate.slice(8, 10)), id);
+      return { paymentId: info.lastInsertRowid, dueDate };
     });
-    const paymentId = apply();
-    res
-      .status(201)
-      .json({
-        payment: db
-          .prepare(`SELECT ${LOAN_PAYMENT_COLS} FROM loan_payments WHERE id = ?`)
-          .get(paymentId),
-        balance_cents: current.balance_cents - amount_cents,
-      });
+    const { paymentId, dueDate } = apply();
+    res.status(201).json({
+      payment: db
+        .prepare(`SELECT ${LOAN_PAYMENT_COLS} FROM loan_payments WHERE id = ?`)
+        .get(paymentId),
+      balance_cents: newBalance,
+      due_date: dueDate,
+    });
   });
 
   app.get("/api/loans/:id/payments", (req, res) => {

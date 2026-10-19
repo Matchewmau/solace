@@ -26,6 +26,11 @@ export function seedDb(dbPath) {
   )
     .toISOString()
     .slice(0, 10);
+  const loanDueDate = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 5),
+  )
+    .toISOString()
+    .slice(0, 10);
   const insert = db.transaction(() => {
     const categoryId = db
       .prepare("INSERT INTO categories (name, sort) VALUES ('Smoke', 0)")
@@ -68,9 +73,9 @@ export function seedDb(dbPath) {
     ).run();
     const loanId = db
       .prepare(
-        "INSERT INTO loans (lender, principal_cents, balance_cents, installment_cents, due_day) VALUES ('Smoke Lender', 5000000, 5000000, 500000, 5)",
+        "INSERT INTO loans (lender, principal_cents, balance_cents, installment_cents, due_date, due_day) VALUES ('Smoke Lender', 5000000, 5000000, 500000, ?, 5)",
       )
-      .run().lastInsertRowid;
+      .run(loanDueDate).lastInsertRowid;
     db.prepare(
       "INSERT INTO loan_payments (loan_id, amount_cents, paid_at) VALUES (?, 500000, ?)",
     ).run(loanId, stamp);

@@ -106,7 +106,11 @@ CREATE TABLE IF NOT EXISTS loans (
   principal_cents INTEGER NOT NULL,
   balance_cents INTEGER NOT NULL,
   installment_cents INTEGER NOT NULL,
-  due_day INTEGER NOT NULL
+  due_date TEXT NOT NULL,
+  due_day INTEGER NOT NULL,
+  frequency TEXT NOT NULL DEFAULT 'monthly',
+  end_date TEXT,
+  alert_days INTEGER NOT NULL DEFAULT 3
 );
 
 CREATE TABLE IF NOT EXISTS loan_payments (
