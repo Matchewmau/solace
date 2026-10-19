@@ -9,11 +9,12 @@ import { Reveal, StaggerGroup, StaggerSection } from "../components/motion";
 /**
  * Owner home screen (/dashboard): the day + month money strip, three charts
  * (14-day sales, month payment split, ranked best sellers), and the money
- * nuggets (upcoming dues with a red overdue chip, loans summary).
+ * nuggets (upcoming dues with a status badge, loans summary).
  *
- * Net rule: net = money in − money out (payments). Bills, payables, and
- * loans are stocks the owner still owes — listed separately, never
- * subtracted into net.
+ * Net rules: day net = today's sales − today's expenses only. Month net =
+ * money in − money out (payments, including salaries, bills, payables,
+ * loans, and expenses). Bills, payables, and loans are stocks the owner
+ * still owes — listed separately, never subtracted into the day net.
  *
  * Lazy route chunk, so the motion primitives are allowed here.
  */
@@ -27,7 +28,13 @@ const PAYMENT_COLOR = {
 const KIND_LABEL: Record<UpcomingDue["kind"], string> = {
   bill: "Bill",
   payable: "Payable",
+  loan: "Loan",
 };
+
+function daysLabel(days: number): string {
+  if (days === 0) return "Due today";
+  return `Due in ${days} ${days === 1 ? "day" : "days"}`;
+}
 
 /** Day-of-month label (`2026-10-01` → `01`) for the 14-day bars. */
 function dayLabel(date: string) {
@@ -48,7 +55,7 @@ function LoadingSkeleton() {
   );
 }
 
-/** One upcoming due: kind, label, amount, due date, red chip when overdue. */
+/** One upcoming due: kind, label, amount, due date, and status badge. */
 function DueRow({ due }: { due: UpcomingDue }) {
   const overdue = due.overdue === true;
   return (
@@ -59,7 +66,11 @@ function DueRow({ due }: { due: UpcomingDue }) {
         {formatPeso(due.amount_cents)}
       </span>
       <span className="text-muted">due {due.due}</span>
-      {overdue ? <Badge tone="danger">Overdue</Badge> : null}
+      {overdue ? (
+        <Badge tone="danger">Overdue</Badge>
+      ) : (
+        <Badge>{daysLabel(due.days_until)}</Badge>
+      )}
     </li>
   );
 }
@@ -106,8 +117,9 @@ export default function DashboardPage() {
           <p className="label text-xs text-muted">Cafe</p>
           <h1 className="text-4xl font-semibold">Dashboard</h1>
           <p className="text-sm text-muted">
-            Net is money in minus money out (payments). Bills, payables, and
-            loans are stocks, listed separately — never subtracted into net.
+            Day net is today's sales minus today's expenses. Month net is money
+            in minus money out, including salaries, bills, payables, loans, and
+            expenses.
           </p>
         </Reveal>
         {dashboardQuery.isLoading ? (
@@ -130,15 +142,11 @@ export default function DashboardPage() {
           <StaggerGroup className="flex flex-col gap-10">
             <StaggerSection
               ariaLabel="Money strip"
-              className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6"
+              className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5"
             >
               <StatChip
                 label="Day in"
                 value={formatPeso(data.income_day.total_cents)}
-              />
-              <StatChip
-                label="Day out"
-                value={formatPeso(data.money_out_day_cents ?? 0)}
               />
               <StatChip
                 label="Day net"

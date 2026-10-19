@@ -30,7 +30,6 @@ const dashboard: Dashboard = {
   },
   expenses_day_cents: 0,
   expenses_month_cents: 4000,
-  money_out_day_cents: 0,
   money_out_month_cents: 9000,
   money_out_month_by_kind: {
     bills_cents: 3000,

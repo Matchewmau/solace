@@ -16,7 +16,7 @@ const SALES_BY_DAY = Array.from({ length: 14 }, (_, index) => ({
   total_cents: (index + 1) * 1000,
 }));
 
-// Net math: day 13800 − 4000 = 9800; month 40000 − 10000 = 30000.
+// Net math: day 13800 − 4000 = 9800; month 40000 − 11000 = 29000.
 const dashboard: Dashboard = {
   date: "2026-10-14",
   month: "2026-10",
@@ -29,18 +29,19 @@ const dashboard: Dashboard = {
   },
   expenses_day_cents: 4000,
   expenses_month_cents: 5000,
-  money_out_day_cents: 4000,
-  money_out_month_cents: 10000,
+  money_out_month_cents: 11000,
   money_out_month_by_kind: {
     bills_cents: 4000,
     expenses_cents: 5000,
     payables_cents: 1000,
     loans_cents: 0,
-    salaries_cents: 0,
+    salaries_cents: 1000,
   },
+  salaries_month_cents: 1000,
+  salaries_month_count: 1,
   sales_by_day: SALES_BY_DAY,
   net_day_cents: 9800,
-  net_month_cents: 30000,
+  net_month_cents: 29000,
   unpaid_bills_cents: 300000,
   unpaid_bills_count: 2,
   unpaid_payables_cents: 100000,
@@ -50,13 +51,37 @@ const dashboard: Dashboard = {
   outstanding_loans_cents: 90000,
   outstanding_loans_count: 1,
   upcoming_dues: [
-    { kind: "bill", label: "Meralco", amount_cents: 250000, due: "05" },
     {
       kind: "payable",
       label: "Rice supplier",
       amount_cents: 40000,
-      due: "2026-10-01",
+      due: "2026-10-10",
       overdue: true,
+      days_until: -4,
+    },
+    {
+      kind: "payable",
+      label: "Milk supplier",
+      amount_cents: 1000,
+      due: "2026-10-14",
+      overdue: false,
+      days_until: 0,
+    },
+    {
+      kind: "loan",
+      label: "BDO",
+      amount_cents: 10000,
+      due: "2026-10-15",
+      overdue: false,
+      days_until: 1,
+    },
+    {
+      kind: "bill",
+      label: "Meralco",
+      amount_cents: 250000,
+      due: "20",
+      overdue: false,
+      days_until: 6,
     },
   ],
   loans: [{ id: 1, lender: "BDO", balance_cents: 90000 }],
@@ -94,25 +119,32 @@ function chip(label: string) {
 }
 
 describe("DashboardPage", () => {
-  it("renders the six day/month stat chips with the net math", async () => {
+  it("renders five chips with no Day out and day net uses today's expenses", async () => {
     stubDashboard();
     renderDashboard();
 
-    // Net rule: income − money out, displayed for both day and month.
+    // Five chips: Day in, Day net, Month in, Month out, Month net.
     expect(await screen.findByText("Day in")).toBeDefined();
+    expect(screen.queryByText("Day out")).toBeNull();
+    const strip = screen.getByRole("region", { name: "Money strip" });
+    expect(strip.querySelectorAll(".rounded-box")).toHaveLength(5);
+
     expect(within(chip("Day in")).getByText("₱138")).toBeDefined();
-    expect(within(chip("Day out")).getByText("₱40")).toBeDefined();
     const dayNet = within(chip("Day net")).getByText("₱98");
     expect(dayNet.className).toContain("text-ok");
 
     expect(within(chip("Month in")).getByText("₱400")).toBeDefined();
-    expect(within(chip("Month out")).getByText("₱100")).toBeDefined();
-    const monthNet = within(chip("Month net")).getByText("₱300");
+    expect(within(chip("Month out")).getByText("₱110")).toBeDefined();
+    const monthNet = within(chip("Month net")).getByText("₱290");
     expect(monthNet.className).toContain("text-ok");
 
-    // The subtitle states the net rule and keeps stocks separate.
-    expect(screen.getByText(/money in minus money out/i)).toBeDefined();
-    expect(screen.getByText(/stocks, listed separately/i)).toBeDefined();
+    // The subtitle explains the day and month rules.
+    expect(
+      screen.getByText(/today's sales minus today's expenses/i),
+    ).toBeDefined();
+    expect(
+      screen.getByText(/salaries, bills, payables, loans, and expenses/i),
+    ).toBeDefined();
   });
 
   it("tones a negative day and month net as danger", async () => {
@@ -167,12 +199,13 @@ describe("DashboardPage", () => {
     expect(gcash.textContent).toContain("25%");
   });
 
-  it("marks only overdue payables with the red badge and amount", async () => {
+  it("shows loan dues with days_until badges in Upcoming dues", async () => {
     stubDashboard();
     renderDashboard();
 
     const dues = await screen.findByRole("region", { name: "Upcoming dues" });
 
+    // Overdue keeps the danger badge and amount.
     const overdueRow = within(dues)
       .getByText("Rice supplier")
       .closest("li") as HTMLElement;
@@ -182,15 +215,28 @@ describe("DashboardPage", () => {
     expect(within(overdueRow).getByText("₱400").className).toContain(
       "text-danger",
     );
-    expect(overdueRow.textContent).toContain("due 2026-10-01");
+    expect(overdueRow.textContent).toContain("due 2026-10-10");
 
-    // A not-overdue bill shows no badge and a plain amount.
+    const todayRow = within(dues)
+      .getByText("Milk supplier")
+      .closest("li") as HTMLElement;
+    expect(within(todayRow).getByText("Due today")).toBeDefined();
+
+    // Loans join the list with the installment amount and full due date.
+    const loanRow = within(dues).getByText("BDO").closest("li") as HTMLElement;
+    expect(within(loanRow).getByText("Loan")).toBeDefined();
+    expect(within(loanRow).getByText("₱100")).toBeDefined();
+    expect(within(loanRow).getByText("Due in 1 day")).toBeDefined();
+    expect(loanRow.textContent).toContain("due 2026-10-15");
+
+    // A future bill gets the plural countdown, a plain amount, no Overdue.
     const billRow = within(dues).getByText("Meralco").closest("li") as HTMLElement;
+    expect(within(billRow).getByText("Due in 6 days")).toBeDefined();
     expect(within(billRow).queryByText("Overdue")).toBeNull();
     expect(within(billRow).getByText("₱2500").className).not.toContain(
       "text-danger",
     );
-    expect(billRow.textContent).toContain("due 05");
+    expect(billRow.textContent).toContain("due 20");
   });
 
   it("shows the loans summary total, count, and an Open link to finance", async () => {
@@ -232,7 +278,6 @@ describe("DashboardPage", () => {
       ...dashboard,
       income_day: { cash_cents: 0, gcash_cents: 0, total_cents: 0, count: 0 },
       income_month: { cash_cents: 0, gcash_cents: 0, total_cents: 0, count: 0 },
-      money_out_day_cents: 0,
       money_out_month_cents: 0,
       net_day_cents: 0,
       net_month_cents: 0,

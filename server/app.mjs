@@ -2199,24 +2199,27 @@ export function createApp(dbPath, opts = {}) {
   });
 
   // --- dashboard (Task 13: closing-time reconciliation; Task 8 money-out) ---
-  // NET RULE (Task 8, spec §3 option A — supersedes the Task 13 expenses-only
-  // rule): net_day = income_day.total - money_out_day and net_month =
-  // income_month.total - money_out_month. Money-out is PAYMENTS-BASED:
-  // expenses (date prefix) + paid bills (paid_at prefix) + paid payables
-  // (paid_at prefix) + loan payments (paid_at prefix); the month bucket also
-  // includes salaries (server-stamped paid_at). Task 10 owns adding salaries
-  // to the day net. STOCKS —
-  // unpaid_bills_cents, unpaid_payables_cents, outstanding_loans_cents — are
-  // separate memo lines and are NEVER subtracted into net. An unpaid bill is
-  // not money out yet; legacy paid rows with NULL paid_at never count.
+  // NET RULES (recurring-dues Task 10, spec §2): net_day =
+  // income_day.total - expenses_day. Day net is today's sales minus today's
+  // expenses ONLY: salaries and paid bills/payables/loans never reduce it.
+  // net_month = income_month.total - money_out_month, where money-out is
+  // PAYMENTS-BASED: expenses (date prefix) + paid bills (paid_at prefix) +
+  // paid payables (paid_at prefix) + loan payments (paid_at prefix) +
+  // salaries (paid_at prefix, counted exactly once and never as an expense).
+  // STOCKS — unpaid_bills_cents, unpaid_payables_cents,
+  // outstanding_loans_cents — are separate memo lines and are NEVER
+  // subtracted into net. An unpaid bill is not money out yet; legacy paid
+  // rows with NULL paid_at never count.
   // DAY/MONTH RULING (Task 8 binds): sales match on the created_at TEXT
   // prefix YYYY-MM-DD / YYYY-MM; expenses match on the date TEXT prefix.
   // DUES RULING: "today" is the resolved ?date= value (defaults to UTC
-  // today). Bills have no full date, so due is the zero-padded due_day
-  // ("05"); payables keep their due_date. upcoming_dues holds ALL unpaid
-  // bills plus unpaid payables with due_date <= date+7 days (overdues have
-  // no lower bound), sorted by due ascending; each item carries overdue
-  // (true only for payables with due_date < date).
+  // today). upcoming_dues holds ALL unpaid bills plus unpaid payables and
+  // outstanding loans (balance_cents > 0) with due_date <= date+7 days
+  // (overdues have no lower bound). Bills show the zero-padded day-of-month
+  // from due_date ("05"); payables and loans show the full due_date.
+  // days_until is the UTC calendar difference from the resolved date (0 =
+  // today, negative = overdue); overdue is true exactly when due_date <
+  // date, for every kind. Sorted by due_date, then label.
   app.get("/api/dashboard", (req, res) => {
     const todayUTC = new Date().toISOString().slice(0, 10);
     const date = req.query.date === undefined ? todayUTC : String(req.query.date);
@@ -2302,11 +2305,6 @@ export function createApp(dbPath, opts = {}) {
       (sum, cents) => sum + cents,
       0,
     );
-    const moneyOutDay =
-      paidOut("bills", date) +
-      expensesDay +
-      paidOut("payables", date) +
-      loanPayments(date);
 
     const unpaidBills = db
       .prepare(
@@ -2337,22 +2335,24 @@ export function createApp(dbPath, opts = {}) {
       .prepare("SELECT COUNT(*) AS v FROM salaries WHERE paid_at LIKE ?")
       .get(`${month}%`).v;
 
-    const cutoff = new Date(
-      new Date(`${date}T00:00:00Z`).getTime() + 7 * 86400000,
-    )
-      .toISOString()
-      .slice(0, 10);
+    const cutoff = addDays(date, 7);
+    const dateMs = Date.parse(`${date}T00:00:00Z`);
+    const daysUntil = (dueDate) =>
+      Math.round((Date.parse(`${dueDate}T00:00:00Z`) - dateMs) / 86400000);
     const upcomingDues = [
       ...db
-        .prepare("SELECT name, amount_cents, due_day FROM bills WHERE paid = 0")
+        .prepare(
+          "SELECT name, amount_cents, due_date FROM bills WHERE paid = 0",
+        )
         .all()
         .map((bill) => ({
           kind: "bill",
           label: bill.name,
           amount_cents: bill.amount_cents,
-          due: String(bill.due_day).padStart(2, "0"),
-          // Bills have no full date, so they can never be overdue here.
-          overdue: false,
+          due: bill.due_date.slice(8, 10),
+          overdue: bill.due_date < date,
+          days_until: daysUntil(bill.due_date),
+          due_date: bill.due_date,
         })),
       ...db
         .prepare(
@@ -2365,11 +2365,37 @@ export function createApp(dbPath, opts = {}) {
           amount_cents: payable.amount_cents,
           due: payable.due_date,
           overdue: payable.due_date < date,
+          days_until: daysUntil(payable.due_date),
+          due_date: payable.due_date,
         })),
-    ].sort((a, b) => {
-      if (a.due !== b.due) return a.due < b.due ? -1 : 1;
-      return a.label.localeCompare(b.label);
-    });
+      ...db
+        .prepare(
+          "SELECT lender, installment_cents, due_date FROM loans WHERE balance_cents > 0 AND due_date <= ?",
+        )
+        .all(cutoff)
+        .map((loan) => ({
+          kind: "loan",
+          label: loan.lender,
+          amount_cents: loan.installment_cents,
+          due: loan.due_date,
+          overdue: loan.due_date < date,
+          days_until: daysUntil(loan.due_date),
+          due_date: loan.due_date,
+        })),
+    ]
+      .sort((a, b) => {
+        if (a.due_date !== b.due_date) return a.due_date < b.due_date ? -1 : 1;
+        if (a.label !== b.label) return a.label < b.label ? -1 : 1;
+        return 0;
+      })
+      .map((due) => ({
+        kind: due.kind,
+        label: due.label,
+        amount_cents: due.amount_cents,
+        due: due.due,
+        overdue: due.overdue,
+        days_until: due.days_until,
+      }));
 
     const loanRows = db
       .prepare(
@@ -2436,10 +2462,9 @@ export function createApp(dbPath, opts = {}) {
       expenses_month_count: expensesMonthCount,
       salaries_month_cents: moneyOutMonthByKind.salaries_cents,
       salaries_month_count: salariesMonthCount,
-      money_out_day_cents: moneyOutDay,
       money_out_month_cents: moneyOutMonth,
       money_out_month_by_kind: moneyOutMonthByKind,
-      net_day_cents: incomeDay.total_cents - moneyOutDay,
+      net_day_cents: incomeDay.total_cents - expensesDay,
       net_month_cents: incomeMonth.total_cents - moneyOutMonth,
       unpaid_bills_cents: unpaidBills,
       unpaid_bills_count: unpaidBillsCount,

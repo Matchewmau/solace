@@ -127,6 +127,13 @@ const seed = db.transaction(() => {
     "2026-10-05",
     "2026-10-05 12:00:00",
   );
+  // Paid on the dashboard day: must never reduce the day net.
+  addPaidPayable.run(
+    "Paid Day Payable",
+    1234,
+    "2026-10-13",
+    "2026-10-13 12:00:00",
+  );
 
   const addLoanPayment = db.prepare(
     "INSERT INTO loan_payments (loan_id, amount_cents, paid_at) VALUES (?, ?, ?)",
@@ -266,8 +273,8 @@ describe("dashboard reconciliation (Task 13)", () => {
     }).toEqual({
       paidBillsMonth: 15000,
       paidBillsDay: 15000,
-      paidPayablesMonth: 8000,
-      paidPayablesDay: 0,
+      paidPayablesMonth: 9234,
+      paidPayablesDay: 1234,
       loansMonth: 7000,
       loansDay: 5000,
       salariesMonth: 15000,
@@ -312,9 +319,6 @@ describe("dashboard reconciliation (Task 13)", () => {
       loans_cents: loansMonth,
       salaries_cents: salariesMonth,
     });
-    expect(body.money_out_day_cents).toBe(
-      paidBillsDay + expDay + paidPayablesDay + loansDay,
-    );
     expect(body.money_out_month_cents).toBe(
       paidBillsMonth +
         expMonth +
@@ -322,17 +326,16 @@ describe("dashboard reconciliation (Task 13)", () => {
         loansMonth +
         salariesMonth,
     );
-    // Net rule (spec §3 option A): income minus ALL money-out (payments-based
-    // across expenses, paid bills, paid payables, loan payments, and salaries
-    // in the month bucket). Stocks stay separate memo lines.
-    expect(body.net_day_cents).toBe(dayCash + dayGcash - body.money_out_day_cents);
+    // Net rules (spec §2): day net is sales minus today's expenses only;
+    // month net is income minus all payments-based money-out (including
+    // salaries). Stocks stay separate memo lines.
+    expect(body.net_day_cents).toBe(dayCash + dayGcash - expDay);
     expect(body.net_month_cents).toBe(
       monthCash + monthGcash - body.money_out_month_cents,
     );
-    expect(body.money_out_day_cents).toBe(24000);
-    expect(body.money_out_month_cents).toBe(50000);
-    expect(body.net_day_cents).toBe(-10200);
-    expect(body.net_month_cents).toBe(-19700);
+    expect(body.money_out_month_cents).toBe(51234);
+    expect(body.net_day_cents).toBe(9800);
+    expect(body.net_month_cents).toBe(-20934);
     expect(body.unpaid_bills_cents).toBe(unpaidBills);
     expect(body.unpaid_payables_cents).toBe(unpaidPayables);
     expect(body.outstanding_loans_cents).toBe(outstanding);
@@ -361,40 +364,89 @@ describe("dashboard reconciliation (Task 13)", () => {
     expect(res.body.salaries_month_cents).toBe(15000);
     expect(res.body.salaries_month_count).toBe(2);
     expect(res.body.money_out_month_cents).toBe(
-      15000 + 5000 + 8000 + 7000 + 15000,
+      15000 + 5000 + 9234 + 7000 + 15000,
     );
-    // Salaries are month-only for now; Task 10 owns the day net.
-    expect(res.body.money_out_day_cents).toBe(24000);
+    // Day net uses expenses only; the 12,000 salary paid today stays out.
+    expect(res.body.net_day_cents).toBe(9800);
   });
 
-  it("upcoming dues: all unpaid bills (padded due_day) + unpaid payables within date+7, sorted by due", async () => {
+  it("computes day net from income minus today's expenses only", async () => {
     const res = await api
       .get(`/api/dashboard?date=${DATE}&month=${MONTH}`)
       .expect(200);
-    // Cutoff 2026-10-20: Today Due (edge in), Week Due (edge in),
-    // Overdue (no lower bound), Later Due 10-21 out, Paid Due out.
-    // overdue is true only for payables with due_date < the resolved date.
+
+    // Payments on DATE: a paid bill, a paid payable, a loan payment, and a
+    // salary all land today, yet none of them may reduce the day net.
+    const paidBillsDay = scalar(
+      "SELECT COALESCE(SUM(amount_cents), 0) AS v FROM bills WHERE paid = 1 AND paid_at LIKE ?",
+      `${DATE}%`,
+    ).v;
+    const paidPayablesDay = scalar(
+      "SELECT COALESCE(SUM(amount_cents), 0) AS v FROM payables WHERE paid = 1 AND paid_at LIKE ?",
+      `${DATE}%`,
+    ).v;
+    const loanPaymentsDay = scalar(
+      "SELECT COALESCE(SUM(amount_cents), 0) AS v FROM loan_payments WHERE paid_at LIKE ?",
+      `${DATE}%`,
+    ).v;
+    const salariesDay = scalar(
+      "SELECT COALESCE(SUM(amount_cents), 0) AS v FROM salaries WHERE paid_at LIKE ?",
+      `${DATE}%`,
+    ).v;
+    expect({
+      paidBillsDay,
+      paidPayablesDay,
+      loanPaymentsDay,
+      salariesDay,
+    }).toEqual({
+      paidBillsDay: 15000,
+      paidPayablesDay: 1234,
+      loanPaymentsDay: 5000,
+      salariesDay: 12000,
+    });
+
+    // Day in 13,800 − today's expenses 4,000 = 9,800.
+    expect(res.body.income_day.total_cents).toBe(13800);
+    expect(res.body.expenses_day_cents).toBe(4000);
+    expect(res.body.net_day_cents).toBe(9800);
+    expect(res.body.net_day_cents).toBe(
+      res.body.income_day.total_cents - res.body.expenses_day_cents,
+    );
+  });
+
+  it("does not return money_out_day_cents", async () => {
+    const res = await api
+      .get(`/api/dashboard?date=${DATE}&month=${MONTH}`)
+      .expect(200);
+    expect(res.body).not.toHaveProperty("money_out_day_cents");
+    expect(res.body.expenses_day_cents).toBe(4000);
+    expect(res.body.money_out_month_cents).toBe(51234);
+  });
+
+  it("upcoming dues keeps a 7-day horizon and includes loans with days_until", async () => {
+    const res = await api
+      .get(`/api/dashboard?date=${DATE}&month=${MONTH}`)
+      .expect(200);
+    // Cutoff 2026-10-20. All unpaid bills are listed regardless of horizon;
+    // unpaid payables and outstanding loans join when due on/before the
+    // cutoff (overdue has no lower bound). Later Due 10-21 and Paid Due stay
+    // out, as does the paid-off loan. Sorted by the real due_date then label.
     expect(res.body.upcoming_dues).toEqual([
-      {
-        kind: "bill",
-        label: "Meralco",
-        amount_cents: 250000,
-        due: "05",
-        overdue: false,
-      },
-      {
-        kind: "bill",
-        label: "Water",
-        amount_cents: 50000,
-        due: "20",
-        overdue: false,
-      },
       {
         kind: "payable",
         label: "Overdue",
         amount_cents: 40000,
         due: "2026-10-01",
         overdue: true,
+        days_until: -12,
+      },
+      {
+        kind: "bill",
+        label: "Meralco",
+        amount_cents: 250000,
+        due: "05",
+        overdue: true,
+        days_until: -8,
       },
       {
         kind: "payable",
@@ -402,6 +454,23 @@ describe("dashboard reconciliation (Task 13)", () => {
         amount_cents: 10000,
         due: "2026-10-13",
         overdue: false,
+        days_until: 0,
+      },
+      {
+        kind: "loan",
+        label: "BDO",
+        amount_cents: 10000,
+        due: "2026-10-15",
+        overdue: false,
+        days_until: 2,
+      },
+      {
+        kind: "bill",
+        label: "Water",
+        amount_cents: 50000,
+        due: "20",
+        overdue: false,
+        days_until: 7,
       },
       {
         kind: "payable",
@@ -409,6 +478,7 @@ describe("dashboard reconciliation (Task 13)", () => {
         amount_cents: 20000,
         due: "2026-10-20",
         overdue: false,
+        days_until: 7,
       },
     ]);
     expect(res.body.overdue_payables_count).toBe(1);

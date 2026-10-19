@@ -14,12 +14,14 @@ export interface IncomeSlice {
 }
 
 export interface UpcomingDue {
-  kind: "bill" | "payable";
+  kind: "bill" | "payable" | "loan";
   label: string;
   amount_cents: number;
   due: string;
-  /** true for overdue payables (due before the resolved date); false for bills. */
+  /** true when the due date is before the resolved dashboard date. */
   overdue?: boolean;
+  /** UTC calendar days from the resolved date (0 = today, negative = overdue). */
+  days_until: number;
 }
 
 export interface MoneyOutByKind {
@@ -55,7 +57,6 @@ export interface Dashboard {
   income_month: IncomeSlice;
   expenses_day_cents: number;
   expenses_month_cents: number;
-  money_out_day_cents?: number;
   money_out_month_cents?: number;
   money_out_month_by_kind?: MoneyOutByKind;
   /** Exactly 14 entries, oldest → newest, ending at `date`. */
