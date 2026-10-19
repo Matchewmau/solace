@@ -676,11 +676,82 @@ describe("POS paid flow with history", () => {
     });
     expect(puts[0]).toEqual({
       items: [{ menu_item_id: 1, qty: 2, variant: null }],
+      // Done on an edit sends the current method along with the lines.
+      payment: "cash",
     });
     await waitFor(() => {
       // Refreshed server total renders twice: the sale total and the line.
       expect(screen.getAllByText("₱140")).toHaveLength(2);
     });
+  });
+
+  it("lets an unpaid done sale switch to GCash while editing and sends the method on Done", async () => {
+    const puts: unknown[] = [];
+    globalThis.fetch = vi.fn(
+      menuFetch(async (u, init) => {
+        if (u === "/api/sales" && init?.method === "POST") {
+          const body = JSON.parse(String(init.body)) as {
+            payment: string;
+            items: { menu_item_id: number; qty: number; variant?: string | null }[];
+          };
+          return ok(unpaidSale(24, 7000, body.payment, body.items), 201);
+        }
+        if (u === "/api/sales/24/items" && init?.method === "PUT") {
+          const body = JSON.parse(String(init.body)) as {
+            payment?: string;
+            items: { menu_item_id: number; qty: number; variant?: string | null }[];
+          };
+          puts.push(body);
+          return ok({
+            ...unpaidSale(24, 7000, body.payment ?? "cash", body.items),
+            items: body.items.map((line, index) => ({
+              id: index + 1,
+              menu_item_id: line.menu_item_id,
+              qty: line.qty,
+              unit_price_cents: 7000,
+              variant: line.variant ?? null,
+            })),
+          });
+        }
+        throw new Error(`unexpected fetch ${u} ${init?.method}`);
+      }),
+    ) as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Cortado");
+
+    // Cash sale driven to Done: the locked receipt reads Cash.
+    fireEvent.click(screen.getByRole("button", { name: /Cortado/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    await waitFor(() => {
+      expect(screen.getByText("UNPAID")).toBeDefined();
+    });
+    expect(screen.getByText("Cash")).toBeDefined();
+
+    // Edit exposes the method buttons; the switch stays local until Done.
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "GCash" }));
+    expect(
+      screen.getByRole("button", { name: "GCash" }).getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(puts).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+
+    await waitFor(() => {
+      expect(puts).toHaveLength(1);
+    });
+    expect(puts[0]).toEqual({
+      items: [{ menu_item_id: 1, qty: 1, variant: null }],
+      payment: "gcash",
+    });
+    // The updated sale drives the receipt (and the next Pay action);
+    // switching the method does not settle the sale.
+    await waitFor(() => {
+      expect(screen.getByText("Sale complete")).toBeDefined();
+    });
+    expect(screen.getByText("GCash")).toBeDefined();
+    expect(screen.getByText("UNPAID")).toBeDefined();
   });
 
   it("GCash Pay PATCHes paid 1 with no received amount and closes the tab after the delay", async () => {

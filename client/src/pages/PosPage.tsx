@@ -253,6 +253,7 @@ export default function PosPage() {
             qty: line.qty,
             variant: line.variant,
           })),
+          order.payment,
         );
         completeOrder(order.key, updated);
       } else {
@@ -497,32 +498,28 @@ export default function PosPage() {
             Total <span className="text-accent">{formatPeso(totalCents)}</span>
           </p>
           {active.sale ? (
-            <>
-              <p className="text-sm text-muted">
-                Editing {active.label} — payment {active.payment === "cash" ? "Cash" : "GCash"} is fixed. Tap items to stage changes, then Done to save.
-              </p>
-              <p className="text-lg">{active.payment === "cash" ? "Cash" : "GCash"}</p>
-            </>
-          ) : (
-            <div className="flex gap-3">
-              <button
-                type="button"
-                aria-pressed={active.payment === "cash"}
-                onClick={() => setPayment(active.key, "cash")}
-                className={methodButton(active.payment === "cash")}
-              >
-                Cash
-              </button>
-              <button
-                type="button"
-                aria-pressed={active.payment === "gcash"}
-                onClick={() => setPayment(active.key, "gcash")}
-                className={methodButton(active.payment === "gcash")}
-              >
-                GCash
-              </button>
-            </div>
-          )}
+            <p className="text-sm text-muted">
+              Editing {active.label} — payment can be changed before Done. Tap items to stage changes, then Done to save.
+            </p>
+          ) : null}
+          <div className="flex gap-3">
+            <button
+              type="button"
+              aria-pressed={active.payment === "cash"}
+              onClick={() => setPayment(active.key, "cash")}
+              className={methodButton(active.payment === "cash")}
+            >
+              Cash
+            </button>
+            <button
+              type="button"
+              aria-pressed={active.payment === "gcash"}
+              onClick={() => setPayment(active.key, "gcash")}
+              className={methodButton(active.payment === "gcash")}
+            >
+              GCash
+            </button>
+          </div>
           <button
             type="button"
             onClick={() => void checkout()}

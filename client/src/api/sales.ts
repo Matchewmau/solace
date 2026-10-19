@@ -142,12 +142,20 @@ export function patchSalePaid(
 }
 
 /** Replace a sale's lines (finalized-but-unpaid edits). The server
- * re-prices from active menu items and returns the updated Sale. */
-export function putSaleItems(id: number, items: SaleItemPayload[]): Promise<Sale> {
+ * re-prices from active menu items and returns the updated Sale. `payment`
+ * rides along on Done so an unpaid edit can switch methods; paid sales
+ * reject a change server-side. */
+export function putSaleItems(
+  id: number,
+  items: SaleItemPayload[],
+  payment?: PaymentMethod,
+): Promise<Sale> {
+  const body: { items: SaleItemPayload[]; payment?: PaymentMethod } = { items };
+  if (payment !== undefined) body.payment = payment;
   return requestJson<Sale>(`/api/sales/${id}/items`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ items }),
+    body: JSON.stringify(body),
   });
 }
 

@@ -829,7 +829,20 @@ export function createApp(dbPath, opts = {}) {
     if (current.voided === 1) {
       return sendError(res, 400, "unvoid sale before editing items");
     }
-    const { items } = req.body ?? {};
+    const { items, payment } = req.body ?? {};
+    // Payment may ride along on an unpaid edit (Done sends the current
+    // method). Paid sales are locked: switching method after settlement
+    // would desync received/change accounting, so only the same method
+    // passes. Omitting payment keeps the sale's stored method.
+    if (payment !== undefined) {
+      if (payment !== "cash" && payment !== "gcash") {
+        return sendError(res, 400, "payment must be 'cash' or 'gcash'");
+      }
+      if (current.paid === 1 && payment !== current.payment) {
+        return sendError(res, 400, "cannot change payment on a paid sale");
+      }
+    }
+    const nextPayment = payment === undefined ? current.payment : payment;
     const resolved = resolveItemLines(items);
     if (resolved.error) {
       return sendError(res, 400, resolved.error);
@@ -853,7 +866,9 @@ export function createApp(dbPath, opts = {}) {
           line.variant,
         );
       }
-      db.prepare("UPDATE sales SET total_cents = ? WHERE id = ?").run(total, id);
+      db.prepare(
+        "UPDATE sales SET total_cents = ?, payment = ? WHERE id = ?",
+      ).run(total, nextPayment, id);
     });
     replace();
     res.json(saleWithItems(id));
