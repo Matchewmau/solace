@@ -79,6 +79,9 @@ export function seedDb(dbPath) {
     db.prepare(
       "INSERT INTO loan_payments (loan_id, amount_cents, paid_at) VALUES (?, 500000, ?)",
     ).run(loanId, stamp);
+    db.prepare(
+      "INSERT INTO salaries (name, amount_cents, note, paid_at) VALUES ('Smoke Salary', 250000, 'Smoke payout', ?)",
+    ).run(stamp);
   });
   insert();
   return db;

@@ -2035,6 +2035,79 @@ export function createApp(dbPath, opts = {}) {
     );
   });
 
+  // --- salaries (Task 5: paid salary ledger; paid_at is server-stamped) ---
+  const SALARY_COLS = "id, name, amount_cents, note, paid_at";
+
+  function salaryRow(id) {
+    return db
+      .prepare(`SELECT ${SALARY_COLS} FROM salaries WHERE id = ?`)
+      .get(id);
+  }
+
+  function validateSalaryFields({ name, amount_cents, note }) {
+    if (typeof name !== "string" || name.trim() === "") {
+      return "name is required";
+    }
+    if (!validateMoney(amount_cents)) {
+      return "amount_cents must be a non-negative integer";
+    }
+    if (typeof note !== "string") {
+      return "note must be a string";
+    }
+    return null;
+  }
+
+  app.get("/api/salaries", (req, res) => {
+    res.json(
+      db.prepare(`SELECT ${SALARY_COLS} FROM salaries ORDER BY id DESC`).all(),
+    );
+  });
+
+  app.post("/api/salaries", (req, res) => {
+    // No date input: every logged salary is stamped at insert time (UTC).
+    const { name, amount_cents, note = "" } = req.body ?? {};
+    const error = validateSalaryFields({ name, amount_cents, note });
+    if (error) return sendError(res, 400, error);
+    const info = db
+      .prepare(
+        "INSERT INTO salaries (name, amount_cents, note, paid_at) VALUES (?, ?, ?, ?)",
+      )
+      .run(name.trim(), amount_cents, note, nowStamp());
+    res.status(201).json(salaryRow(info.lastInsertRowid));
+  });
+
+  app.get("/api/salaries/:id", (req, res) => {
+    const id = parseId(req.params.id);
+    const row = id ? salaryRow(id) : undefined;
+    if (!row) return sendError(res, 404, "salary not found");
+    res.json(row);
+  });
+
+  app.patch("/api/salaries/:id", (req, res) => {
+    const id = parseId(req.params.id);
+    const current = id ? salaryRow(id) : undefined;
+    if (!current) return sendError(res, 404, "salary not found");
+    const {
+      name = current.name,
+      amount_cents = current.amount_cents,
+      note = current.note,
+    } = req.body ?? {};
+    const error = validateSalaryFields({ name, amount_cents, note });
+    if (error) return sendError(res, 400, error);
+    db.prepare(
+      "UPDATE salaries SET name = ?, amount_cents = ?, note = ? WHERE id = ?",
+    ).run(name.trim(), amount_cents, note, id);
+    res.json(salaryRow(id));
+  });
+
+  app.delete("/api/salaries/:id", (req, res) => {
+    const id = parseId(req.params.id);
+    if (!id) return sendError(res, 404, "salary not found");
+    const info = db.prepare("DELETE FROM salaries WHERE id = ?").run(id);
+    if (info.changes === 0) return sendError(res, 404, "salary not found");
+    res.status(204).end();
+  });
+
   // --- due alerts (Task 4: read-only collector for the global bar) ---
   // Windows are per-item for bills and loans; payables use a fixed 3-day
   // window. Overdue items are included regardless of lead time, and the key
@@ -2130,7 +2203,9 @@ export function createApp(dbPath, opts = {}) {
   // rule): net_day = income_day.total - money_out_day and net_month =
   // income_month.total - money_out_month. Money-out is PAYMENTS-BASED:
   // expenses (date prefix) + paid bills (paid_at prefix) + paid payables
-  // (paid_at prefix) + loan payments (paid_at prefix). STOCKS —
+  // (paid_at prefix) + loan payments (paid_at prefix); the month bucket also
+  // includes salaries (server-stamped paid_at). Task 10 owns adding salaries
+  // to the day net. STOCKS —
   // unpaid_bills_cents, unpaid_payables_cents, outstanding_loans_cents — are
   // separate memo lines and are NEVER subtracted into net. An unpaid bill is
   // not money out yet; legacy paid rows with NULL paid_at never count.
@@ -2201,6 +2276,16 @@ export function createApp(dbPath, opts = {}) {
         .get(`${prefix}%`).v;
     }
 
+    // Salaries are server-stamped paid_at rows (no user date field), so the
+    // same paid_at prefix rule applies.
+    function salaries(prefix) {
+      return db
+        .prepare(
+          "SELECT COALESCE(SUM(amount_cents), 0) AS v FROM salaries WHERE paid_at LIKE ?",
+        )
+        .get(`${prefix}%`).v;
+    }
+
     const incomeDay = income(date);
     const incomeMonth = income(month);
     const expensesDay = expenses(date);
@@ -2211,6 +2296,7 @@ export function createApp(dbPath, opts = {}) {
       expenses_cents: expensesMonth,
       payables_cents: paidOut("payables", month),
       loans_cents: loanPayments(month),
+      salaries_cents: salaries(month),
     };
     const moneyOutMonth = Object.values(moneyOutMonthByKind).reduce(
       (sum, cents) => sum + cents,
@@ -2246,6 +2332,9 @@ export function createApp(dbPath, opts = {}) {
       .get(date).v;
     const expensesMonthCount = db
       .prepare("SELECT COUNT(*) AS v FROM expenses WHERE date LIKE ?")
+      .get(`${month}%`).v;
+    const salariesMonthCount = db
+      .prepare("SELECT COUNT(*) AS v FROM salaries WHERE paid_at LIKE ?")
       .get(`${month}%`).v;
 
     const cutoff = new Date(
@@ -2345,6 +2434,8 @@ export function createApp(dbPath, opts = {}) {
       expenses_day_cents: expensesDay,
       expenses_month_cents: expensesMonth,
       expenses_month_count: expensesMonthCount,
+      salaries_month_cents: moneyOutMonthByKind.salaries_cents,
+      salaries_month_count: salariesMonthCount,
       money_out_day_cents: moneyOutDay,
       money_out_month_cents: moneyOutMonth,
       money_out_month_by_kind: moneyOutMonthByKind,

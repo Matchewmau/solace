@@ -22,7 +22,7 @@ describe("backup routine", () => {
     expect(readdirSync(backupDir).some((f) => f.match(/^solace-\d{8}-\d{6}\.db$/))).toBe(true);
   });
 
-  it("verify passes: integrity ok and all 13 tables present with counts", async () => {
+  it("verify passes: integrity ok and all 14 tables present with counts", async () => {
     const created = await runBackup(dbPath, backupDir);
     const result = await verifyBackup(created);
     expect(result.integrity).toBe("ok");

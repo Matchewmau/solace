@@ -24,6 +24,7 @@ export const EXPECTED_TABLES = [
   "payables",
   "loans",
   "loan_payments",
+  "salaries",
 ];
 
 function pad(n) {
@@ -84,7 +85,7 @@ export function pruneBackups(backupDir, keep = 14) {
   return files.slice(Math.max(0, files.length - keep));
 }
 
-// Restore check: read-only open, integrity_check must be ok, all 13 tables
+// Restore check: read-only open, integrity_check must be ok, all 14 tables
 // must exist. Returns { path, integrity, tables, counts }. Throws otherwise.
 export function verifyBackup(backupPath) {
   const target = resolve(backupPath);

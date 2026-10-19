@@ -135,6 +135,15 @@ const seed = db.transaction(() => {
   addLoanPayment.run(bdoLoanId, 2000, "2026-10-02 15:00:00");
   addLoanPayment.run(bdoLoanId, 1000, "2026-09-10 15:00:00");
 
+  // Task 5 salaries: server-stamped paid_at, summed by month prefix. Two
+  // October rows exercise both the sum and the count; September is outside.
+  const addSalary = db.prepare(
+    "INSERT INTO salaries (name, amount_cents, note, paid_at) VALUES (?, ?, '', ?)",
+  );
+  addSalary.run("Salary Ana", 12000, "2026-10-13 17:00:00");
+  addSalary.run("Salary Ben", 3000, "2026-10-01 09:00:00");
+  addSalary.run("Salary Sep", 5000, "2026-09-25 09:00:00");
+
   return { i1, i2, i3, i4, i5, i6 };
 });
 const ids = seed();
@@ -222,6 +231,14 @@ describe("dashboard reconciliation (Task 13)", () => {
       "SELECT COALESCE(SUM(amount_cents), 0) AS v FROM loan_payments WHERE paid_at LIKE ?",
       `${DATE}%`,
     ).v;
+    const salariesMonth = scalar(
+      "SELECT COALESCE(SUM(amount_cents), 0) AS v FROM salaries WHERE paid_at LIKE ?",
+      `${MONTH}%`,
+    ).v;
+    const salariesMonthCount = scalar(
+      "SELECT COUNT(*) AS v FROM salaries WHERE paid_at LIKE ?",
+      `${MONTH}%`,
+    ).v;
     const unpaidBillsCount = scalar(
       "SELECT COUNT(*) AS v FROM bills WHERE paid = 0",
     ).v;
@@ -244,6 +261,8 @@ describe("dashboard reconciliation (Task 13)", () => {
       paidPayablesDay,
       loansMonth,
       loansDay,
+      salariesMonth,
+      salariesMonthCount,
     }).toEqual({
       paidBillsMonth: 15000,
       paidBillsDay: 15000,
@@ -251,6 +270,8 @@ describe("dashboard reconciliation (Task 13)", () => {
       paidPayablesDay: 0,
       loansMonth: 7000,
       loansDay: 5000,
+      salariesMonth: 15000,
+      salariesMonthCount: 2,
     });
     expect({ dayCash, dayGcash, dayCount }).toEqual({
       dayCash: 10000,
@@ -282,29 +303,36 @@ describe("dashboard reconciliation (Task 13)", () => {
     expect(body.expenses_day_cents).toBe(expDay);
     expect(body.expenses_month_cents).toBe(expMonth);
     expect(body.expenses_month_count).toBe(expMonthCount);
+    expect(body.salaries_month_cents).toBe(salariesMonth);
+    expect(body.salaries_month_count).toBe(salariesMonthCount);
     expect(body.money_out_month_by_kind).toEqual({
       bills_cents: paidBillsMonth,
       expenses_cents: expMonth,
       payables_cents: paidPayablesMonth,
       loans_cents: loansMonth,
+      salaries_cents: salariesMonth,
     });
     expect(body.money_out_day_cents).toBe(
       paidBillsDay + expDay + paidPayablesDay + loansDay,
     );
     expect(body.money_out_month_cents).toBe(
-      paidBillsMonth + expMonth + paidPayablesMonth + loansMonth,
+      paidBillsMonth +
+        expMonth +
+        paidPayablesMonth +
+        loansMonth +
+        salariesMonth,
     );
     // Net rule (spec §3 option A): income minus ALL money-out (payments-based
-    // across expenses, paid bills, paid payables, loan payments). Stocks stay
-    // separate memo lines.
+    // across expenses, paid bills, paid payables, loan payments, and salaries
+    // in the month bucket). Stocks stay separate memo lines.
     expect(body.net_day_cents).toBe(dayCash + dayGcash - body.money_out_day_cents);
     expect(body.net_month_cents).toBe(
       monthCash + monthGcash - body.money_out_month_cents,
     );
     expect(body.money_out_day_cents).toBe(24000);
-    expect(body.money_out_month_cents).toBe(35000);
+    expect(body.money_out_month_cents).toBe(50000);
     expect(body.net_day_cents).toBe(-10200);
-    expect(body.net_month_cents).toBe(-4700);
+    expect(body.net_month_cents).toBe(-19700);
     expect(body.unpaid_bills_cents).toBe(unpaidBills);
     expect(body.unpaid_payables_cents).toBe(unpaidPayables);
     expect(body.outstanding_loans_cents).toBe(outstanding);
@@ -315,6 +343,28 @@ describe("dashboard reconciliation (Task 13)", () => {
     expect({ unpaidBillsCount, unpaidPayablesCount, overduePayablesCount }).toEqual(
       { unpaidBillsCount: 2, unpaidPayablesCount: 4, overduePayablesCount: 1 },
     );
+  });
+
+  it("month money-out includes salaries and exposes the salary count", async () => {
+    const res = await api
+      .get(`/api/dashboard?date=${DATE}&month=${MONTH}`)
+      .expect(200);
+    const byKind = res.body.money_out_month_by_kind;
+    expect(Object.keys(byKind)).toEqual([
+      "bills_cents",
+      "expenses_cents",
+      "payables_cents",
+      "loans_cents",
+      "salaries_cents",
+    ]);
+    expect(byKind.salaries_cents).toBe(15000);
+    expect(res.body.salaries_month_cents).toBe(15000);
+    expect(res.body.salaries_month_count).toBe(2);
+    expect(res.body.money_out_month_cents).toBe(
+      15000 + 5000 + 8000 + 7000 + 15000,
+    );
+    // Salaries are month-only for now; Task 10 owns the day net.
+    expect(res.body.money_out_day_cents).toBe(24000);
   });
 
   it("upcoming dues: all unpaid bills (padded due_day) + unpaid payables within date+7, sorted by due", async () => {

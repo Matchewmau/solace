@@ -120,8 +120,17 @@ CREATE TABLE IF NOT EXISTS loan_payments (
   paid_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS salaries (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  amount_cents INTEGER NOT NULL,
+  note TEXT NOT NULL DEFAULT '',
+  paid_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_menu_items_category_id ON menu_items(category_id);
 CREATE INDEX IF NOT EXISTS idx_sale_items_sale_id ON sale_items(sale_id);
 CREATE INDEX IF NOT EXISTS idx_stock_movements_stock_item_id ON stock_movements(stock_item_id);
 CREATE INDEX IF NOT EXISTS idx_recipe_lines_recipe_id ON recipe_lines(recipe_id);
 CREATE INDEX IF NOT EXISTS idx_loan_payments_loan_id ON loan_payments(loan_id);
+CREATE INDEX IF NOT EXISTS idx_salaries_paid_at ON salaries(paid_at);

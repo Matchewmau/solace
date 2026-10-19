@@ -19,6 +19,7 @@ const EXPECTED_TABLES = [
   "payables",
   "loans",
   "loan_payments",
+  "salaries",
 ];
 
 const dir = mkdtempSync(join(tmpdir(), "solace-schema-test-"));
@@ -40,7 +41,7 @@ function tableNames() {
 }
 
 describe("solace schema", () => {
-  it("creates all 13 tables", () => {
+  it("creates all 14 tables", () => {
     expect(tableNames().sort()).toEqual([...EXPECTED_TABLES].sort());
   });
 

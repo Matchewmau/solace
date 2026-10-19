@@ -15,7 +15,7 @@ Backup: `node server/db/backup.mjs [db-path] [backup-dir] [--keep N]`
 `solace-YYYYMMDD-HHMMSS.db`, prints the created path, prunes older
 `solace-*.db` files beyond N newest. Restore check:
 `node server/db/backup.mjs --verify <backup-path>` (integrity_check `ok` +
-all 13 tables + counts; exit 0 clean, non-zero `{error}` otherwise).
+all 14 tables + counts; exit 0 clean, non-zero `{error}` otherwise).
 
 When the server starts, it creates one backup if no backup for the local
 calendar day exists, then rechecks every 24 hours while running. Configure
