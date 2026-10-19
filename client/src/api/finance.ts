@@ -51,7 +51,15 @@ export interface Loan {
   principal_cents: number;
   balance_cents: number;
   installment_cents: number;
+  /** UTC due date (YYYY-MM-DD); the schedule source of truth. */
+  due_date: string;
+  /** @deprecated Compatibility mirror of the day-of-month in due_date. */
   due_day: number;
+  frequency: "weekly" | "monthly";
+  /** Inclusive last date the series may recur on; null means no end. */
+  end_date: string | null;
+  /** Days before the due date to surface the loan in due alerts. */
+  alert_days: number;
 }
 
 export interface LoanPayment {
@@ -171,18 +179,22 @@ export function fetchLoanPayments(loanId: number): Promise<LoanPayment[]> {
 export function postLoanPayment(
   loanId: number,
   amount_cents: number,
-): Promise<{ payment: LoanPayment; balance_cents: number }> {
-  return postJson<{ payment: LoanPayment; balance_cents: number }>(
-    `/api/loans/${loanId}/payments`,
-    { amount_cents },
-  );
+): Promise<{ payment: LoanPayment; balance_cents: number; due_date: string }> {
+  return postJson<{
+    payment: LoanPayment;
+    balance_cents: number;
+    due_date: string;
+  }>(`/api/loans/${loanId}/payments`, { amount_cents });
 }
 
 export function postLoan(input: {
   lender: string;
   principal_cents: number;
   installment_cents: number;
-  due_day: number;
+  due_date: string;
+  frequency: "weekly" | "monthly";
+  end_date?: string;
+  alert_days: number;
 }): Promise<Loan> {
   return postJson<Loan>("/api/loans", input);
 }

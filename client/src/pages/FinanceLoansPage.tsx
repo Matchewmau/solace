@@ -5,6 +5,7 @@ import {
   fetchLoans,
   postLoan,
   postLoanPayment,
+  utcToday,
   type Loan,
 } from "../api/finance";
 import { formatPeso } from "../lib/formatPeso";
@@ -40,23 +41,33 @@ export default function FinanceLoansPage() {
   const [addError, setAddError] = useState<string | null>(null);
   const [payingLoan, setPayingLoan] = useState<Loan | null>(null);
   const [payError, setPayError] = useState<string | null>(null);
+  const [alertDays, setAlertDays] = useState("3");
 
   const loansQuery = useQuery({
     queryKey: ["loans"],
     queryFn: () => fetchLoans(),
   });
 
+  function invalidateFinanceQueries() {
+    for (const key of ["loans", "dashboard", "due-alerts"]) {
+      void queryClient.invalidateQueries({ queryKey: [key] });
+    }
+  }
+
   const addMutation = useMutation({
     mutationFn: (input: {
       lender: string;
       principal_cents: number;
       installment_cents: number;
-      due_day: number;
+      due_date: string;
+      frequency: "weekly" | "monthly";
+      end_date?: string;
+      alert_days: number;
     }) => postLoan(input),
     onSuccess: () => {
       setAddError(null);
       setAddOpen(false);
-      void queryClient.invalidateQueries({ queryKey: ["loans"] });
+      invalidateFinanceQueries();
     },
     onError: () => {
       setAddError("Could not add that loan.");
@@ -74,7 +85,7 @@ export default function FinanceLoansPage() {
     onSuccess: (_data, variables) => {
       setPayError(null);
       setPayingLoan(null);
-      void queryClient.invalidateQueries({ queryKey: ["loans"] });
+      invalidateFinanceQueries();
       void queryClient.invalidateQueries({
         queryKey: ["loan-payments", variables.loanId],
       });
@@ -104,7 +115,24 @@ export default function FinanceLoansPage() {
       align: "right",
       render: (loan) => formatPeso(loan.installment_cents),
     },
-    { key: "due_day", label: "Due day", render: (loan) => loan.due_day },
+    { key: "due_date", label: "Next due", render: (loan) => loan.due_date },
+    {
+      key: "frequency",
+      label: "Repeats",
+      render: (loan) => (
+        <div className="flex flex-col">
+          <span>{loan.frequency === "weekly" ? "Weekly" : "Monthly"}</span>
+          <span className="text-xs text-muted">
+            {loan.end_date ? `until ${loan.end_date}` : "Until fully paid"}
+          </span>
+        </div>
+      ),
+    },
+    {
+      key: "alert_days",
+      label: "Alert",
+      render: (loan) => `${loan.alert_days} days`,
+    },
     {
       key: "status",
       label: "Status",
@@ -137,6 +165,7 @@ export default function FinanceLoansPage() {
               variant="primary"
               onClick={() => {
                 setAddError(null);
+                setAlertDays("3");
                 setAddOpen(true);
               }}
             >
@@ -257,19 +286,36 @@ export default function FinanceLoansPage() {
             const installment_cents = Math.round(
               Number(String(data.get("installment") ?? "")) * 100,
             );
-            const due_day = Number(String(data.get("due_day") ?? ""));
-            if (lender === "") return;
+            const due_date = String(data.get("due_date") ?? "");
+            const frequency = String(data.get("frequency") ?? "monthly");
+            const end_date = String(data.get("end_date") ?? "");
+            const alert_days = Number(String(data.get("alert_days") ?? ""));
+            if (lender === "" || due_date === "") return;
             if (!Number.isInteger(principal_cents) || principal_cents < 0)
               return;
             if (!Number.isInteger(installment_cents) || installment_cents <= 0)
               return;
-            if (!Number.isInteger(due_day) || due_day < 1 || due_day > 31)
+            if (frequency !== "weekly" && frequency !== "monthly") return;
+            if (
+              !Number.isInteger(alert_days) ||
+              alert_days < 1 ||
+              alert_days > 30
+            ) {
               return;
+            }
+            if (end_date !== "" && end_date < due_date) {
+              setAddError("End date must be on or after the due date.");
+              return;
+            }
+            setAddError(null);
             addMutation.mutate({
               lender,
               principal_cents,
               installment_cents,
-              due_day,
+              due_date,
+              frequency,
+              ...(end_date !== "" ? { end_date } : {}),
+              alert_days,
             });
           }}
         >
@@ -301,17 +347,57 @@ export default function FinanceLoansPage() {
             aria-label="Loan installment in pesos"
             className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
           />
-          <input
-            name="due_day"
-            type="number"
-            min="1"
-            max="31"
-            step="1"
-            required
-            placeholder="Due day"
-            aria-label="Loan due day"
-            className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
-          />
+          <label className="flex flex-col gap-1 text-sm">
+            Due date
+            <input
+              name="due_date"
+              type="date"
+              required
+              defaultValue={utcToday()}
+              className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            Repeats
+            <select
+              name="frequency"
+              defaultValue="monthly"
+              className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+            >
+              <option value="monthly">Monthly</option>
+              <option value="weekly">Weekly</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            Ends on (optional)
+            <input
+              name="end_date"
+              type="date"
+              className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            Alert days
+            <input
+              name="alert_days"
+              type="number"
+              min="1"
+              max="30"
+              step="1"
+              required
+              value={alertDays}
+              onChange={(event) => setAlertDays(event.target.value)}
+              className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+            />
+          </label>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setAlertDays("3")}>
+              3 days
+            </Button>
+            <Button variant="outline" onClick={() => setAlertDays("5")}>
+              5 days
+            </Button>
+          </div>
           <div className="flex gap-2">
             <Button
               type="submit"

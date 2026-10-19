@@ -21,7 +21,11 @@ const loans: Loan[] = [
     principal_cents: 100000,
     balance_cents: 90000,
     installment_cents: 10000,
+    due_date: "2026-10-15",
     due_day: 15,
+    frequency: "monthly",
+    end_date: null,
+    alert_days: 3,
   },
 ];
 
