@@ -29,6 +29,26 @@ function utcToday(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+const KINDS: readonly DueAlertKind[] = ["bill", "loan", "payable"];
+
+/** Drop malformed entries so one bad row cannot crash the app shell. */
+function isDueAlert(value: unknown): value is DueAlert {
+  if (typeof value !== "object" || value === null) return false;
+  const alert = value as Record<string, unknown>;
+  return (
+    typeof alert.key === "string" &&
+    alert.key !== "" &&
+    typeof alert.kind === "string" &&
+    KINDS.includes(alert.kind as DueAlertKind) &&
+    typeof alert.label === "string" &&
+    typeof alert.amount_cents === "number" &&
+    Number.isFinite(alert.amount_cents) &&
+    typeof alert.days_until === "number" &&
+    Number.isFinite(alert.days_until) &&
+    typeof alert.overdue === "boolean"
+  );
+}
+
 async function requestJson(url: string): Promise<unknown> {
   const res = await authFetch(url);
   if (!res.ok) {
@@ -57,9 +77,9 @@ export async function fetchDueAlerts(): Promise<DueAlertsResponse> {
   ) {
     return { date: utcToday(), alerts: [] };
   }
-  const response = payload as { date?: unknown; alerts: DueAlert[] };
+  const response = payload as { date?: unknown; alerts: unknown[] };
   return {
     date: typeof response.date === "string" ? response.date : utcToday(),
-    alerts: response.alerts,
+    alerts: response.alerts.filter(isDueAlert),
   };
 }

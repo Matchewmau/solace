@@ -29,6 +29,7 @@ const EAGER_CHAIN = [
   "../pages/InventoryPage.tsx",
   "../pages/InventoryHistoryPage.tsx",
   "./AppHeader.tsx",
+  "./DueAlerts.tsx",
   "./SalesTable.tsx",
   "./ui.tsx",
   "./charts.tsx",

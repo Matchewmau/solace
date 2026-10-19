@@ -10,7 +10,7 @@ import { formatPeso } from "../lib/formatPeso";
 
 /**
  * Global due-soon bar. Mounted once in AuthedLayout, so it must stay free of
- * motion/react and three (the app shell is on the eager chunk).
+ * the motion and three packages (the app shell is on the eager chunk).
  *
  * POS starts collapsed to keep the register clear; every other route starts
  * expanded. Per-alert dismissals live for the current UTC day only, and the
@@ -36,19 +36,29 @@ function utcToday(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+interface Dismissals {
+  date: string;
+  keys: string[];
+}
+
 /** Stored keys are only valid for the UTC day that dismissed them. */
-function readDismissed(today: string): string[] {
+function readDismissed(): Dismissals {
   try {
     const raw = localStorage.getItem(DISMISS_KEY);
-    if (raw === null) return [];
+    if (raw === null) return { date: "", keys: [] };
     const parsed = JSON.parse(raw) as { date?: unknown; keys?: unknown };
-    if (parsed?.date === today && Array.isArray(parsed.keys)) {
-      return parsed.keys.filter((key): key is string => typeof key === "string");
+    if (typeof parsed?.date === "string" && Array.isArray(parsed.keys)) {
+      return {
+        date: parsed.date,
+        keys: parsed.keys.filter(
+          (key): key is string => typeof key === "string",
+        ),
+      };
     }
   } catch {
     // Corrupt or unavailable storage reads as "nothing dismissed".
   }
-  return [];
+  return { date: "", keys: [] };
 }
 
 function dayCount(days: number): string {
@@ -67,9 +77,9 @@ export default function DueAlerts() {
   const { pathname } = useLocation();
   const onPos = pathname === "/pos";
   const [open, setOpen] = useState(!onPos);
-  const [dismissed, setDismissed] = useState<string[]>(() =>
-    readDismissed(utcToday()),
-  );
+  const [dismissed, setDismissed] = useState<Dismissals>(readDismissed);
+  const today = utcToday();
+  const activeKeys = dismissed.date === today ? dismissed.keys : [];
 
   useEffect(() => {
     setOpen(pathname !== "/pos");
@@ -85,28 +95,27 @@ export default function DueAlerts() {
   if (alertsQuery.isError) return null;
 
   const alerts = alertsQuery.data?.alerts ?? [];
-  const visible = alerts.filter((alert) => !dismissed.includes(alert.key));
+  const visible = alerts.filter((alert) => !activeKeys.includes(alert.key));
   if (visible.length === 0) return null;
 
   function persist(keys: string[]): void {
-    const next = [...new Set(keys)];
-    setDismissed(next);
+    const day = utcToday();
+    const base = dismissed.date === day ? dismissed.keys : [];
+    const next = [...new Set([...base, ...keys])];
+    setDismissed({ date: day, keys: next });
     try {
-      localStorage.setItem(
-        DISMISS_KEY,
-        JSON.stringify({ date: utcToday(), keys: next }),
-      );
+      localStorage.setItem(DISMISS_KEY, JSON.stringify({ date: day, keys: next }));
     } catch {
       // Storage unavailable (private mode) — the in-memory hide still holds.
     }
   }
 
   function dismiss(key: string): void {
-    persist([...dismissed, key]);
+    persist([key]);
   }
 
   function dismissAll(): void {
-    persist([...dismissed, ...visible.map((alert) => alert.key)]);
+    persist(visible.map((alert) => alert.key));
   }
 
   if (!open) {
