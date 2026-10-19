@@ -2,6 +2,7 @@ import { useState, type ComponentType } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "./AuthProvider";
 import { BottomSheet } from "./BottomSheet";
+import DueAlerts from "./DueAlerts";
 import {
   BoxIcon,
   BookIcon,
@@ -206,6 +207,7 @@ export function AuthedLayout() {
       <div className="min-w-0 flex-1 pb-14 md:pb-0">
         <Outlet />
       </div>
+      <DueAlerts />
       <BottomNav />
     </div>
   );

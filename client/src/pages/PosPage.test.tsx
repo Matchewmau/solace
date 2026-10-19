@@ -65,6 +65,8 @@ function menuFetch(
     const u = String(url);
     if (u === "/api/categories") return ok(categories);
     if (u === "/api/menu_items?active=1") return ok(items);
+    if (u === "/api/due-alerts")
+      return ok({ date: new Date().toISOString().slice(0, 10), alerts: [] });
     if (u.startsWith("/api/sales/summary")) return ok(emptySummary);
     if (u.startsWith("/api/sales?")) return ok([]);
     if (onSale && (u === "/api/sales" || u.startsWith("/api/sales/"))) {

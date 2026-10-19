@@ -55,7 +55,9 @@ export default function FinancePayablesPage() {
     mutationFn: ({ id, next }: { id: number; next: 0 | 1 }) =>
       patchPayablePaid(id, next),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["payables"] });
+      for (const key of ["payables", "dashboard", "due-alerts"]) {
+        void queryClient.invalidateQueries({ queryKey: [key] });
+      }
     },
   });
 

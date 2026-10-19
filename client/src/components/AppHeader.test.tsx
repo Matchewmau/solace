@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   cleanup,
   fireEvent,
@@ -6,29 +6,55 @@ import {
   screen,
   within,
 } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./AuthProvider";
 import { AuthedLayout } from "./AppHeader";
 import { clearStoredAuth, getStoredAuth, setStoredAuth } from "../lib/auth";
 
+beforeEach(() => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: unknown) => {
+      if (String(url) === "/api/due-alerts") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            date: new Date().toISOString().slice(0, 10),
+            alerts: [],
+          }),
+        } as Response;
+      }
+      throw new Error(`unexpected fetch ${String(url)}`);
+    }),
+  );
+});
+
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
   clearStoredAuth();
   localStorage.clear();
 });
 
 function renderAt(path: string) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   return render(
-    <MemoryRouter initialEntries={[path]}>
-      <AuthProvider>
-        <Routes>
-          <Route path="/login" element={<p>Login</p>} />
-          <Route element={<AuthedLayout />}>
-            <Route path="*" element={<p>Page</p>} />
-          </Route>
-        </Routes>
-      </AuthProvider>
-    </MemoryRouter>,
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={[path]}>
+        <AuthProvider>
+          <Routes>
+            <Route path="/login" element={<p>Login</p>} />
+            <Route element={<AuthedLayout />}>
+              <Route path="*" element={<p>Page</p>} />
+            </Route>
+          </Routes>
+        </AuthProvider>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 
