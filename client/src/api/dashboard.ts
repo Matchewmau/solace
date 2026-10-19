@@ -27,6 +27,7 @@ export interface MoneyOutByKind {
   expenses_cents: number;
   payables_cents: number;
   loans_cents: number;
+  salaries_cents: number;
 }
 
 export interface SalesByDay {
@@ -67,6 +68,8 @@ export interface Dashboard {
   unpaid_payables_count?: number;
   overdue_payables_count?: number;
   expenses_month_count?: number;
+  salaries_month_cents?: number;
+  salaries_month_count?: number;
   outstanding_loans_cents: number;
   outstanding_loans_count?: number;
   upcoming_dues: UpcomingDue[];

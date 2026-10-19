@@ -9,7 +9,7 @@ import type { ReactNode } from "react";
 
 /**
  * Finance money dashboard (/finance). The long per-ledger lists moved to the
- * four drill-in routes in Task 15; this page is the month money view: a
+ * drill-in routes in Task 15; this page is the month money view: a
  * money-in / money-out / net strip, a Donut of where the money went, and one
  * quick-link box per ledger. Lazy route chunk — motion imports are allowed.
  */
@@ -20,6 +20,7 @@ const MONEY_OUT_COLOR = {
   expenses: "#141210",
   payables: "#b98a5e",
   loans: "#6f6a61",
+  salaries: "#5c6f5a",
 } as const;
 
 function LoadingSkeleton() {
@@ -88,6 +89,11 @@ export default function FinancePage() {
       color: MONEY_OUT_COLOR.payables,
     },
     { label: "Loans", value: byKind?.loans_cents ?? 0, color: MONEY_OUT_COLOR.loans },
+    {
+      label: "Salaries",
+      value: byKind?.salaries_cents ?? 0,
+      color: MONEY_OUT_COLOR.salaries,
+    },
   ];
 
   return (
@@ -154,7 +160,7 @@ export default function FinancePage() {
               </Box>
             </StaggerSection>
             <StaggerSection ariaLabel="Ledgers">
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
                 <DrillBox
                   title="Bills"
                   value={formatPeso(data.unpaid_bills_cents)}
@@ -185,6 +191,12 @@ export default function FinancePage() {
                   value={formatPeso(data.outstanding_loans_cents)}
                   hint={`${data.outstanding_loans_count ?? 0} outstanding`}
                   to="/finance/loans"
+                />
+                <DrillBox
+                  title="Salaries"
+                  value={formatPeso(data.salaries_month_cents ?? 0)}
+                  hint={`${data.salaries_month_count ?? 0} paid this month`}
+                  to="/finance/salaries"
                 />
               </div>
             </StaggerSection>

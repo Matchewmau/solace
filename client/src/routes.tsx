@@ -16,7 +16,7 @@ import { PageFrame } from "./components/ui";
  * /menu (Task 6) + /pos (Task 7) + /guide (Task 9) + /inventory (Task 10)
  * + /finance (Task 11) + /dashboard (Task 13) + /showcase (Task 14)
  * + /inventory/history (eager) + /finance/history (lazy with finance)
- * + /finance/{bills,expenses,payables,loans} (Task 15 drill-ins, lazy).
+ * + /finance/{bills,expenses,payables,salaries,loans} (Task 15 drill-ins, lazy).
  * YAGNI — no placeholder pages for future routes.
  *
  * Chunk split (Task 14): motion/three weight must NOT land in the entry
@@ -36,6 +36,7 @@ const FinanceHistoryPage = lazy(() => import("./pages/FinanceHistoryPage"));
 const FinanceBillsPage = lazy(() => import("./pages/FinanceBillsPage"));
 const FinanceExpensesPage = lazy(() => import("./pages/FinanceExpensesPage"));
 const FinancePayablesPage = lazy(() => import("./pages/FinancePayablesPage"));
+const FinanceSalariesPage = lazy(() => import("./pages/FinanceSalariesPage"));
 const FinanceLoansPage = lazy(() => import("./pages/FinanceLoansPage"));
 const DashboardPage = lazy(() => import("./pages/DashboardPage"));
 const ShowcasePage = lazy(() => import("./pages/ShowcasePage"));
@@ -155,6 +156,13 @@ export const routes: RouteObject[] = [
             path: "/finance/payables",
             element: withBrandFallback(
               <FinancePayablesPage />,
+              FinanceFallback,
+            ),
+          },
+          {
+            path: "/finance/salaries",
+            element: withBrandFallback(
+              <FinanceSalariesPage />,
               FinanceFallback,
             ),
           },

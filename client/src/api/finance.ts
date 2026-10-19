@@ -35,6 +35,15 @@ export interface Expense {
   note: string;
 }
 
+export interface Salary {
+  id: number;
+  name: string;
+  amount_cents: number;
+  note: string;
+  /** UTC stamp when the payout was logged; set by the server. */
+  paid_at: string;
+}
+
 export interface Payable {
   id: number;
   label: string;
@@ -148,6 +157,18 @@ export function postExpense(input: {
   note?: string;
 }): Promise<Expense> {
   return postJson<Expense>("/api/expenses", input);
+}
+
+export function fetchSalaries(): Promise<Salary[]> {
+  return requestJson<Salary[]>("/api/salaries");
+}
+
+export function postSalary(input: {
+  name: string;
+  amount_cents: number;
+  note?: string;
+}): Promise<Salary> {
+  return postJson<Salary>("/api/salaries", input);
 }
 
 export function fetchPayables(): Promise<Payable[]> {

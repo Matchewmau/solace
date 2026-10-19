@@ -15,8 +15,8 @@ afterEach(() => {
 
 /**
  * Fixture: month income 30300, money out 9000, net 30300 - 9000 = 21300.
- * Donut shares of the 9000 money-out total: bills 3000 (33%), expenses
- * 4000 (44%), payables 1000 (11%), loans 1000 (11%).
+ * Donut shares of the 9000 money-out total: bills 3000, expenses 4000,
+ * payables 500, loans 500, salaries 1000.
  */
 const dashboard: Dashboard = {
   date: "2026-10-13",
@@ -35,9 +35,12 @@ const dashboard: Dashboard = {
   money_out_month_by_kind: {
     bills_cents: 3000,
     expenses_cents: 4000,
-    payables_cents: 1000,
-    loans_cents: 1000,
+    payables_cents: 500,
+    loans_cents: 500,
+    salaries_cents: 1000,
   },
+  salaries_month_cents: 1000,
+  salaries_month_count: 1,
   net_day_cents: 0,
   net_month_cents: 21300,
   unpaid_bills_cents: 300000,
@@ -109,7 +112,7 @@ describe("FinancePage money dashboard", () => {
     expect(netValue.className).toContain("text-danger");
   });
 
-  it("lists all four money-out kinds in the donut legend with percentages", async () => {
+  it("lists all five money-out kinds including salaries", async () => {
     stubDashboard();
     renderFinance();
 
@@ -122,8 +125,9 @@ describe("FinancePage money dashboard", () => {
     for (const [label, value] of [
       ["Bills", "₱30"],
       ["Expenses", "₱40"],
-      ["Payables", "₱10"],
-      ["Loans", "₱10"],
+      ["Payables", "₱5"],
+      ["Loans", "₱5"],
+      ["Salaries", "₱10"],
     ] as const) {
       const row = within(donut).getByText(label).closest("li") as HTMLElement;
       expect(within(row).getByText(value)).toBeDefined();
@@ -131,7 +135,19 @@ describe("FinancePage money dashboard", () => {
     }
   });
 
-  it("renders the four drill-in boxes with numbers, hints, and Open links", async () => {
+  it("shows the salaries drill box with the month total and count", async () => {
+    stubDashboard();
+    renderFinance();
+
+    const salaries = await screen.findByRole("region", { name: "Salaries" });
+    expect(within(salaries).getByText("₱10")).toBeDefined();
+    expect(within(salaries).getByText("1 paid this month")).toBeDefined();
+    expect(
+      within(salaries).getByRole("link", { name: "Open" }).getAttribute("href"),
+    ).toBe("/finance/salaries");
+  });
+
+  it("renders the five drill-in boxes with numbers, hints, and Open links", async () => {
     stubDashboard();
     renderFinance();
 
@@ -164,6 +180,13 @@ describe("FinancePage money dashboard", () => {
     expect(
       within(loans).getByRole("link", { name: "Open" }).getAttribute("href"),
     ).toBe("/finance/loans");
+
+    const salaries = region("Salaries");
+    expect(within(salaries).getByText("₱10")).toBeDefined();
+    expect(within(salaries).getByText("1 paid this month")).toBeDefined();
+    expect(
+      within(salaries).getByRole("link", { name: "Open" }).getAttribute("href"),
+    ).toBe("/finance/salaries");
   });
 
   it("hides the overdue badge when nothing is overdue", async () => {

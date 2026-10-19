@@ -36,6 +36,7 @@ const dashboard: Dashboard = {
     expenses_cents: 5000,
     payables_cents: 1000,
     loans_cents: 0,
+    salaries_cents: 0,
   },
   sales_by_day: SALES_BY_DAY,
   net_day_cents: 9800,
