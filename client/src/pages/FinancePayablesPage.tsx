@@ -51,13 +51,17 @@ export default function FinancePayablesPage() {
     queryFn: fetchPayables,
   });
 
+  function invalidateFinanceQueries() {
+    for (const key of ["payables", "dashboard", "due-alerts"]) {
+      void queryClient.invalidateQueries({ queryKey: [key] });
+    }
+  }
+
   const toggleMutation = useMutation({
     mutationFn: ({ id, next }: { id: number; next: 0 | 1 }) =>
       patchPayablePaid(id, next),
     onSuccess: () => {
-      for (const key of ["payables", "dashboard", "due-alerts"]) {
-        void queryClient.invalidateQueries({ queryKey: [key] });
-      }
+      invalidateFinanceQueries();
     },
   });
 
@@ -70,7 +74,7 @@ export default function FinancePayablesPage() {
     onSuccess: () => {
       setAddError(null);
       setAddOpen(false);
-      void queryClient.invalidateQueries({ queryKey: ["payables"] });
+      invalidateFinanceQueries();
     },
     onError: () => {
       setAddError("Could not add that payable.");

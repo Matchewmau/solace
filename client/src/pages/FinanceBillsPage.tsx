@@ -71,12 +71,15 @@ export default function FinanceBillsPage() {
       alert_days: number;
     }) => postBill(input),
     onSuccess: () => {
+      setActionError(null);
       setAddError(null);
       setAddOpen(false);
       invalidateFinanceQueries();
     },
-    onError: () => {
-      setAddError("Could not add that bill.");
+    onError: (error) => {
+      setAddError(
+        error instanceof Error ? error.message : "Could not add that bill.",
+      );
     },
   });
 
@@ -108,7 +111,8 @@ export default function FinanceBillsPage() {
     {
       key: "alert_days",
       label: "Alert",
-      render: (bill) => `${bill.alert_days} days`,
+      render: (bill) =>
+        `${bill.alert_days} ${bill.alert_days === 1 ? "day" : "days"}`,
     },
     {
       key: "status",

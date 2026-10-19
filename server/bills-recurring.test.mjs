@@ -297,6 +297,55 @@ describe("recurring bills", () => {
     await api.get("/api/bills?due_before=2026-02-30").expect(400);
   });
 
+  it("heals a NULL due_date left by an interrupted first-boot migration", async () => {
+    const interruptedDir = mkdtempSync(
+      join(tmpdir(), "solace-bills-interrupted-"),
+    );
+    const interruptedPath = join(interruptedDir, "interrupted.db");
+    try {
+      const legacy = new Database(interruptedPath);
+      legacy.exec(
+        "CREATE TABLE bills (id INTEGER PRIMARY KEY, name TEXT NOT NULL, amount_cents INTEGER NOT NULL, due_date TEXT, due_day INTEGER NOT NULL, paid INTEGER NOT NULL DEFAULT 0)",
+      );
+      legacy
+        .prepare(
+          "INSERT INTO bills (name, amount_cents, due_date, due_day, paid) VALUES (?, ?, ?, ?, ?)",
+        )
+        .run("Interrupted Bill", 1000, null, 15, 0);
+      legacy.close();
+
+      const today = new Date().toISOString().slice(0, 10);
+      const month = today.slice(0, 7);
+      let healedDueDate;
+      const firstApp = createApp(interruptedPath);
+      try {
+        const firstApi = authed(firstApp);
+        healedDueDate = firstApp.locals.db
+          .prepare("SELECT due_date FROM bills WHERE id = 1")
+          .get().due_date;
+        expect(healedDueDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+        // This read used to throw on bill.due_date.slice(...).
+        await firstApi
+          .get(`/api/dashboard?date=${today}&month=${month}`)
+          .expect(200);
+      } finally {
+        firstApp.locals.db.close();
+      }
+
+      const secondApp = createApp(interruptedPath);
+      try {
+        const secondRow = secondApp.locals.db
+          .prepare("SELECT due_date FROM bills WHERE id = 1")
+          .get();
+        expect(secondRow.due_date).toBe(healedDueDate);
+      } finally {
+        secondApp.locals.db.close();
+      }
+    } finally {
+      rmSync(interruptedDir, { recursive: true, force: true });
+    }
+  });
+
   it("an old DB with due_day NOT NULL accepts a new bill after migration", async () => {
     const legacyDir = mkdtempSync(join(tmpdir(), "solace-bills-legacy-"));
     const legacyPath = join(legacyDir, "legacy.db");

@@ -196,6 +196,57 @@ describe("recurring loans", () => {
     }
   });
 
+  it("heals a NULL due_date left by an interrupted first-boot migration", async () => {
+    const interruptedDir = mkdtempSync(
+      join(tmpdir(), "solace-loans-interrupted-"),
+    );
+    const interruptedPath = join(interruptedDir, "interrupted.db");
+    try {
+      const legacy = new Database(interruptedPath);
+      legacy.exec(
+        "CREATE TABLE loans (id INTEGER PRIMARY KEY, lender TEXT NOT NULL, principal_cents INTEGER NOT NULL, balance_cents INTEGER NOT NULL, installment_cents INTEGER NOT NULL, due_date TEXT, due_day INTEGER NOT NULL)",
+      );
+      legacy
+        .prepare(
+          "INSERT INTO loans (lender, principal_cents, balance_cents, installment_cents, due_date, due_day) VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .run("Interrupted Lender", 50000, 40000, 5000, null, 15);
+      legacy.close();
+
+      let healedDueDate;
+      const firstApp = createApp(interruptedPath);
+      try {
+        const firstApi = authed(firstApp);
+        healedDueDate = firstApp.locals.db
+          .prepare("SELECT due_date FROM loans WHERE id = 1")
+          .get().due_date;
+        expect(healedDueDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+        // This used to throw in addFrequency(current.due_date, ...).
+        await firstApi
+          .post("/api/loans/1/payments")
+          .send({ amount_cents: 1000 })
+          .expect(201);
+        const fetched = await firstApi.get("/api/loans/1").expect(200);
+        expect(fetched.body.due_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+        healedDueDate = fetched.body.due_date;
+      } finally {
+        firstApp.locals.db.close();
+      }
+
+      const secondApp = createApp(interruptedPath);
+      try {
+        const secondRow = secondApp.locals.db
+          .prepare("SELECT due_date FROM loans WHERE id = 1")
+          .get();
+        expect(secondRow.due_date).toBe(healedDueDate);
+      } finally {
+        secondApp.locals.db.close();
+      }
+    } finally {
+      rmSync(interruptedDir, { recursive: true, force: true });
+    }
+  });
+
   it("an old DB with due_day NOT NULL accepts a new loan after migration", async () => {
     const legacyDir = mkdtempSync(join(tmpdir(), "solace-loans-legacy-"));
     const legacyPath = join(legacyDir, "legacy.db");

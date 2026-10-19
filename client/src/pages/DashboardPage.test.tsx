@@ -79,7 +79,7 @@ const dashboard: Dashboard = {
       kind: "bill",
       label: "Meralco",
       amount_cents: 250000,
-      due: "20",
+      due: "2026-10-20",
       overdue: false,
       days_until: 6,
     },
@@ -236,7 +236,7 @@ describe("DashboardPage", () => {
     expect(within(billRow).getByText("₱2500").className).not.toContain(
       "text-danger",
     );
-    expect(billRow.textContent).toContain("due 20");
+    expect(billRow.textContent).toContain("due 2026-10-20");
   });
 
   it("shows the loans summary total, count, and an Open link to finance", async () => {

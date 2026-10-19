@@ -124,20 +124,33 @@ function openDb(dbPath) {
   // due_day. Add due_date nullable first, then backfill from due_day, so
   // CREATE TABLE IF NOT EXISTS never needs a table rebuild. due_day stays as
   // a compatibility mirror; new code reads due_date only.
+  const migrationToday = utcToday();
   const billCols = db
     .prepare("PRAGMA table_info(bills)")
     .all()
     .map((col) => col.name);
   if (!billCols.includes("due_date")) {
     db.exec("ALTER TABLE bills ADD COLUMN due_date TEXT");
-    const backfill = db.transaction(() => {
-      const update = db.prepare("UPDATE bills SET due_date = ? WHERE id = ?");
-      for (const row of db.prepare("SELECT id, due_day FROM bills").all()) {
-        update.run(nextDateForDay(row.due_day), row.id);
-      }
-    });
-    backfill();
   }
+  // Heal NULL due_date on every boot. ALTER TABLE autocommits, so a crash
+  // between it and the backfill would otherwise leave due_date NULL forever:
+  // the next boot sees the column and skips a conditional backfill. Only NULL
+  // rows are touched, making this idempotent. A malformed NULL due_day falls
+  // back to today's day-of-month and is repaired so the mirror stays valid.
+  const backfillBills = db.transaction(() => {
+    const update = db.prepare(
+      "UPDATE bills SET due_date = ?, due_day = ? WHERE id = ?",
+    );
+    for (const row of db
+      .prepare("SELECT id, due_day FROM bills WHERE due_date IS NULL")
+      .all()) {
+      const dueDay = Number.isInteger(row.due_day)
+        ? row.due_day
+        : Number(migrationToday.slice(8, 10));
+      update.run(nextDateForDay(dueDay, migrationToday), dueDay, row.id);
+    }
+  });
+  backfillBills();
   if (!billCols.includes("frequency")) {
     db.exec("ALTER TABLE bills ADD COLUMN frequency TEXT NOT NULL DEFAULT 'monthly'");
   }
@@ -181,14 +194,23 @@ function openDb(dbPath) {
     .map((col) => col.name);
   if (!loanCols.includes("due_date")) {
     db.exec("ALTER TABLE loans ADD COLUMN due_date TEXT");
-    const backfill = db.transaction(() => {
-      const update = db.prepare("UPDATE loans SET due_date = ? WHERE id = ?");
-      for (const row of db.prepare("SELECT id, due_day FROM loans").all()) {
-        update.run(nextDateForDay(row.due_day), row.id);
-      }
-    });
-    backfill();
   }
+  // Heal NULL due_date on every boot (same interrupted-first-boot reason as
+  // bills above). Only NULL rows are touched, so repeated boots are no-ops.
+  const backfillLoans = db.transaction(() => {
+    const update = db.prepare(
+      "UPDATE loans SET due_date = ?, due_day = ? WHERE id = ?",
+    );
+    for (const row of db
+      .prepare("SELECT id, due_day FROM loans WHERE due_date IS NULL")
+      .all()) {
+      const dueDay = Number.isInteger(row.due_day)
+        ? row.due_day
+        : Number(migrationToday.slice(8, 10));
+      update.run(nextDateForDay(dueDay, migrationToday), dueDay, row.id);
+    }
+  });
+  backfillLoans();
   if (!loanCols.includes("frequency")) {
     db.exec(
       "ALTER TABLE loans ADD COLUMN frequency TEXT NOT NULL DEFAULT 'monthly'",
@@ -2349,7 +2371,7 @@ export function createApp(dbPath, opts = {}) {
           kind: "bill",
           label: bill.name,
           amount_cents: bill.amount_cents,
-          due: bill.due_date.slice(8, 10),
+          due: bill.due_date,
           overdue: bill.due_date < date,
           days_until: daysUntil(bill.due_date),
           due_date: bill.due_date,

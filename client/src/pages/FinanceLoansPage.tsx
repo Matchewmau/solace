@@ -69,8 +69,10 @@ export default function FinanceLoansPage() {
       setAddOpen(false);
       invalidateFinanceQueries();
     },
-    onError: () => {
-      setAddError("Could not add that loan.");
+    onError: (error) => {
+      setAddError(
+        error instanceof Error ? error.message : "Could not add that loan.",
+      );
     },
   });
 
@@ -131,7 +133,8 @@ export default function FinanceLoansPage() {
     {
       key: "alert_days",
       label: "Alert",
-      render: (loan) => `${loan.alert_days} days`,
+      render: (loan) =>
+        `${loan.alert_days} ${loan.alert_days === 1 ? "day" : "days"}`,
     },
     {
       key: "status",
@@ -173,7 +176,7 @@ export default function FinanceLoansPage() {
             </Button>
           </div>
           <p className="text-sm text-muted">
-            Lenders, balances, and monthly installments.
+            Lenders, balances, and weekly or monthly installments.
           </p>
         </Reveal>
         {loansQuery.isLoading ? (
