@@ -10,7 +10,18 @@ export interface Bill {
   id: number;
   name: string;
   amount_cents: number;
+  /** UTC due date (YYYY-MM-DD); the schedule source of truth. */
+  due_date: string;
+  /** @deprecated Compatibility mirror of the day-of-month in due_date. */
   due_day: number;
+  frequency: "weekly" | "monthly";
+  /** Inclusive last date the series may recur on; null means no end. */
+  end_date: string | null;
+  /** Days before the due date to surface the bill in due alerts. */
+  alert_days: number;
+  series_id: number;
+  /** Bill that spawned this occurrence; null for the series head. */
+  source_bill_id: number | null;
   paid: number;
   /** UTC stamp when settled; null while unpaid. */
   paid_at?: string | null;
@@ -110,7 +121,10 @@ export function patchBillPaid(id: number, paid: 0 | 1): Promise<Bill> {
 export function postBill(input: {
   name: string;
   amount_cents: number;
-  due_day: number;
+  due_date: string;
+  frequency: "weekly" | "monthly";
+  end_date?: string;
+  alert_days: number;
 }): Promise<Bill> {
   return postJson<Bill>("/api/bills", input);
 }

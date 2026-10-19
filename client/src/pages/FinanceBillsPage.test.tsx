@@ -20,12 +20,37 @@ afterEach(() => {
 });
 
 const bills: Bill[] = [
-  { id: 1, name: "Meralco", amount_cents: 250000, due_day: 15, paid: 0 },
-  { id: 2, name: "Rent", amount_cents: 600000, due_day: 1, paid: 1 },
+  {
+    id: 1,
+    name: "Meralco",
+    amount_cents: 250000,
+    due_date: "2026-10-21",
+    due_day: 21,
+    frequency: "weekly",
+    end_date: "2026-11-25",
+    alert_days: 5,
+    series_id: 1,
+    source_bill_id: null,
+    paid: 0,
+  },
+  {
+    id: 2,
+    name: "Rent",
+    amount_cents: 600000,
+    due_date: "2026-10-01",
+    due_day: 1,
+    frequency: "monthly",
+    end_date: null,
+    alert_days: 3,
+    series_id: 2,
+    source_bill_id: null,
+    paid: 1,
+  },
 ];
 
 const patched: Array<{ url: string; body: unknown }> = [];
 const created: Array<{ url: string; body: unknown; headers: unknown }> = [];
+let patchFailure: { status: number; error: string } | null = null;
 
 function ok(data: unknown, status = 200): Response {
   return {
@@ -38,6 +63,7 @@ function ok(data: unknown, status = 200): Response {
 function stubFetch() {
   patched.length = 0;
   created.length = 0;
+  patchFailure = null;
   setStoredAuth("solace123");
   globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
     const u = String(url);
@@ -46,6 +72,9 @@ function stubFetch() {
     }
     const billMatch = u.match(/^\/api\/bills\/(\d+)$/);
     if (billMatch && init?.method === "PATCH") {
+      if (patchFailure !== null) {
+        return ok({ error: patchFailure.error }, patchFailure.status);
+      }
       const body = JSON.parse(String(init.body)) as { paid: 0 | 1 };
       patched.push({ url: u, body });
       const bill = bills.find((b) => b.id === Number(billMatch[1]));
@@ -105,7 +134,20 @@ describe("FinanceBillsPage", () => {
     expect(patched[0]).toEqual({ url: "/api/bills/1", body: { paid: 1 } });
   });
 
-  it("+ Add bill opens the dialog and submits postBill", async () => {
+  it("renders the schedule and alert lead time in the table", async () => {
+    stubFetch();
+    renderPage();
+
+    const row = (await screen.findByText("Meralco")).closest(
+      "tr",
+    ) as HTMLElement;
+    expect(within(row).getByText("2026-10-21")).toBeDefined();
+    expect(within(row).getByText("Weekly")).toBeDefined();
+    expect(within(row).getByText("until 2026-11-25")).toBeDefined();
+    expect(within(row).getByText("5 days")).toBeDefined();
+  });
+
+  it("adds a bill with due date, repeat, end date, and alert days", async () => {
     stubFetch();
     renderPage();
     await screen.findByText("Meralco");
@@ -123,10 +165,22 @@ describe("FinanceBillsPage", () => {
       form.querySelector('input[name="amount"]') as HTMLInputElement,
       { target: { value: "150" } },
     );
-    fireEvent.change(
-      form.querySelector('input[name="due_day"]') as HTMLInputElement,
-      { target: { value: "5" } },
-    );
+    fireEvent.change(within(form).getByLabelText("Due date"), {
+      target: { value: "2026-11-20" },
+    });
+    fireEvent.change(within(form).getByLabelText("Repeats"), {
+      target: { value: "weekly" },
+    });
+    fireEvent.change(within(form).getByLabelText("Ends on (optional)"), {
+      target: { value: "2026-12-31" },
+    });
+    fireEvent.change(within(form).getByLabelText("Alert days"), {
+      target: { value: "6" },
+    });
+    fireEvent.click(within(form).getByRole("button", { name: "5 days" }));
+    expect(
+      (within(form).getByLabelText("Alert days") as HTMLInputElement).value,
+    ).toBe("5");
     fireEvent.submit(form);
 
     await vi.waitFor(() => {
@@ -136,7 +190,58 @@ describe("FinanceBillsPage", () => {
     expect(created[0].body).toEqual({
       name: "Water",
       amount_cents: 15000,
-      due_day: 5,
+      due_date: "2026-11-20",
+      frequency: "weekly",
+      end_date: "2026-12-31",
+      alert_days: 5,
     });
+  });
+
+  it("rejects an end date before the due date without posting", async () => {
+    stubFetch();
+    renderPage();
+    await screen.findByText("Meralco");
+
+    fireEvent.click(screen.getByRole("button", { name: "+ Add bill" }));
+    const dialog = screen.getByRole("dialog", { name: "Add bill" });
+    const form = within(dialog).getByLabelText(
+      "Add bill form",
+    ) as HTMLFormElement;
+
+    fireEvent.change(form.querySelector('input[name="name"]') as HTMLInputElement, {
+      target: { value: "Water" },
+    });
+    fireEvent.change(
+      form.querySelector('input[name="amount"]') as HTMLInputElement,
+      { target: { value: "150" } },
+    );
+    fireEvent.change(within(form).getByLabelText("Due date"), {
+      target: { value: "2026-12-01" },
+    });
+    fireEvent.change(within(form).getByLabelText("Ends on (optional)"), {
+      target: { value: "2026-11-30" },
+    });
+    fireEvent.submit(form);
+
+    expect(
+      await screen.findByText("End date must be on or after the due date."),
+    ).toBeDefined();
+    expect(created).toHaveLength(0);
+  });
+
+  it("shows an error when unpaying after the next cycle is paid", async () => {
+    stubFetch();
+    patchFailure = {
+      status: 400,
+      error: "cannot unpay after the next cycle is paid",
+    };
+    renderPage();
+    await screen.findByText("Rent");
+
+    fireEvent.click(screen.getByRole("button", { name: "Toggle paid for Rent" }));
+
+    expect(
+      await screen.findByText("cannot unpay after the next cycle is paid"),
+    ).toBeDefined();
   });
 });

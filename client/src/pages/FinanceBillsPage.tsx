@@ -1,7 +1,13 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchBills, patchBillPaid, postBill, type Bill } from "../api/finance";
+import {
+  fetchBills,
+  patchBillPaid,
+  postBill,
+  utcToday,
+  type Bill,
+} from "../api/finance";
 import { formatPeso } from "../lib/formatPeso";
 import { Reveal } from "../components/motion";
 import DataTable, { type Column } from "../components/DataTable";
@@ -19,8 +25,8 @@ function LoadingSkeleton() {
 }
 
 /**
- * Focused bills route (/finance/bills). Bills, their due day, and paid
- * status move out of the long FinancePage into a drill-in page with a
+ * Focused bills route (/finance/bills). Bills, their recurring schedule, and
+ * paid status move out of the long FinancePage into a drill-in page with a
  * sortable-free DataTable, a row paid toggle, and a dialog add form.
  * Lazy route chunk — motion import is allowed here.
  */
@@ -28,14 +34,30 @@ export default function FinanceBillsPage() {
   const queryClient = useQueryClient();
   const [addOpen, setAddOpen] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [alertDays, setAlertDays] = useState("3");
 
   const billsQuery = useQuery({ queryKey: ["bills"], queryFn: fetchBills });
+
+  function invalidateFinanceQueries() {
+    for (const key of ["bills", "dashboard", "due-alerts"]) {
+      void queryClient.invalidateQueries({ queryKey: [key] });
+    }
+  }
 
   const toggleMutation = useMutation({
     mutationFn: ({ id, next }: { id: number; next: 0 | 1 }) =>
       patchBillPaid(id, next),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["bills"] });
+      setActionError(null);
+      invalidateFinanceQueries();
+    },
+    onError: (error) => {
+      setActionError(
+        error instanceof Error
+          ? error.message
+          : "Could not update that bill.",
+      );
     },
   });
 
@@ -43,12 +65,15 @@ export default function FinanceBillsPage() {
     mutationFn: (input: {
       name: string;
       amount_cents: number;
-      due_day: number;
+      due_date: string;
+      frequency: "weekly" | "monthly";
+      end_date?: string;
+      alert_days: number;
     }) => postBill(input),
     onSuccess: () => {
       setAddError(null);
       setAddOpen(false);
-      void queryClient.invalidateQueries({ queryKey: ["bills"] });
+      invalidateFinanceQueries();
     },
     onError: () => {
       setAddError("Could not add that bill.");
@@ -63,7 +88,28 @@ export default function FinanceBillsPage() {
       align: "right",
       render: (bill) => formatPeso(bill.amount_cents),
     },
-    { key: "due_day", label: "Due day", render: (bill) => bill.due_day },
+    {
+      key: "due_date",
+      label: "Due date",
+      render: (bill) => bill.due_date,
+    },
+    {
+      key: "frequency",
+      label: "Repeats",
+      render: (bill) => (
+        <div className="flex flex-col">
+          <span>{bill.frequency === "weekly" ? "Weekly" : "Monthly"}</span>
+          {bill.end_date ? (
+            <span className="text-xs text-muted">until {bill.end_date}</span>
+          ) : null}
+        </div>
+      ),
+    },
+    {
+      key: "alert_days",
+      label: "Alert",
+      render: (bill) => `${bill.alert_days} days`,
+    },
     {
       key: "status",
       label: "Status",
@@ -96,6 +142,7 @@ export default function FinanceBillsPage() {
               variant="primary"
               onClick={() => {
                 setAddError(null);
+                setAlertDays("3");
                 setAddOpen(true);
               }}
             >
@@ -106,6 +153,11 @@ export default function FinanceBillsPage() {
             Recurring bills and their paid status.
           </p>
         </Reveal>
+        {actionError ? (
+          <p role="alert" className="text-sm text-accent">
+            {actionError}
+          </p>
+        ) : null}
         {billsQuery.isLoading ? (
           <LoadingSkeleton />
         ) : billsQuery.isError ? (
@@ -158,11 +210,33 @@ export default function FinanceBillsPage() {
             const amount_cents = Math.round(
               Number(String(data.get("amount") ?? "")) * 100,
             );
-            const due_day = Number(String(data.get("due_day") ?? ""));
-            if (name === "") return;
+            const due_date = String(data.get("due_date") ?? "");
+            const frequency = String(data.get("frequency") ?? "monthly");
+            const end_date = String(data.get("end_date") ?? "");
+            const alert_days = Number(String(data.get("alert_days") ?? ""));
+            if (name === "" || due_date === "") return;
             if (!Number.isInteger(amount_cents) || amount_cents < 0) return;
-            if (!Number.isInteger(due_day) || due_day < 1 || due_day > 31) return;
-            addMutation.mutate({ name, amount_cents, due_day });
+            if (frequency !== "weekly" && frequency !== "monthly") return;
+            if (
+              !Number.isInteger(alert_days) ||
+              alert_days < 1 ||
+              alert_days > 30
+            ) {
+              return;
+            }
+            if (end_date !== "" && end_date < due_date) {
+              setAddError("End date must be on or after the due date.");
+              return;
+            }
+            setAddError(null);
+            addMutation.mutate({
+              name,
+              amount_cents,
+              due_date,
+              frequency,
+              ...(end_date !== "" ? { end_date } : {}),
+              alert_days,
+            });
           }}
         >
           <input
@@ -183,17 +257,57 @@ export default function FinanceBillsPage() {
             aria-label="Bill amount in pesos"
             className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
           />
-          <input
-            name="due_day"
-            type="number"
-            min="1"
-            max="31"
-            step="1"
-            required
-            placeholder="Due day"
-            aria-label="Bill due day"
-            className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
-          />
+          <label className="flex flex-col gap-1 text-sm">
+            Due date
+            <input
+              name="due_date"
+              type="date"
+              required
+              defaultValue={utcToday()}
+              className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            Repeats
+            <select
+              name="frequency"
+              defaultValue="monthly"
+              className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+            >
+              <option value="monthly">Monthly</option>
+              <option value="weekly">Weekly</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            Ends on (optional)
+            <input
+              name="end_date"
+              type="date"
+              className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            Alert days
+            <input
+              name="alert_days"
+              type="number"
+              min="1"
+              max="30"
+              step="1"
+              required
+              value={alertDays}
+              onChange={(event) => setAlertDays(event.target.value)}
+              className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+            />
+          </label>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setAlertDays("3")}>
+              3 days
+            </Button>
+            <Button variant="outline" onClick={() => setAlertDays("5")}>
+              5 days
+            </Button>
+          </div>
           <div className="flex gap-2">
             <Button type="submit" variant="primary" disabled={addMutation.isPending}>
               Add bill
