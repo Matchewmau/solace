@@ -19,9 +19,11 @@ import {
   type MenuItem,
 } from "../api/menu";
 import { sortCategories } from "../lib/sortCategories";
+import { canonicalUnit } from "../lib/units";
 import { Reveal, StaggerGroup, StaggerItem, StaggerList, StaggerSection } from "../components/motion";
 import { Box, Button, PageFrame } from "../components/ui";
 import { Dialog } from "../components/Dialog";
+import { UnitSelect } from "../components/UnitSelect";
 
 /**
  * Case-insensitive substring match on the drink name, scoped to the
@@ -46,7 +48,8 @@ export function filterRecipes(
 
 export function formatLine(line: RecipeLine): string {
   if (line.qty === null || line.qty === undefined) return line.ingredient;
-  const amount = line.unit ? `${line.qty} ${line.unit}` : String(line.qty);
+  const unit = canonicalUnit(line.unit);
+  const amount = unit ? `${line.qty} ${unit}` : String(line.qty);
   return `${line.ingredient} — ${amount}`;
 }
 
@@ -244,7 +247,7 @@ function rowFromLine(line: RecipeLine): RowState {
     id: nextRowId++,
     ingredient: line.ingredient,
     qty: line.qty === null || line.qty === undefined ? "" : String(line.qty),
-    unit: line.unit ?? "",
+    unit: canonicalUnit(line.unit),
   };
 }
 
@@ -384,7 +387,7 @@ export function GuideForm({
           {rows.map((row, index) => (
             <div
               key={row.id}
-              className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_5rem_5rem_auto] sm:items-end"
+              className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_5rem_7rem_auto] sm:items-end"
             >
               <label className="flex flex-col gap-1 text-sm">
                 <span>Ingredient</span>
@@ -416,15 +419,10 @@ export function GuideForm({
               </label>
               <label className="flex flex-col gap-1 text-sm">
                 <span>Unit</span>
-                <input
-                  type="text"
+                <UnitSelect
                   value={row.unit}
-                  onChange={(event) =>
-                    updateRow(row.id, { unit: event.target.value })
-                  }
-                  placeholder="Unit"
-                  aria-label={`Unit ${index + 1}`}
-                  className="border border-ink/20 bg-paper px-2 py-1 text-base text-ink"
+                  onChange={(unit) => updateRow(row.id, { unit })}
+                  ariaLabel={`Unit ${index + 1}`}
                 />
               </label>
               <Button

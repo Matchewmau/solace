@@ -292,7 +292,7 @@ describe("InventoryPage add-item dialog (review fix wave)", () => {
       { target: { value: "Sugar" } },
     );
     fireEvent.change(
-      form.querySelector('input[name="unit"]') as HTMLInputElement,
+      form.querySelector('select[name="unit"]') as HTMLSelectElement,
       { target: { value: "g" } },
     );
     fireEvent.change(form.querySelector('input[name="qty"]') as HTMLInputElement, {
@@ -362,7 +362,7 @@ describe("InventoryPage add-item dialog (review fix wave)", () => {
       .closest("form") as HTMLFormElement;
     // Unit is optional on add, matching the edit dialog and server.
     expect(
-      (form.querySelector('input[name="unit"]') as HTMLInputElement).required,
+      (form.querySelector('select[name="unit"]') as HTMLSelectElement).required,
     ).toBe(false);
     fireEvent.change(
       form.querySelector('input[name="name"]') as HTMLInputElement,
@@ -539,7 +539,7 @@ describe("InventoryPage price, edit, delete, restock (Task 8)", () => {
     fireEvent.click(screen.getByLabelText("Edit Ice"));
     const dialog = await screen.findByRole("dialog", { name: "Edit Ice" });
     // Unit is optional: empty value submits fine.
-    expect((within(dialog).getByLabelText("Unit") as HTMLInputElement).required).toBe(false);
+    expect((within(dialog).getByLabelText("Unit") as HTMLSelectElement).required).toBe(false);
     fireEvent.change(within(dialog).getByLabelText("Item name"), {
       target: { value: "Crushed Ice" },
     });
@@ -573,6 +573,79 @@ describe("InventoryPage price, edit, delete, restock (Task 8)", () => {
     expect(requests).toHaveLength(0);
     // Dialog stays open for correction.
     expect(screen.getByRole("dialog", { name: "Edit Milk" })).toBeDefined();
+  });
+});
+
+describe("InventoryPage standard unit pickers", () => {
+  it("add dialog offers the standard units with spelled-out labels", async () => {
+    stubFetch();
+    renderInventory();
+    await screen.findByText("Milk");
+
+    fireEvent.click(screen.getByRole("button", { name: "+ Add item" }));
+    const dialog = await screen.findByRole("dialog", { name: "Add stock item" });
+    const unit = within(dialog).getByLabelText("Stock item unit") as HTMLSelectElement;
+    expect(unit.tagName).toBe("SELECT");
+    const labels = Array.from(unit.querySelectorAll("option")).map((option) =>
+      option.textContent?.trim(),
+    );
+    expect(labels[0]).toBe("No unit");
+    expect(labels).toContain("g (grams)");
+    expect(labels).toContain("ml (milliliters)");
+    expect(labels).toContain("L (liters)");
+    expect(labels).toContain("pack");
+    expect(labels).toContain("bottle");
+    // Defaults to no unit; the operator must pick one.
+    expect(unit.value).toBe("");
+  });
+
+  it("edit dialog keeps a legacy non-standard unit selectable (no silent rewrite)", async () => {
+    const legacy: StockItem = {
+      id: 7,
+      name: "Sprite",
+      unit: "3333",
+      qty: 9,
+      low_threshold: 0,
+      price_cents: 0,
+    };
+    globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
+      const u = String(url);
+      if (u === "/api/stock_items" && (!init || init.method === undefined)) {
+        return ok([legacy]);
+      }
+      throw new Error(`unexpected fetch ${u} ${init?.method ?? "GET"}`);
+    }) as typeof fetch;
+    renderInventory();
+    await screen.findByText("Sprite");
+
+    fireEvent.click(screen.getByLabelText("Edit Sprite"));
+    const dialog = await screen.findByRole("dialog", { name: "Edit Sprite" });
+    const unit = within(dialog).getByLabelText("Unit") as HTMLSelectElement;
+    expect(unit.tagName).toBe("SELECT");
+    expect(unit.value).toBe("3333");
+  });
+
+  it("shows stored units in their standard short form", async () => {
+    const oreo: StockItem = {
+      id: 8,
+      name: "Oreo",
+      unit: "Pack",
+      qty: 3,
+      low_threshold: 0,
+      price_cents: 0,
+    };
+    globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
+      const u = String(url);
+      if (u === "/api/stock_items" && (!init || init.method === undefined)) {
+        return ok([oreo]);
+      }
+      throw new Error(`unexpected fetch ${u} ${init?.method ?? "GET"}`);
+    }) as typeof fetch;
+    renderInventory();
+    await screen.findByText("Oreo");
+
+    expect(await screen.findByText("pack")).toBeDefined();
+    expect(screen.queryByText("Pack")).toBeNull();
   });
 });
 

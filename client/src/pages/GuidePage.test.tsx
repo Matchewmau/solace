@@ -122,6 +122,15 @@ describe("filterRecipes (pure)", () => {
       "Ice",
     );
   });
+
+  it("shows legacy units in their standard short form", () => {
+    expect(formatLine({ id: 3, ingredient: "Oreo", qty: 1, unit: "Pack" })).toBe(
+      "Oreo — 1 pack",
+    );
+    expect(
+      formatLine({ id: 4, ingredient: "Sprite", qty: 1, unit: "btl" }),
+    ).toBe("Sprite — 1 bottle");
+  });
 });
 
 describe("GuidePage with mocked data", () => {
@@ -458,6 +467,25 @@ describe("GuidePage add edit delete (Task 8)", () => {
     expect(screen.getByLabelText("Unit 2")).toBeDefined();
   });
 
+  it("picks units from the standard list instead of free text", async () => {
+    stubFetch();
+    renderGuide();
+    await screen.findByRole("button", { name: "Spanish Latte" });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    await screen.findByLabelText("Ingredient 1");
+
+    const unit = screen.getByLabelText("Unit 1") as HTMLSelectElement;
+    expect(unit.tagName).toBe("SELECT");
+    const labels = Array.from(unit.querySelectorAll("option")).map((option) =>
+      option.textContent?.trim(),
+    );
+    expect(labels[0]).toBe("No unit");
+    expect(labels).toContain("g (grams)");
+    expect(labels).toContain("ml (milliliters)");
+    expect(labels).toContain("L (liters)");
+    expect(labels).toContain("pack");
+  });
+
   it("lays ingredient rows out as a phone-stacking grid with a danger Delete", async () => {
     stubFetch();
     renderGuide();
@@ -468,7 +496,7 @@ describe("GuidePage add edit delete (Task 8)", () => {
     const row = screen.getByLabelText("Ingredient 1").closest("label")
       ?.parentElement as HTMLElement;
     expect(row.className).toContain("grid-cols-1");
-    expect(row.className).toContain("sm:grid-cols-[1fr_5rem_5rem_auto]");
+    expect(row.className).toContain("sm:grid-cols-[1fr_5rem_7rem_auto]");
 
     const remove = screen.getByRole("button", { name: "Remove ingredient 1" });
     expect(remove.className).toContain("text-danger");
@@ -613,7 +641,9 @@ describe("GuidePage add edit delete (Task 8)", () => {
       "Condensed Milk",
     );
     expect((screen.getByLabelText("Qty 1") as HTMLInputElement).value).toBe("40");
-    expect((screen.getByLabelText("Unit 1") as HTMLInputElement).value).toBe("ml");
+    expect((screen.getByLabelText("Unit 1") as HTMLSelectElement).value).toBe(
+      "ml",
+    );
     expect((screen.getByLabelText("Ingredient 2") as HTMLInputElement).value).toBe(
       "Ice",
     );

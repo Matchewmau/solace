@@ -13,8 +13,10 @@ import {
   type StockItem,
 } from "../api/stock";
 import { formatPeso } from "../lib/formatPeso";
+import { canonicalUnit } from "../lib/units";
 import DataTable, { type Column } from "../components/DataTable";
 import { Dialog } from "../components/Dialog";
+import { UnitSelect } from "../components/UnitSelect";
 import { Badge, Box, Button, PageFrame, StatChip } from "../components/ui";
 
 function LoadingSkeleton() {
@@ -184,6 +186,7 @@ function EditDialog({ item, pending, error, onClose, onSave }: EditDialogProps) 
     item.price_cents % 100 === 0
       ? String(item.price_cents / 100)
       : (item.price_cents / 100).toFixed(2);
+  const [unit, setUnit] = useState(canonicalUnit(item.unit));
   return (
     <Dialog open onClose={onClose} title={`Edit ${item.name}`}>
       <form
@@ -228,13 +231,11 @@ function EditDialog({ item, pending, error, onClose, onSave }: EditDialogProps) 
           aria-label="Price in pesos"
           className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
         />
-        <input
+        <UnitSelect
           name="unit"
-          type="text"
-          defaultValue={item.unit}
-          placeholder="Unit"
-          aria-label="Unit"
-          className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+          value={unit}
+          onChange={setUnit}
+          ariaLabel="Unit"
         />
         <input
           name="threshold"
@@ -278,6 +279,7 @@ interface AddItemDialogProps {
 
 /** Add dialog: the same five catalog fields the always-open form carried. */
 function AddItemDialog({ pending, error, onClose, onAdd }: AddItemDialogProps) {
+  const [unit, setUnit] = useState("");
   return (
     <Dialog open onClose={onClose} title="Add stock item">
       <form
@@ -306,12 +308,11 @@ function AddItemDialog({ pending, error, onClose, onAdd }: AddItemDialogProps) {
           aria-label="Stock item name"
           className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
         />
-        <input
+        <UnitSelect
           name="unit"
-          type="text"
-          placeholder="Unit"
-          aria-label="Stock item unit"
-          className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+          value={unit}
+          onChange={setUnit}
+          ariaLabel="Stock item unit"
         />
         <input
           name="qty"
@@ -456,7 +457,7 @@ export default function InventoryPage() {
     {
       key: "unit",
       label: "Unit",
-      render: (item) => item.unit,
+      render: (item) => canonicalUnit(item.unit),
     },
     { key: "qty", label: "Qty", align: "right", render: (item) => item.qty },
     {
