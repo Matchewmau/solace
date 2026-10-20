@@ -124,6 +124,25 @@ export function patchSaleVoid(id: number, voided: 0 | 1): Promise<Sale> {
 }
 
 /**
+ * Hard-delete an unpaid sale (and its lines). The server refuses paid sales,
+ * which are financially settled, with 400. Resolves on 204 No Content.
+ */
+export async function deleteSale(id: number): Promise<void> {
+  const res = await authFetch(`/api/sales/${id}`, { method: "DELETE" });
+  if (res.ok) return;
+  let message = `Request failed: ${res.status} /api/sales/${id}`;
+  try {
+    const body = (await res.json()) as { error?: unknown };
+    if (typeof body?.error === "string" && body.error !== "") {
+      message = body.error;
+    }
+  } catch {
+    // Keep the default status message when the body is not JSON.
+  }
+  throw new Error(message);
+}
+
+/**
  * Settle or un-settle a sale. `receivedCents` (cash handed over) is only
  * sent when provided — the server rejects it unless the effective paid is 1.
  */

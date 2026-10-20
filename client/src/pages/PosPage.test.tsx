@@ -83,13 +83,16 @@ function renderPos() {
   // MemoryRouter keeps the standalone render route-safe; page tabs live
   // in the global rail (route wiring is covered by the dedup test below
   // and the AppHeader shell tests).
-  return render(
-    <QueryClientProvider client={client}>
-      <MemoryRouter>
-        <PosPage />
-      </MemoryRouter>
-    </QueryClientProvider>,
-  );
+  return {
+    client,
+    ...render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <PosPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    ),
+  };
 }
 
 function resetOrders() {
@@ -400,7 +403,7 @@ describe("POS order tabs", () => {
     ).toBe("true");
   });
 
-  it("Delete on a done tab closes it locally without touching the sale", async () => {
+  it("Delete on a done unpaid tab removes the sale and closes it", async () => {
     const seen: string[] = [];
     globalThis.fetch = vi.fn(
       menuFetch(async (u, init) => {
@@ -412,11 +415,15 @@ describe("POS order tabs", () => {
           };
           return ok(sale(60, 7000, body.payment, body.items), 201);
         }
+        if (u === "/api/sales/60" && init?.method === "DELETE") {
+          return ok(null, 204);
+        }
         throw new Error(`unexpected fetch ${u} ${init?.method}`);
       }),
     ) as typeof fetch;
 
-    renderPos();
+    const { client } = renderPos();
+    const invalidate = vi.spyOn(client, "invalidateQueries");
     await screen.findByText("Cortado");
 
     fireEvent.click(screen.getByRole("button", { name: /Cortado/ }));
@@ -425,14 +432,49 @@ describe("POS order tabs", () => {
     await screen.findByText("Sale complete");
 
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
-    // Tab closed locally: receipt gone, fresh empty order open, no DELETE call.
-    expect(screen.queryByText("Sale complete")).toBeNull();
+    // Tab closed only after the server confirms the hard delete, and the
+    // sales cache is invalidated so Today/History no longer show the row.
+    await waitFor(() => {
+      expect(seen).toContain("DELETE /api/sales/60");
+    });
+    await waitFor(() => {
+      expect(screen.queryByText("Sale complete")).toBeNull();
+    });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["sales"] });
     expect(screen.getByText("Order is empty. Tap an item to add it.")).toBeDefined();
     expect(
       (screen.getByRole("button", { name: "Done" }) as HTMLButtonElement)
         .disabled,
     ).toBe(true);
-    expect(seen.some((entry) => entry.startsWith("DELETE"))).toBe(false);
+  });
+
+  it("keeps the receipt open and shows the error when Delete fails", async () => {
+    globalThis.fetch = vi.fn(
+      menuFetch(async (u, init) => {
+        if (u === "/api/sales" && init?.method === "POST") {
+          const body = JSON.parse(String(init.body)) as {
+            payment: string;
+            items: { menu_item_id: number; qty: number }[];
+          };
+          return ok(sale(61, 7000, body.payment, body.items), 201);
+        }
+        if (u === "/api/sales/61" && init?.method === "DELETE") {
+          return ok({ error: "sale vanished" }, 500);
+        }
+        throw new Error(`unexpected fetch ${u} ${init?.method}`);
+      }),
+    ) as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Cortado");
+    fireEvent.click(screen.getByRole("button", { name: /Cortado/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    await screen.findByText("Sale complete");
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    await screen.findByRole("alert");
+    expect(screen.getByRole("alert").textContent).toBe("sale vanished");
+    expect(screen.getByText("Sale complete")).toBeDefined();
   });
 
   it("rail has no close buttons and Edit allows adding new menu items", async () => {
@@ -462,9 +504,10 @@ describe("POS order tabs", () => {
 });
 
 describe("POS per-order checkout", () => {
-  it("posts the active order only, locks the receipt with Edit|Delete, and Delete closes locally", async () => {
+  it("posts the active order only, locks the receipt with Edit|Delete, and Delete removes the sale", async () => {
     let payload: unknown;
     let posts = 0;
+    const deletes: string[] = [];
     globalThis.fetch = vi.fn(
       menuFetch(async (u, init) => {
         if (u === "/api/sales") {
@@ -473,7 +516,11 @@ describe("POS per-order checkout", () => {
           const body = payload as { payment: string; items: { menu_item_id: number; qty: number }[] };
           return ok(sale(9, 15500, body.payment, body.items, 2), 201);
         }
-        throw new Error(`unexpected fetch ${u}`);
+        if (u === "/api/sales/9" && init?.method === "DELETE") {
+          deletes.push(u);
+          return ok(null, 204);
+        }
+        throw new Error(`unexpected fetch ${u} ${init?.method}`);
       }),
     ) as typeof fetch;
 
@@ -512,10 +559,15 @@ describe("POS per-order checkout", () => {
         .disabled,
     ).toBe(false);
 
-    // Delete closes the done tab locally (sale stays in history).
+    // Delete hard-deletes the unpaid sale, then closes the done tab.
     fireEvent.click(screen.getByRole("tab", { name: /Order #2 \(1\)/ }));
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
-    expect(screen.queryByText("Sale complete")).toBeNull();
+    await waitFor(() => {
+      expect(deletes).toEqual(["/api/sales/9"]);
+    });
+    await waitFor(() => {
+      expect(screen.queryByText("Sale complete")).toBeNull();
+    });
     expect(screen.queryByRole("tab", { name: /Order #2 \(1\)/ })).toBeNull();
     expect(selected("Open · 1 items · ₱70")).toBe("true");
     expect(posts).toBe(1);
@@ -1007,6 +1059,39 @@ describe("POS cash change calculator flow", () => {
       throw new Error(`unexpected fetch ${u} ${init?.method}`);
     }) as typeof fetch;
   }
+
+  it("paid receipt offers Close instead of Delete and stays local", async () => {
+    seed(
+      doneOrder({
+        id: 23,
+        total_cents: 14000,
+        payment: "cash",
+        paid: 1,
+        received_cents: 20000,
+        change_cents: 6000,
+      }),
+    );
+    const fetchSpy = vi.fn(menuFetch());
+    globalThis.fetch = fetchSpy as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Sale complete");
+    expect(screen.getByText("PAID")).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByText("Sale complete")).toBeNull();
+    expect(
+      screen.getByText("Order is empty. Tap an item to add it."),
+    ).toBeDefined();
+    expect(
+      fetchSpy.mock.calls.some(
+        ([url, init]) =>
+          String(url) === "/api/sales/23" &&
+          (init as RequestInit | undefined)?.method === "DELETE",
+      ),
+    ).toBe(false);
+  });
 
   it("offers Pay on an unpaid done tab and opens the cash sheet", async () => {
     seed(doneOrder({ id: 23, total_cents: 14000, payment: "cash", paid: 0 }));

@@ -5,7 +5,7 @@ import {
   fetchCategories,
   type MenuItem,
 } from "../api/menu";
-import { patchSalePaid, postSale, putSaleItems, utcToday } from "../api/sales";
+import { deleteSale, patchSalePaid, postSale, putSaleItems, utcToday } from "../api/sales";
 import { formatPeso } from "../lib/formatPeso";
 import { formatVariantLabel } from "../lib/variants";
 import { cartTotalCents, useOrders, type Order } from "../store/orders";
@@ -282,11 +282,36 @@ export default function PosPage() {
     setError("");
   }
 
-  function deleteOrder() {
-    // Local-only: the sale itself is append-only and stays in history.
+  // Hard-delete the finalized unpaid sale before closing its tab, so Today
+  // and History stop listing a receipt the owner removed. Paid sales never
+  // reach this path — the receipt shows Close instead (ledger history stays).
+  async function deleteOrder() {
+    if (!doneSale || doneSale.paid === 1 || detailBusy) return;
+    const key = active.key;
+    const saleId = doneSale.id;
+    setDetailBusy(true);
+    setDetailError("");
+    try {
+      await deleteSale(saleId);
+      await queryClient.invalidateQueries({ queryKey: ["sales"] });
+      closeOrder(key);
+      setPromptItem(null);
+      setError("");
+    } catch (err) {
+      setDetailError(
+        err instanceof Error ? err.message : "Delete sale failed.",
+      );
+    } finally {
+      setDetailBusy(false);
+    }
+  }
+
+  // Paid receipts are settled ledger rows: closing the tab is local only.
+  function closeReceipt() {
     closeOrder(active.key);
     setPromptItem(null);
     setError("");
+    setDetailError("");
   }
 
   const isLoading = categoriesQuery.isLoading || itemsQuery.isLoading;
@@ -393,18 +418,29 @@ export default function PosPage() {
             <button
               type="button"
               onClick={editOrder}
-              disabled={doneSale.paid === 1}
+              disabled={doneSale.paid === 1 || detailBusy}
               className="press flex-1 border border-ink px-4 py-3 text-base font-semibold disabled:opacity-40"
             >
               Edit
             </button>
-            <button
-              type="button"
-              onClick={deleteOrder}
-              className="press flex-1 border border-red-600 px-4 py-3 text-base font-semibold text-red-600"
-            >
-              Delete
-            </button>
+            {doneSale.paid === 1 ? (
+              <button
+                type="button"
+                onClick={closeReceipt}
+                className="press flex-1 border border-ink px-4 py-3 text-base font-semibold"
+              >
+                Close
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void deleteOrder()}
+                disabled={detailBusy}
+                className="press flex-1 border border-red-600 px-4 py-3 text-base font-semibold text-red-600 disabled:opacity-40"
+              >
+                {detailBusy ? "Deleting…" : "Delete"}
+              </button>
+            )}
           </div>
         </div>
       ) : (

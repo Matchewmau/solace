@@ -895,6 +895,25 @@ export function createApp(dbPath, opts = {}) {
     res.json(sale);
   });
 
+  // Hard-delete an unpaid sale. Paid sales are financially settled and stay
+  // in the ledger; deleting one is refused. Items go first inside the same
+  // transaction so a failure can never leave orphaned lines.
+  app.delete("/api/sales/:id", (req, res) => {
+    const id = parseId(req.params.id);
+    const sale = id
+      ? db.prepare("SELECT id, paid FROM sales WHERE id = ?").get(id)
+      : undefined;
+    if (!sale) return sendError(res, 404, "sale not found");
+    if (sale.paid === 1) {
+      return sendError(res, 400, "cannot delete a paid sale");
+    }
+    db.transaction(() => {
+      db.prepare("DELETE FROM sale_items WHERE sale_id = ?").run(id);
+      db.prepare("DELETE FROM sales WHERE id = ?").run(id);
+    })();
+    res.status(204).end();
+  });
+
   // Reversible void/paid flags: {voided?: 0|1, paid?: 0|1}, at least one
   // present. Unvoid (0) restores the sale to totals. paid 1 may also carry
   // received_cents (cash tender): stored with change_cents = received − total.
