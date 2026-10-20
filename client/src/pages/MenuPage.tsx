@@ -29,6 +29,31 @@ interface ShowcaseProps {
   items: MenuItem[];
 }
 
+type MenuSort = "name-asc" | "name-desc" | "price-asc" | "price-desc";
+
+const MENU_SORT_OPTIONS: { value: MenuSort; label: string }[] = [
+  { value: "name-asc", label: "Name A–Z" },
+  { value: "name-desc", label: "Name Z–A" },
+  { value: "price-asc", label: "Price low to high" },
+  { value: "price-desc", label: "Price high to low" },
+];
+
+/** Sort one category's cards without mutating the query data. */
+function sortMenuItems(items: MenuItem[], sort: MenuSort): MenuItem[] {
+  return [...items].sort((a, b) => {
+    if (sort === "name-asc") {
+      return a.name.localeCompare(b.name) || a.id - b.id;
+    }
+    if (sort === "name-desc") {
+      return b.name.localeCompare(a.name) || a.id - b.id;
+    }
+    if (sort === "price-asc") {
+      return a.price_cents - b.price_cents || a.name.localeCompare(b.name);
+    }
+    return b.price_cents - a.price_cents || a.name.localeCompare(b.name);
+  });
+}
+
 function useOptionalQueryClient() {
   try {
     return useQueryClient();
@@ -323,6 +348,7 @@ export function MenuShowcase({ categories, items }: ShowcaseProps) {
   const [togglePending, setTogglePending] = useState(false);
   const [toggleError, setToggleError] = useState<string | null>(null);
   const [showInactive, setShowInactive] = useState(false);
+  const [sort, setSort] = useState<MenuSort>("name-asc");
 
   async function invalidateMenuItems() {
     try {
@@ -405,18 +431,35 @@ export function MenuShowcase({ categories, items }: ShowcaseProps) {
 
   return (
     <div className="flex flex-col gap-8">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <p className="label text-xs text-muted">Solace &middot; Menu</p>
-        <button
-          type="button"
-          onClick={() => {
-            setSaveError(null);
-            setDialog({ mode: "add" });
-          }}
-          className="border border-ink px-4 py-2 text-sm font-semibold"
-        >
-          Add
-        </button>
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="label text-xs text-muted">Sort</span>
+            <select
+              value={sort}
+              onChange={(event) => setSort(event.target.value as MenuSort)}
+              aria-label="Sort menu items"
+              className="border border-ink/20 bg-paper px-3 py-2 text-sm text-ink"
+            >
+              {MENU_SORT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            onClick={() => {
+              setSaveError(null);
+              setDialog({ mode: "add" });
+            }}
+            className="border border-ink px-4 py-2 text-sm font-semibold"
+          >
+            Add
+          </button>
+        </div>
       </div>
       {categories.length === 0 || items.length === 0 ? (
         <p className="py-16 text-center text-muted">No items available</p>
@@ -426,24 +469,28 @@ export function MenuShowcase({ categories, items }: ShowcaseProps) {
             {sortCategories(categories).map((category) => (
               <StaggerSection key={category.id}>
                 <Box title={category.name}>
-                  <StaggerList className="flex flex-col gap-3">
-                    {(byCategory.get(category.id) ?? []).map((item) => (
-                      <StaggerItem key={item.id}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setToggleError(null);
-                            setPopupItem(item);
-                          }}
-                          className="grid w-full grid-cols-[1fr_auto] items-baseline gap-4 text-left"
-                        >
-                          <span className="text-lg">{item.name}</span>
-                          <span className="text-lg font-semibold text-accent">
-                            {formatPeso(item.price_cents)}
-                          </span>
-                        </button>
-                      </StaggerItem>
-                    ))}
+                  <StaggerList className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {sortMenuItems(byCategory.get(category.id) ?? [], sort).map(
+                      (item) => (
+                        <StaggerItem key={item.id} className="min-w-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setToggleError(null);
+                              setPopupItem(item);
+                            }}
+                            className="press flex h-full min-h-24 w-full flex-col items-start justify-between gap-3 rounded-box border border-ink/15 bg-paper px-4 py-3 text-left transition-colors hover:border-ink/40"
+                          >
+                            <span className="text-lg font-medium leading-snug">
+                              {item.name}
+                            </span>
+                            <span className="text-base font-semibold text-accent">
+                              {formatPeso(item.price_cents)}
+                            </span>
+                          </button>
+                        </StaggerItem>
+                      ),
+                    )}
                   </StaggerList>
                 </Box>
               </StaggerSection>
@@ -461,22 +508,25 @@ export function MenuShowcase({ categories, items }: ShowcaseProps) {
               </button>
               {showInactive ? (
                 <Box title={`Inactive (${inactive.length})`}>
-                  <ul className="flex flex-col gap-3">
+                  <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
                     {sortCategories(categories).flatMap((category) =>
-                      (inactiveByCategory.get(category.id) ?? []).map((item) => (
-                        <li key={item.id}>
+                      sortMenuItems(
+                        inactiveByCategory.get(category.id) ?? [],
+                        sort,
+                      ).map((item) => (
+                        <li key={item.id} className="min-w-0">
                           <button
                             type="button"
                             onClick={() => {
                               setToggleError(null);
                               setPopupItem(item);
                             }}
-                            className="grid w-full grid-cols-[1fr_auto] items-baseline gap-4 text-left text-muted"
+                            className="press flex h-full min-h-24 w-full flex-col items-start justify-between gap-3 rounded-box border border-ink/15 bg-paper px-4 py-3 text-left text-muted transition-colors hover:border-ink/40"
                           >
                             <span className="text-lg">
                               {item.name} <Badge tone="neutral">Inactive</Badge>
                             </span>
-                            <span className="text-lg font-semibold">
+                            <span className="text-base font-semibold">
                               {formatPeso(item.price_cents)}
                             </span>
                           </button>

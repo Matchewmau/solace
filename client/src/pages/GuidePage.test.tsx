@@ -370,21 +370,41 @@ describe("GuidePage toolbar and category rows (Task 22, Task 3)", () => {
     ).toBeDefined();
   });
 
-  it("lays each category out as Menu-style recipe rows with a step hint", async () => {
+  it("lays each category out as a card grid with a step hint", async () => {
     stubFetch();
     renderGuide();
     await screen.findByRole("button", { name: "Spanish Latte" });
 
     const coffee = screen.getByRole("region", { name: "Coffee" });
-    const list = within(coffee).getByRole("list");
-    expect(list.className).toContain("flex-col");
-    expect(list.className).toContain("gap-3");
-    expect(within(list).getAllByRole("listitem")).toHaveLength(2);
+    const grid = within(coffee).getByRole("list");
+    expect(grid.className).toContain("grid");
+    expect(grid.className).toContain("sm:grid-cols-2");
+    expect(grid.className).toContain("xl:grid-cols-3");
+    expect(within(grid).getAllByRole("listitem")).toHaveLength(2);
 
-    const row = within(coffee).getByRole("button", { name: "Spanish Latte" });
-    expect(row.className).toContain("grid");
-    expect(row.className).toContain("text-left");
-    expect(row.textContent).toContain("steps");
+    const card = within(coffee).getByRole("button", { name: "Spanish Latte" });
+    expect(card.className).toContain("rounded-box");
+    expect(card.className).toContain("border");
+    expect(card.className).toContain("text-left");
+    expect(card.textContent).toContain("steps");
+  });
+
+  it("sorts drinks within each category", async () => {
+    stubFetch();
+    renderGuide();
+    await screen.findByRole("button", { name: "Spanish Latte" });
+
+    const coffee = screen.getByRole("region", { name: "Coffee" });
+    const names = () =>
+      within(coffee)
+        .getAllByRole("button")
+        .map((button) => button.getAttribute("aria-label"));
+
+    expect(names()).toEqual(["Dark Mocha", "Spanish Latte"]);
+    fireEvent.change(screen.getByLabelText("Sort drinks"), {
+      target: { value: "name-desc" },
+    });
+    expect(names()).toEqual(["Spanish Latte", "Dark Mocha"]);
   });
 
   it("keeps aria-pressed selection on the active row", async () => {

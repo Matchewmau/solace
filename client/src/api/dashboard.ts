@@ -59,7 +59,7 @@ export interface Dashboard {
   expenses_month_cents: number;
   money_out_month_cents?: number;
   money_out_month_by_kind?: MoneyOutByKind;
-  /** Exactly 14 entries, oldest → newest, ending at `date`. */
+  /** Exactly 31 entries, oldest → newest, ending at `date`. */
   sales_by_day?: SalesByDay[];
   net_day_cents: number;
   net_month_cents: number;

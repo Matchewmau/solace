@@ -83,25 +83,55 @@ describe("MenuShowcase category boxes and aligned rows (Task 21)", () => {
     expect(within(espresso).getByRole("heading", { name: "Espresso" })).toBeDefined();
   });
 
-  it("aligns the price inside a two-column row grid", () => {
+  it("renders each item as a card in a responsive grid", () => {
     render(<MenuShowcase categories={categories} items={items} />);
-    const row = screen.getByRole("button", { name: /Cortado/ });
-    expect(row.className).toContain("grid-cols-[1fr_auto]");
-    expect(row.className).toContain("items-baseline");
-    expect(row.className).toContain("gap-4");
-    expect(within(row).getByText("₱70")).toBeDefined();
+    const espresso = screen.getByLabelText("Espresso");
+    const grid = within(espresso).getByRole("list");
+    expect(grid.className).toContain("grid");
+    expect(grid.className).toContain("sm:grid-cols-2");
+    expect(grid.className).toContain("xl:grid-cols-3");
+
+    const card = within(espresso).getByRole("button", { name: /Cortado/ });
+    expect(card.className).toContain("rounded-box");
+    expect(card.className).toContain("border");
+    expect(card.className).toContain("text-left");
+    expect(within(card).getByText("₱70")).toBeDefined();
   });
 
-  it("shows a neutral Inactive badge and mutes inactive rows", async () => {
+  it("sorts items within each category by name or price", () => {
+    render(<MenuShowcase categories={categories} items={items} />);
+    const espresso = screen.getByLabelText("Espresso");
+    const names = () =>
+      within(espresso)
+        .getAllByRole("button")
+        .map((button) => button.textContent ?? "");
+
+    expect(names()[0]).toContain("Cortado");
+    expect(names()[1]).toContain("Latte");
+
+    fireEvent.change(screen.getByLabelText("Sort menu items"), {
+      target: { value: "price-desc" },
+    });
+    expect(names()[0]).toContain("Latte");
+    expect(names()[1]).toContain("Cortado");
+
+    fireEvent.change(screen.getByLabelText("Sort menu items"), {
+      target: { value: "name-desc" },
+    });
+    expect(names()[0]).toContain("Latte");
+    expect(names()[1]).toContain("Cortado");
+  });
+
+  it("shows a neutral Inactive badge and mutes inactive cards", async () => {
     renderShowcase();
     fireEvent.click(screen.getByRole("button", { name: "Show inactive" }));
 
-    const row = await screen.findByRole("button", { name: /Retired Blend/ });
-    expect(row.className).toContain("text-muted");
-    expect(row.className).toContain("grid-cols-[1fr_auto]");
-    expect(within(row).getByText("₱90")).toBeDefined();
+    const card = await screen.findByRole("button", { name: /Retired Blend/ });
+    expect(card.className).toContain("text-muted");
+    expect(card.className).toContain("rounded-box");
+    expect(within(card).getByText("₱90")).toBeDefined();
 
-    const badge = within(row).getByText("Inactive");
+    const badge = within(card).getByText("Inactive");
     expect(badge.className).toContain("rounded-full");
     expect(badge.className).toContain("text-muted");
   });

@@ -2,7 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { Dialog } from "./Dialog";
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  document.body.style.overflow = "";
+});
 
 function renderOpen(onClose = vi.fn()) {
   render(
@@ -46,6 +49,23 @@ describe("Dialog", () => {
 
     fireEvent.click(screen.getByTestId("dialog-backdrop"));
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("locks page scrolling while open and restores it on close", () => {
+    document.body.style.overflow = "scroll";
+    const { rerender } = render(
+      <Dialog open onClose={vi.fn()} title="Add bill">
+        <button type="button">First</button>
+      </Dialog>,
+    );
+    expect(document.body.style.overflow).toBe("hidden");
+
+    rerender(
+      <Dialog open={false} onClose={vi.fn()} title="Add bill">
+        <button type="button">First</button>
+      </Dialog>,
+    );
+    expect(document.body.style.overflow).toBe("scroll");
   });
 
   it("restores focus to the previously focused element on close", () => {

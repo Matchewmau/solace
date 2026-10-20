@@ -165,18 +165,19 @@ describe("FinancePage money dashboard", () => {
     stubDashboard();
     renderFinance();
 
-    const moneyIn = (await screen.findByText(
-      "Money in · 2026-10",
-    )).closest("div") as HTMLElement;
+    const summary = await screen.findByRole("region", {
+      name: "Cash flow · October 2026",
+    });
+    const moneyIn = within(summary).getByText("Money in").closest("div") as HTMLElement;
     expect(within(moneyIn).getByText("₱303")).toBeDefined();
 
-    const moneyOut = screen
-      .getByText("Money out · 2026-10")
+    const moneyOut = within(summary)
+      .getByText("Money out")
       .closest("div") as HTMLElement;
     expect(within(moneyOut).getByText("₱90")).toBeDefined();
 
     // Net = income 30300 - money out 9000 = 21300, toned ok when positive.
-    const net = screen.getByText("Net").closest("div") as HTMLElement;
+    const net = within(summary).getByText("Net").closest("div") as HTMLElement;
     const netValue = within(net).getByText("₱213");
     expect(netValue.className).toContain("text-ok");
   });
@@ -290,29 +291,30 @@ describe("FinancePage money dashboard", () => {
   });
 });
 
-describe("FinancePage cash-flow snapshot", () => {
-  it("adds daily average and the largest money-out kind", async () => {
+describe("FinancePage cash-flow summary", () => {
+  it("condenses the month into three stats plus daily and largest notes", async () => {
     stubDashboard();
     renderFinance();
 
-    const snapshot = await screen.findByRole("region", {
-      name: "Cash-flow snapshot",
+    const summary = await screen.findByRole("region", {
+      name: "Cash flow · October 2026",
     });
-    expect(within(snapshot).getByText("Money in · 2026-10")).toBeDefined();
-    expect(within(snapshot).getByText("Money out · 2026-10")).toBeDefined();
-    expect(within(snapshot).getByText("Net")).toBeDefined();
+    expect(within(summary).getByText("Money in")).toBeDefined();
+    expect(within(summary).getByText("Money out")).toBeDefined();
+    expect(within(summary).getByText("Net")).toBeDefined();
+    expect(within(summary).queryByText(/2026-10/)).toBeNull();
 
     // 9000 cents out across 13 elapsed days = 692.3 → ₱6.92 per day.
-    const daily = within(snapshot)
+    const daily = within(summary)
       .getByText("Daily average")
-      .closest("div") as HTMLElement;
+      .closest("p") as HTMLElement;
     expect(within(daily).getByText("₱6.92")).toBeDefined();
     expect(within(daily).getByText("over 13 days")).toBeDefined();
 
     // Expenses (4000) is the biggest slice of the 9000 money out.
-    const largest = within(snapshot)
+    const largest = within(summary)
       .getByText("Largest money out")
-      .closest("div") as HTMLElement;
+      .closest("p") as HTMLElement;
     expect(within(largest).getByText("Expenses")).toBeDefined();
     expect(within(largest).getByText("₱40 of ₱90")).toBeDefined();
   });
@@ -331,18 +333,18 @@ describe("FinancePage cash-flow snapshot", () => {
     });
     renderFinance();
 
-    const snapshot = await screen.findByRole("region", {
-      name: "Cash-flow snapshot",
+    const summary = await screen.findByRole("region", {
+      name: "Cash flow · October 2026",
     });
-    const daily = within(snapshot)
+    const daily = within(summary)
       .getByText("Daily average")
-      .closest("div") as HTMLElement;
+      .closest("p") as HTMLElement;
     expect(within(daily).getByText("₱0")).toBeDefined();
     expect(within(daily).getByText("no money out yet")).toBeDefined();
 
-    const largest = within(snapshot)
+    const largest = within(summary)
       .getByText("Largest money out")
-      .closest("div") as HTMLElement;
+      .closest("p") as HTMLElement;
     expect(within(largest).getByText("None")).toBeDefined();
   });
 });

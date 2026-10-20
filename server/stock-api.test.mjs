@@ -379,7 +379,7 @@ describe("stock usage ledger (Task 5)", () => {
     }
   });
 
-  it("GET stock items exposes used_in menu names (case-insensitive match)", async () => {
+  it("GET stock items does not expose recipe-derived used_in links", async () => {
     const db = app.locals.db;
     const categoryId = db
       .prepare("INSERT INTO categories (name) VALUES ('Usage Test')")
@@ -403,83 +403,17 @@ describe("stock usage ledger (Task 5)", () => {
         .expect(201)
     ).body;
     const list = await api.get("/api/stock_items").expect(200);
-    expect(list.body.find((row) => row.id === item.id).used_in).toEqual([
-      "Usage Latte",
-    ]);
+    expect(list.body.find((row) => row.id === item.id)).not.toHaveProperty(
+      "used_in",
+    );
     const single = await api
       .get(`/api/stock_items/${item.id}`)
       .expect(200);
-    expect(single.body.used_in).toEqual(["Usage Latte"]);
-  });
-});
-
-describe("sync-recipes endpoint (Task 5)", () => {
-  const syncDir = mkdtempSync(join(tmpdir(), "solace-stock-sync-test-"));
-  const syncApp = createApp(join(syncDir, "sync-test.db"));
-  const syncApi = authed(syncApp);
-
-  afterAll(() => {
-    syncApp.locals.db.close();
-    rmSync(syncDir, { recursive: true, force: true });
+    expect(single.body).not.toHaveProperty("used_in");
   });
 
-  function addRecipe(menuName, lines) {
-    const db = syncApp.locals.db;
-    const categoryId = db
-      .prepare("INSERT INTO categories (name) VALUES ('Sync Test')")
-      .run().lastInsertRowid;
-    const menuId = db
-      .prepare(
-        "INSERT INTO menu_items (category_id, name, price_cents) VALUES (?, ?, ?)",
-      )
-      .run(categoryId, menuName, 10000).lastInsertRowid;
-    const recipeId = db
-      .prepare("INSERT INTO recipes (menu_item_id, steps) VALUES (?, '')")
-      .run(menuId).lastInsertRowid;
-    for (const [ingredient, qty, unit] of lines) {
-      db.prepare(
-        "INSERT INTO recipe_lines (recipe_id, ingredient, qty, unit) VALUES (?, ?, ?, ?)",
-      ).run(recipeId, ingredient, qty, unit);
-    }
-  }
-
-  it("creates one row per missing ingredient and skips existing names", async () => {
-    // createApp auto-seeds the real recipe book; this fixture is isolated.
-    syncApp.locals.db.exec(
-      "DELETE FROM recipe_lines; DELETE FROM recipes; DELETE FROM stock_items;",
-    );
-    addRecipe("Sync Latte", [
-      ["Sync Oat", 120, "ml"],
-      ["sync oat", 60, "ml"],
-      ["Sync Honey", 10, "g"],
-    ]);
-    await syncApi
-      .post("/api/stock_items")
-      .send({ name: "Sync Oat", unit: "ml", qty: 5 })
-      .expect(201);
-
-    const first = await syncApi
-      .post("/api/stock_items/sync-recipes")
-      .expect(200);
-    expect(first.body).toEqual({ created: 1, skipped: 1 });
-
-    const list = await syncApi.get("/api/stock_items").expect(200);
-    expect(
-      list.body.find(
-        (row) => row.name.toLowerCase() === "sync honey",
-      ),
-    ).toMatchObject({
-      name: "Sync Honey",
-      unit: "g",
-      qty: 0,
-      low_threshold: 0,
-      price_cents: 0,
-    });
-
-    const second = await syncApi
-      .post("/api/stock_items/sync-recipes")
-      .expect(200);
-    expect(second.body).toEqual({ created: 0, skipped: 2 });
+  it("no longer exposes a recipe sync endpoint", async () => {
+    await api.post("/api/stock_items/sync-recipes").expect(404);
   });
 });
 

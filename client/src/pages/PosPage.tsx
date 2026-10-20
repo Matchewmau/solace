@@ -602,17 +602,27 @@ export default function PosPage() {
         </div>
       ) : null}
       <div className="flex min-h-screen">
-        {/* Order rail (md+): New order first, then vertical tabs, zero close buttons. */}
-        <div className="hidden w-36 shrink-0 flex-col gap-2 border-r border-ink/10 bg-white p-3 md:flex">
-          <h2 className="text-xs font-semibold tracking-widest text-muted">ORDERS</h2>
+        {/* Order rail (md+): pinned to the viewport, with the tab list owning
+            its scroll so a long day of orders never pushes the register away. */}
+        <aside
+          aria-label="Order rail"
+          className="sticky top-0 hidden h-screen w-36 shrink-0 self-start flex-col gap-2 overflow-hidden border-r border-ink/10 bg-white p-3 md:flex"
+        >
+          <h2 className="shrink-0 text-xs font-semibold tracking-widest text-muted">
+            ORDERS
+          </h2>
           <button
             type="button"
             onClick={newTab}
-            className="press border border-dashed border-ink px-3 py-2 text-sm font-semibold"
+            className="press shrink-0 border border-dashed border-ink px-3 py-2 text-sm font-semibold"
           >
             New order
           </button>
-          <div role="tablist" aria-label="Orders" className="flex flex-col gap-2">
+          <div
+            role="tablist"
+            aria-label="Orders"
+            className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain pr-1"
+          >
             {orders.map((order) => (
               <OrderTab
                 key={order.key}
@@ -624,7 +634,7 @@ export default function PosPage() {
               />
             ))}
           </div>
-        </div>
+        </aside>
         <div className="flex min-w-0 flex-1 flex-col gap-8 px-6 pt-12 pb-28 lg:pb-12">
           <header className="flex flex-col gap-3">
             <p className="label text-xs text-muted">Cafe</p>

@@ -60,6 +60,22 @@ function stepHint(steps: string): string {
   return `${count} ${count === 1 ? "step" : "steps"}`;
 }
 
+type RecipeSort = "name-asc" | "name-desc";
+
+const RECIPE_SORT_OPTIONS: { value: RecipeSort; label: string }[] = [
+  { value: "name-asc", label: "Name A–Z" },
+  { value: "name-desc", label: "Name Z–A" },
+];
+
+/** Sort one category's recipe cards without mutating the query data. */
+function sortRecipes(recipes: Recipe[], sort: RecipeSort): Recipe[] {
+  return [...recipes].sort((a, b) =>
+    sort === "name-asc"
+      ? a.menu_item_name.localeCompare(b.menu_item_name) || a.id - b.id
+      : b.menu_item_name.localeCompare(a.menu_item_name) || a.id - b.id,
+  );
+}
+
 interface BrowserProps {
   recipes: Recipe[];
   categories: Category[];
@@ -100,6 +116,7 @@ export function GuideBrowser({
   selectedId,
   onSelect,
 }: BrowserProps) {
+  const [sort, setSort] = useState<RecipeSort>("name-asc");
   const filtered = filterRecipes(
     recipes,
     query,
@@ -109,8 +126,12 @@ export function GuideBrowser({
   const groups = sortCategories(categories)
     .map((category) => ({
       category,
-      rows: filtered.filter(
-        (recipe) => categoryByMenuItemId.get(recipe.menu_item_id) === category.id,
+      rows: sortRecipes(
+        filtered.filter(
+          (recipe) =>
+            categoryByMenuItemId.get(recipe.menu_item_id) === category.id,
+        ),
+        sort,
       ),
     }))
     .filter((group) => group.rows.length > 0);
@@ -140,17 +161,34 @@ export function GuideBrowser({
             </Button>
           ))}
         </div>
-        <label className="flex flex-col gap-2">
-          <span className="label text-xs text-muted">Search drinks</span>
-          <input
-            type="search"
-            value={query}
-            onChange={(event) => onQueryChange(event.target.value)}
-            placeholder="Search drinks…"
-            aria-label="Search drinks"
-            className="border border-ink/20 bg-paper px-4 py-2 text-base text-ink"
-          />
-        </label>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+          <label className="flex flex-1 flex-col gap-2">
+            <span className="label text-xs text-muted">Search drinks</span>
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => onQueryChange(event.target.value)}
+              placeholder="Search drinks…"
+              aria-label="Search drinks"
+              className="border border-ink/20 bg-paper px-4 py-2 text-base text-ink"
+            />
+          </label>
+          <label className="flex flex-col gap-2">
+            <span className="label text-xs text-muted">Sort</span>
+            <select
+              value={sort}
+              onChange={(event) => setSort(event.target.value as RecipeSort)}
+              aria-label="Sort drinks"
+              className="border border-ink/20 bg-paper px-3 py-2 text-sm text-ink"
+            >
+              {RECIPE_SORT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       </Box>
       {filtered.length === 0 ? (
         <p className="py-8 text-center text-muted">No drinks found</p>
@@ -159,19 +197,23 @@ export function GuideBrowser({
           {groups.map(({ category, rows }) => (
             <StaggerSection key={category.id}>
               <Box title={category.name}>
-                <StaggerList className="flex flex-col gap-3">
+                <StaggerList className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
                   {rows.map((recipe) => (
-                    <StaggerItem key={recipe.id}>
+                    <StaggerItem key={recipe.id} className="min-w-0">
                       <button
                         type="button"
                         onClick={() => onSelect(recipe.id)}
                         aria-pressed={recipe.id === selectedId}
                         aria-label={recipe.menu_item_name}
-                        className={`grid w-full grid-cols-[1fr_auto] items-baseline gap-4 text-left ${
-                          recipe.id === selectedId ? "text-accent" : ""
+                        className={`press flex h-full min-h-24 w-full flex-col items-start justify-between gap-3 rounded-box border bg-paper px-4 py-3 text-left transition-colors ${
+                          recipe.id === selectedId
+                            ? "border-accent text-accent"
+                            : "border-ink/15 hover:border-ink/40"
                         }`}
                       >
-                        <span className="text-lg">{recipe.menu_item_name}</span>
+                        <span className="text-lg font-medium leading-snug">
+                          {recipe.menu_item_name}
+                        </span>
                         <span className="text-sm text-muted">
                           {stepHint(recipe.steps)}
                         </span>

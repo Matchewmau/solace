@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { fetchDashboard, type UpcomingDue } from "../api/dashboard";
@@ -8,8 +9,9 @@ import { Reveal, StaggerGroup, StaggerSection } from "../components/motion";
 
 /**
  * Owner home screen (/dashboard): the day + month money strip, three charts
- * (14-day sales, month payment split, ranked best sellers), and the money
- * nuggets (upcoming dues with a status badge, loans summary).
+ * (Today/Week/Month sales from a 31-day history, month payment split, ranked
+ * best sellers), and the money nuggets (upcoming dues with a status badge,
+ * loans summary).
  *
  * Net rules: day net = today's sales − today's expenses only. Month net =
  * money in − money out (payments, including salaries, bills, payables,
@@ -36,9 +38,36 @@ function daysLabel(days: number): string {
   return `Due in ${days} ${days === 1 ? "day" : "days"}`;
 }
 
-/** Day-of-month label (`2026-10-01` → `01`) for the 14-day bars. */
-function dayLabel(date: string) {
-  return date.slice(-2);
+type SalesPeriod = "day" | "week" | "month";
+
+const SALES_PERIODS: { value: SalesPeriod; label: string }[] = [
+  { value: "day", label: "Today" },
+  { value: "week", label: "Week" },
+  { value: "month", label: "Month" },
+];
+
+const PERIOD_DAYS: Record<SalesPeriod, number> = {
+  day: 1,
+  week: 7,
+  month: 31,
+};
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+
+/**
+ * Weekday label for a date. Week and day views keep the day-of-month as a
+ * second cue; the dense month view uses the weekday alone.
+ */
+function dayLabel(date: string, period: SalesPeriod): string {
+  const weekday = WEEKDAYS[new Date(`${date}T00:00:00Z`).getUTCDay()];
+  if (!weekday) return date.slice(-2);
+  return period === "month" ? weekday : `${weekday} ${date.slice(-2)}`;
+}
+
+function emptySalesMessage(period: SalesPeriod): string {
+  if (period === "day") return "No sales today.";
+  if (period === "week") return "No sales this week.";
+  return "No sales in the last 31 days.";
 }
 
 function LoadingSkeleton() {
@@ -80,14 +109,18 @@ export default function DashboardPage() {
     queryKey: ["dashboard"],
     queryFn: () => fetchDashboard(),
   });
+  const [salesPeriod, setSalesPeriod] = useState<SalesPeriod>("week");
 
   const data = dashboardQuery.data;
+  const salesDays = PERIOD_DAYS[salesPeriod];
 
   // sales_by_day arrives oldest → newest; Bars keeps the caller's order.
-  const salesBars = (data?.sales_by_day ?? []).map((day) => ({
-    label: dayLabel(day.date),
-    value: day.total_cents,
-  }));
+  const salesBars = (data?.sales_by_day ?? [])
+    .slice(-salesDays)
+    .map((day) => ({
+      label: dayLabel(day.date, salesPeriod),
+      value: day.total_cents,
+    }));
 
   const paymentSegments = [
     {
@@ -168,13 +201,54 @@ export default function DashboardPage() {
               />
             </StaggerSection>
 
-            <StaggerSection ariaLabel="Sales">
-              <Box title="Sales · last 14 days">
-                <Bars
-                  items={salesBars}
-                  formatValue={formatPeso}
-                  emptyMessage="No sales in the last 14 days."
-                />
+            <StaggerSection ariaLabel="Sales overview">
+              <Box
+                title="Sales"
+                action={
+                  <div
+                    role="group"
+                    aria-label="Sales period"
+                    className="flex shrink-0 rounded-box border border-ink/15 p-0.5"
+                  >
+                    {SALES_PERIODS.map((period) => {
+                      const selected = salesPeriod === period.value;
+                      return (
+                        <button
+                          key={period.value}
+                          type="button"
+                          aria-pressed={selected}
+                          onClick={() => setSalesPeriod(period.value)}
+                          className={`press rounded-[7px] px-3 py-1 text-xs font-semibold ${
+                            selected
+                              ? "bg-ink text-paper"
+                              : "text-muted hover:text-ink"
+                          }`}
+                        >
+                          {period.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                }
+              >
+                <div
+                  className={
+                    salesPeriod === "month" ? "overflow-x-auto pb-1" : ""
+                  }
+                >
+                  <div
+                    className={
+                      salesPeriod === "month" ? "min-w-[42rem]" : ""
+                    }
+                  >
+                    <Bars
+                      items={salesBars}
+                      formatValue={formatPeso}
+                      showValues={salesPeriod !== "month"}
+                      emptyMessage={emptySalesMessage(salesPeriod)}
+                    />
+                  </div>
+                </div>
               </Box>
             </StaggerSection>
 

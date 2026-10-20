@@ -13,8 +13,6 @@ export interface StockItem {
   qty: number;
   low_threshold: number;
   price_cents: number;
-  /** Menu items whose recipe uses this ingredient (server-provided). */
-  used_in?: string[];
 }
 
 export type MovementReason = "delivery" | "used" | "adjustment" | "waste";
@@ -115,17 +113,6 @@ export function postStockMovement(
   const trimmed = note?.trim() ?? "";
   if (trimmed !== "") body.note = trimmed;
   return postJson<StockMovement>("/api/stock_movements", body);
-}
-
-/** Create missing ingredient rows from the recipe book. */
-export function syncStockFromRecipes(): Promise<{
-  created: number;
-  skipped: number;
-}> {
-  return postJson<{ created: number; skipped: number }>(
-    "/api/stock_items/sync-recipes",
-    {},
-  );
 }
 
 export function postStockItem(input: {

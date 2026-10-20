@@ -9,7 +9,6 @@ import {
   patchStockItem,
   postStockItem,
   postStockMovement,
-  syncStockFromRecipes,
   type MovementReason,
   type StockItem,
 } from "../api/stock";
@@ -143,11 +142,6 @@ function MovementDialog({
                 ? "How much spoiled or was thrown away."
                 : "How many units arrived."}
         </p>
-        {item.used_in && item.used_in.length > 0 ? (
-          <p className="text-xs text-muted">
-            Used in: {item.used_in.join(", ")}
-          </p>
-        ) : null}
         <div className="flex gap-2">
           <Button type="submit" variant="primary" disabled={pending}>
             Save
@@ -361,8 +355,6 @@ export default function InventoryPage() {
   const [movementItem, setMovementItem] = useState<StockItem | null>(null);
   const [movementReason, setMovementReason] =
     useState<MovementReason>("delivery");
-  const [syncMessage, setSyncMessage] = useState<string | null>(null);
-  const [syncError, setSyncError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<StockItem | null>(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<number | null>(
@@ -400,21 +392,6 @@ export default function InventoryPage() {
     },
     onError: () => {
       setMoveError("Could not record that movement.");
-    },
-  });
-
-  const syncMutation = useMutation({
-    mutationFn: syncStockFromRecipes,
-    onSuccess: (result) => {
-      setSyncError(null);
-      setSyncMessage(
-        `Created ${result.created} ingredient${result.created === 1 ? "" : "s"}, skipped ${result.skipped}.`,
-      );
-      void queryClient.invalidateQueries({ queryKey: ["stock-items"] });
-    },
-    onError: () => {
-      setSyncMessage(null);
-      setSyncError("Could not sync ingredients from recipes.");
     },
   });
 
@@ -477,14 +454,10 @@ export default function InventoryPage() {
   const columns: Column<StockItem>[] = [
     { key: "item", label: "Item", render: (item) => item.name },
     {
-      key: "used_in",
-      label: "Used in",
-      render: (item) =>
-        item.used_in && item.used_in.length > 0
-          ? item.used_in.join(", ")
-          : "—",
+      key: "unit",
+      label: "Unit",
+      render: (item) => item.unit,
     },
-    { key: "unit", label: "Unit", render: (item) => item.unit },
     { key: "qty", label: "Qty", align: "right", render: (item) => item.qty },
     {
       key: "threshold",
@@ -552,17 +525,6 @@ export default function InventoryPage() {
                 />
               </label>
               <Button
-                variant="outline"
-                disabled={syncMutation.isPending}
-                onClick={() => {
-                  setSyncMessage(null);
-                  setSyncError(null);
-                  syncMutation.mutate();
-                }}
-              >
-                {syncMutation.isPending ? "Syncing…" : "Sync from recipes"}
-              </Button>
-              <Button
                 variant="primary"
                 onClick={() => {
                   setAddError(null);
@@ -572,16 +534,6 @@ export default function InventoryPage() {
                 + Add item
               </Button>
             </Box>
-            {syncMessage ? (
-              <p role="status" className="text-sm text-ok">
-                {syncMessage}
-              </p>
-            ) : null}
-            {syncError ? (
-              <p role="alert" className="text-sm text-accent">
-                {syncError}
-              </p>
-            ) : null}
             <DataTable
               label="Stock"
               columns={columns}

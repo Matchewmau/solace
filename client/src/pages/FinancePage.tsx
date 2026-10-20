@@ -37,6 +37,28 @@ const LEDGER_BY_KIND: Record<UpcomingDue["kind"], string> = {
   loan: "/finance/loans",
 };
 
+const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+] as const;
+
+/** `2026-10` → `October 2026` for the summary header. */
+function monthLabel(month: string): string {
+  const index = Number(month.slice(5, 7)) - 1;
+  const name = MONTH_NAMES[index];
+  return name && month.length >= 7 ? `${name} ${month.slice(0, 4)}` : month;
+}
+
 /**
  * Days represented by the month: elapsed days for the current month, the
  * whole month for a past/future month. Keeps the daily average honest on
@@ -189,40 +211,43 @@ export default function FinancePage() {
         ) : (
           <StaggerGroup className="flex flex-col gap-10">
             <StaggerSection>
-              <Box title="Cash-flow snapshot">
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+              <Box title={`Cash flow · ${monthLabel(month)}`}>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                   <StatChip
-                    label={`Money in · ${month}`}
+                    label="Money in"
                     value={formatPeso(data.income_month.total_cents)}
                     hint={`${data.income_month.count} sales`}
                   />
-                  <StatChip
-                    label={`Money out · ${month}`}
-                    value={formatPeso(moneyOut)}
-                  />
+                  <StatChip label="Money out" value={formatPeso(moneyOut)} />
                   <StatChip
                     label="Net"
                     value={formatPeso(data.net_month_cents)}
                     tone={data.net_month_cents >= 0 ? "ok" : "danger"}
                   />
-                  <StatChip
-                    label="Daily average"
-                    value={formatPeso(dailyAverage)}
-                    hint={
-                      moneyOut > 0
+                </div>
+                <div className="mt-4 flex flex-wrap gap-x-8 gap-y-2 border-t border-ink/10 pt-3 text-sm">
+                  <p>
+                    <span className="text-muted">Daily average</span>{" "}
+                    <span className="font-semibold">
+                      {formatPeso(dailyAverage)}
+                    </span>{" "}
+                    <span className="text-muted">
+                      {moneyOut > 0
                         ? `over ${days} days`
-                        : "no money out yet"
-                    }
-                  />
-                  <StatChip
-                    label="Largest money out"
-                    value={largestKind.label}
-                    hint={
-                      largestKind.cents > 0
+                        : "no money out yet"}
+                    </span>
+                  </p>
+                  <p>
+                    <span className="text-muted">Largest money out</span>{" "}
+                    <span className="font-semibold">
+                      {largestKind.label}
+                    </span>{" "}
+                    <span className="text-muted">
+                      {largestKind.cents > 0
                         ? `${formatPeso(largestKind.cents)} of ${formatPeso(moneyOut)}`
-                        : "nothing spent yet"
-                    }
-                  />
+                        : "nothing spent yet"}
+                    </span>
+                  </p>
                 </div>
               </Box>
             </StaggerSection>

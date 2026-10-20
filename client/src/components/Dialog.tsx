@@ -33,6 +33,17 @@ export function useDialogFocus(
   const panelRef = useRef<HTMLDivElement | null>(null);
   const restoreRef = useRef<HTMLElement | null>(null);
 
+  // The page behind the overlay never scrolls. The panel itself owns any
+  // overflow (see the Dialog / BottomSheet max-height classes).
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     const previouslyFocused =
@@ -113,7 +124,7 @@ export function Dialog({
         aria-label={title}
         tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
-        className={`sheet-up w-full max-w-lg rounded-box bg-paper p-6 text-ink shadow-sheet ${className}`.trim()}
+        className={`sheet-up max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto overscroll-contain rounded-box bg-paper p-6 text-ink shadow-sheet ${className}`.trim()}
       >
         {children}
       </div>

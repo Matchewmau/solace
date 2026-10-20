@@ -1262,25 +1262,6 @@ export function createApp(dbPath, opts = {}) {
       .get(id);
   }
 
-  /** Menu items whose recipe names this ingredient (case-insensitive). */
-  function usedInNames(name) {
-    return db
-      .prepare(
-        `SELECT DISTINCT m.name AS name
-         FROM recipe_lines rl
-         JOIN recipes r ON r.id = rl.recipe_id
-         JOIN menu_items m ON m.id = r.menu_item_id
-         WHERE lower(trim(rl.ingredient)) = lower(trim(?))
-         ORDER BY m.name`,
-      )
-      .all(name)
-      .map((row) => row.name);
-  }
-
-  function stockWithUsage(row) {
-    return row ? { ...row, used_in: usedInNames(row.name) } : row;
-  }
-
   app.get("/api/stock_items", (req, res) => {
     if (req.query.low === "1") {
       return res.json(
@@ -1288,15 +1269,11 @@ export function createApp(dbPath, opts = {}) {
           .prepare(
             `SELECT ${STOCK_COLS} FROM stock_items WHERE qty <= low_threshold ORDER BY id`,
           )
-          .all()
-          .map(stockWithUsage),
+          .all(),
       );
     }
     res.json(
-      db
-        .prepare(`SELECT ${STOCK_COLS} FROM stock_items ORDER BY id`)
-        .all()
-        .map(stockWithUsage),
+      db.prepare(`SELECT ${STOCK_COLS} FROM stock_items ORDER BY id`).all(),
     );
   });
 
@@ -1323,54 +1300,14 @@ export function createApp(dbPath, opts = {}) {
         "INSERT INTO stock_items (name, unit, qty, low_threshold, price_cents) VALUES (?, ?, ?, ?, ?)",
       )
       .run(name.trim(), unit, qty, low_threshold, price_cents);
-    res.status(201).json(stockWithUsage(stockRow(info.lastInsertRowid)));
-  });
-
-  // Create a stock row for every recipe ingredient that has none yet. Names
-  // match case-insensitively; repeated lines for the same ingredient collapse
-  // into one row using the first non-empty unit.
-  app.post("/api/stock_items/sync-recipes", (_req, res) => {
-    const groups = db
-      .prepare(
-        `SELECT lower(trim(ingredient)) AS key,
-                MIN(trim(ingredient)) AS name,
-                COALESCE(MIN(NULLIF(trim(unit), '')), '') AS unit
-         FROM recipe_lines
-         WHERE trim(ingredient) <> ''
-         GROUP BY lower(trim(ingredient))
-         ORDER BY key`,
-      )
-      .all();
-    const existing = new Set(
-      db
-        .prepare("SELECT lower(trim(name)) AS key FROM stock_items")
-        .all()
-        .map((row) => row.key),
-    );
-    const insert = db.prepare(
-      "INSERT INTO stock_items (name, unit, qty, low_threshold, price_cents) VALUES (?, ?, 0, 0, 0)",
-    );
-    let created = 0;
-    let skipped = 0;
-    db.transaction(() => {
-      for (const group of groups) {
-        if (existing.has(group.key)) {
-          skipped += 1;
-          continue;
-        }
-        insert.run(group.name, group.unit);
-        existing.add(group.key);
-        created += 1;
-      }
-    })();
-    res.json({ created, skipped });
+    res.status(201).json(stockRow(info.lastInsertRowid));
   });
 
   app.get("/api/stock_items/:id", (req, res) => {
     const id = parseId(req.params.id);
     const row = id ? stockRow(id) : undefined;
     if (!row) return sendError(res, 404, "stock item not found");
-    res.json(stockWithUsage(row));
+    res.json(row);
   });
 
   app.patch("/api/stock_items/:id", (req, res) => {
@@ -1402,7 +1339,7 @@ export function createApp(dbPath, opts = {}) {
     db.prepare(
       "UPDATE stock_items SET name = ?, unit = ?, qty = ?, low_threshold = ?, price_cents = ? WHERE id = ?",
     ).run(name.trim(), unit, qty, low_threshold, price_cents, id);
-    res.json(stockWithUsage(stockRow(id)));
+    res.json(stockRow(id));
   });
 
   app.delete("/api/stock_items/:id", (req, res) => {
@@ -2590,11 +2527,12 @@ export function createApp(dbPath, opts = {}) {
       )
       .all(`${month}%`);
 
-    // 14 day-buckets oldest→newest ending at the resolved date, zero-filled.
+    // 31 day-buckets oldest→newest ending at the resolved date, zero-filled.
+    // The dashboard slices this window into Today / Week / Month views.
     // One GROUP BY query; substr keeps the created_at TEXT-prefix day rule,
     // and voided = 0 keeps voided sales out of every bucket.
     const salesWindowStart = new Date(
-      new Date(`${date}T00:00:00Z`).getTime() - 13 * 86400000,
+      new Date(`${date}T00:00:00Z`).getTime() - 30 * 86400000,
     )
       .toISOString()
       .slice(0, 10);
@@ -2611,7 +2549,7 @@ export function createApp(dbPath, opts = {}) {
         .map((row) => [row.day, row.total_cents]),
     );
     const salesByDay = [];
-    for (let offset = 13; offset >= 0; offset -= 1) {
+    for (let offset = 30; offset >= 0; offset -= 1) {
       const day = new Date(
         new Date(`${date}T00:00:00Z`).getTime() - offset * 86400000,
       )

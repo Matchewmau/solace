@@ -137,11 +137,14 @@ export function Bars({
   orientation = "vertical",
   formatValue = defaultFormat,
   emptyMessage = "No data yet.",
+  showValues = true,
 }: {
   items: BarItem[];
   orientation?: "vertical" | "horizontal";
   formatValue?: (value: number) => string;
   emptyMessage?: string;
+  /** Hide the per-column value row for dense charts (e.g. a 31-day month). */
+  showValues?: boolean;
 }) {
   const max = items.reduce((peak, item) => Math.max(peak, item.value), 0);
 
@@ -192,9 +195,11 @@ export function Bars({
           key={`${item.label}-${index}`}
           className="flex min-w-0 flex-1 flex-col items-center gap-1"
         >
-          <span data-value="" className="text-[10px] font-semibold text-muted">
-            {formatValue(item.value)}
-          </span>
+          {showValues ? (
+            <span data-value="" className="text-[10px] font-semibold text-muted">
+              {formatValue(item.value)}
+            </span>
+          ) : null}
           <span className="flex h-24 w-full items-end">
             <span
               data-bar=""

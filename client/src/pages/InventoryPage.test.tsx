@@ -22,7 +22,6 @@ const items: StockItem[] = [
     qty: 45,
     low_threshold: 10,
     price_cents: 250,
-    used_in: ["Spanish Latte"],
   },
   { id: 2, name: "Ice", unit: "", qty: 0, low_threshold: 0, price_cents: 0 },
 ];
@@ -578,7 +577,7 @@ describe("InventoryPage price, edit, delete, restock (Task 8)", () => {
 });
 
 describe("InventoryPage kitchen stock actions (Task 5)", () => {
-  it("offers explicit Delivery, Use, and Count actions plus the ingredient's menu uses", async () => {
+  it("offers explicit Delivery, Use, and Count actions without recipe links", async () => {
     stubFetch();
     renderInventory();
     await screen.findByText("Milk");
@@ -589,10 +588,17 @@ describe("InventoryPage kitchen stock actions (Task 5)", () => {
     expect(screen.getByRole("button", { name: "Use Milk" })).toBeDefined();
     expect(screen.getByRole("button", { name: "Count Milk" })).toBeDefined();
 
-    // The Milk row names the drinks whose recipe uses it.
-    expect(within(row("Milk")).getByText("Spanish Latte")).toBeDefined();
-
+    // Inventory is independent from the menu: no recipe-derived column,
+    // sync control, or used-in note anywhere on the page or in the dialog.
+    expect(
+      screen.queryByRole("columnheader", { name: "Used in" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Sync from recipes" }),
+    ).toBeNull();
     const countDialog = await openMovementDialog("Milk", "Count");
+    expect(within(countDialog).queryByText(/Used in:/)).toBeNull();
+    expect(within(countDialog).queryByText("Spanish Latte")).toBeNull();
     expect(
       (within(countDialog).getByLabelText("Movement type") as HTMLSelectElement)
         .value,
@@ -628,28 +634,4 @@ describe("InventoryPage kitchen stock actions (Task 5)", () => {
     });
   });
 
-  it("syncs missing ingredient rows from recipes and reports the counts", async () => {
-    const syncCalls: string[] = [];
-    globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
-      const u = String(url);
-      const method = init?.method ?? "GET";
-      if (u === "/api/stock_items" && method === "GET") return ok(items);
-      if (u === "/api/stock_items/sync-recipes" && method === "POST") {
-        syncCalls.push(u);
-        return ok({ created: 2, skipped: 3 });
-      }
-      throw new Error(`unexpected fetch ${u} ${method}`);
-    }) as typeof fetch;
-    renderInventory();
-    await screen.findByText("Milk");
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "Sync from recipes" }),
-    );
-
-    expect(
-      await screen.findByText("Created 2 ingredients, skipped 3."),
-    ).toBeDefined();
-    expect(syncCalls).toEqual(["/api/stock_items/sync-recipes"]);
-  });
 });

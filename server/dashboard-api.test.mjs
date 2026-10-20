@@ -484,30 +484,16 @@ describe("dashboard reconciliation (Task 13)", () => {
     expect(res.body.overdue_payables_count).toBe(1);
   });
 
-  it("sales_by_day: 14 zero-filled days ending at date; voided sales excluded", async () => {
+  it("sales_by_day: 31 zero-filled days ending at date; voided sales excluded", async () => {
     const res = await api
       .get(`/api/dashboard?date=${DATE}&month=${MONTH}`)
       .expect(200);
     const days = res.body.sales_by_day;
-    expect(days).toHaveLength(14);
-    expect(days.map((d) => d.date)).toEqual([
-      "2026-09-30",
-      "2026-10-01",
-      "2026-10-02",
-      "2026-10-03",
-      "2026-10-04",
-      "2026-10-05",
-      "2026-10-06",
-      "2026-10-07",
-      "2026-10-08",
-      "2026-10-09",
-      "2026-10-10",
-      "2026-10-11",
-      "2026-10-12",
-      "2026-10-13",
-    ]);
+    expect(days).toHaveLength(31);
+    expect(days[0].date).toBe("2026-09-13");
+    expect(days.at(-1).date).toBe(DATE);
     const byDate = Object.fromEntries(days.map((d) => [d.date, d.total_cents]));
-    expect(byDate["2026-09-30"]).toBe(100000); // s5, the oldest in-window day
+    expect(byDate["2026-09-30"]).toBe(100000); // s5, in the widened window
     expect(byDate["2026-10-01"]).toBe(0); // zero-filled gap
     expect(byDate["2026-10-05"]).toBe(16500); // s4
     // s1 (10000) + s2 (3800); voided s3 (10000) is excluded.

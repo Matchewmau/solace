@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import DashboardPage from "./DashboardPage";
@@ -160,26 +160,43 @@ describe("DashboardPage", () => {
     );
   });
 
-  it("draws the 14-day sales chart as one bar per day, oldest first", async () => {
+  it("filters sales by Today, Week, and Month with weekday labels", async () => {
     stubDashboard();
     renderDashboard();
 
-    const sales = await screen.findByRole("region", {
-      name: "Sales · last 14 days",
-    });
-    const bars = sales.querySelectorAll("[data-bar]");
-    expect(bars.length).toBe(14);
+    const sales = await screen.findByRole("region", { name: "Sales" });
+    const controls = within(sales).getByRole("group", { name: "Sales period" });
+    const today = within(controls).getByRole("button", { name: "Today" });
+    const week = within(controls).getByRole("button", { name: "Week" });
+    const month = within(controls).getByRole("button", { name: "Month" });
+    expect(week.getAttribute("aria-pressed")).toBe("true");
 
-    const labels = [...sales.querySelectorAll("[data-label]")].map(
-      (node) => node.textContent,
-    );
-    expect(labels[0]).toBe("01");
-    expect(labels[6]).toBe("07");
-    expect(labels[13]).toBe("14");
+    const labels = () =>
+      [...sales.querySelectorAll("[data-label]")].map((node) => node.textContent);
+    let bars = sales.querySelectorAll("[data-bar]");
+    expect(bars.length).toBe(7);
+    expect(labels()[0]).toBe("Thu 08");
+    expect(labels()[6]).toBe("Wed 14");
 
     // The peak day fills the column; the smallest is a proportional sliver.
-    expect((bars[13] as HTMLElement).style.height).toBe("100%");
+    expect((bars[6] as HTMLElement).style.height).toBe("100%");
     expect((bars[0] as HTMLElement).style.height).not.toBe("100%");
+
+    fireEvent.click(today);
+    expect(today.getAttribute("aria-pressed")).toBe("true");
+    bars = sales.querySelectorAll("[data-bar]");
+    expect(bars.length).toBe(1);
+    expect(labels()).toEqual(["Wed 14"]);
+
+    fireEvent.click(month);
+    expect(month.getAttribute("aria-pressed")).toBe("true");
+    bars = sales.querySelectorAll("[data-bar]");
+    expect(bars.length).toBe(14);
+    // Month view uses weekday names for every day in the 31-day window and
+    // drops the per-bar peso labels so a dense month stays legible.
+    expect(labels()[0]).toBe("Thu");
+    expect(labels()[13]).toBe("Wed");
+    expect(sales.querySelectorAll("[data-value]")).toHaveLength(0);
   });
 
   it("shows the month payment split donut with Cash and GCash percentages", async () => {
@@ -288,7 +305,7 @@ describe("DashboardPage", () => {
     renderDashboard();
 
     expect(await screen.findByText("Nothing due right now.")).toBeDefined();
-    expect(screen.getByText("No sales in the last 14 days.")).toBeDefined();
+    expect(screen.getByText("No sales this week.")).toBeDefined();
     expect(screen.getByText("No payments this month.")).toBeDefined();
     expect(screen.getByText("No sales this month.")).toBeDefined();
     // Zero money still renders as ₱0, never NaN or a blank chip.

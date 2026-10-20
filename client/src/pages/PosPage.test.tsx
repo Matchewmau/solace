@@ -1560,6 +1560,26 @@ describe("POS order rail status, labels, and day cue", () => {
     expect(tab.className).not.toContain("bg-danger");
   });
 
+  it("pins the desktop rail and gives the order tabs their own scroll", async () => {
+    globalThis.fetch = vi.fn(menuFetch()) as typeof fetch;
+
+    renderPos();
+    await screen.findByText("Cortado");
+
+    const rail = screen.getByRole("complementary", { name: "Order rail" });
+    expect(rail.className).toContain("sticky");
+    expect(rail.className).toContain("top-0");
+    expect(rail.className).toContain("h-screen");
+    expect(rail.className).toContain("self-start");
+    expect(rail.className).toContain("overflow-hidden");
+
+    const tabs = within(rail).getByRole("tablist", { name: "Orders" });
+    expect(tabs.className).toContain("min-h-0");
+    expect(tabs.className).toContain("flex-1");
+    expect(tabs.className).toContain("overflow-y-auto");
+    expect(tabs.className).toContain("overscroll-contain");
+  });
+
   it("renders the day-rollover cue above the rail and clears it on Dismiss", async () => {
     globalThis.fetch = vi.fn(menuFetch()) as typeof fetch;
     // The stale-day guard raises the cue before the POS mounts.
