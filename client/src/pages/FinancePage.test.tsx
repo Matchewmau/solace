@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import FinancePage from "./FinancePage";
 import { clearStoredAuth } from "../lib/auth";
 import type { Dashboard } from "../api/dashboard";
+import type { Expense } from "../api/finance";
 
 afterEach(() => {
   cleanup();
@@ -50,17 +51,95 @@ const dashboard: Dashboard = {
   expenses_month_count: 2,
   outstanding_loans_cents: 90000,
   outstanding_loans_count: 1,
-  upcoming_dues: [],
+  upcoming_dues: [
+    {
+      kind: "bill",
+      label: "Electric bill",
+      amount_cents: 145000,
+      due: "18",
+      overdue: true,
+      days_until: -2,
+    },
+    {
+      kind: "payable",
+      label: "Milk supplier",
+      amount_cents: 62000,
+      due: "2026-10-21",
+      overdue: false,
+      days_until: 1,
+    },
+    {
+      kind: "loan",
+      label: "Bank loan",
+      amount_cents: 30000,
+      due: "2026-10-30",
+      overdue: false,
+      days_until: 10,
+    },
+  ],
   loans: [],
   best_sellers: [],
 };
 
-function stubDashboard(payload: Dashboard = dashboard) {
-  globalThis.fetch = vi.fn(async () => ({
-    ok: true,
-    status: 200,
-    json: async () => payload,
-  })) as unknown as typeof fetch;
+/** Newest dates first, and id descending within the same date. */
+const expenses: Expense[] = [
+  {
+    id: 3,
+    date: "2026-10-13",
+    category: "Milk",
+    amount_cents: 5200,
+    note: "Fresh milk",
+  },
+  {
+    id: 7,
+    date: "2026-10-01",
+    category: "Rent",
+    amount_cents: 50000,
+    note: "October stall",
+  },
+  {
+    id: 6,
+    date: "2026-10-13",
+    category: "Ice",
+    amount_cents: 1800,
+    note: "Two bags",
+  },
+  {
+    id: 2,
+    date: "2026-10-05",
+    category: "Beans",
+    amount_cents: 30000,
+    note: "Espresso blend",
+  },
+  {
+    id: 5,
+    date: "2026-10-09",
+    category: "Cups",
+    amount_cents: 12000,
+    note: "12 oz",
+  },
+  {
+    id: 4,
+    date: "2026-10-01",
+    category: "Soap",
+    amount_cents: 900,
+    note: "Dish soap",
+  },
+];
+
+function stubDashboard(
+  payload: Dashboard = dashboard,
+  expenseRows: Expense[] = expenses,
+) {
+  globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    const body = url.includes("/api/expenses") ? expenseRows : payload;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => body,
+    };
+  }) as unknown as typeof fetch;
 }
 
 function renderFinance() {
@@ -208,5 +287,147 @@ describe("FinancePage money dashboard", () => {
       await screen.findByText("Could not load finance."),
     ).toBeDefined();
     expect(screen.getByRole("button", { name: "Retry" })).toBeDefined();
+  });
+});
+
+describe("FinancePage cash-flow snapshot", () => {
+  it("adds daily average and the largest money-out kind", async () => {
+    stubDashboard();
+    renderFinance();
+
+    const snapshot = await screen.findByRole("region", {
+      name: "Cash-flow snapshot",
+    });
+    expect(within(snapshot).getByText("Money in · 2026-10")).toBeDefined();
+    expect(within(snapshot).getByText("Money out · 2026-10")).toBeDefined();
+    expect(within(snapshot).getByText("Net")).toBeDefined();
+
+    // 9000 cents out across 13 elapsed days = 692.3 → ₱6.92 per day.
+    const daily = within(snapshot)
+      .getByText("Daily average")
+      .closest("div") as HTMLElement;
+    expect(within(daily).getByText("₱6.92")).toBeDefined();
+    expect(within(daily).getByText("over 13 days")).toBeDefined();
+
+    // Expenses (4000) is the biggest slice of the 9000 money out.
+    const largest = within(snapshot)
+      .getByText("Largest money out")
+      .closest("div") as HTMLElement;
+    expect(within(largest).getByText("Expenses")).toBeDefined();
+    expect(within(largest).getByText("₱40 of ₱90")).toBeDefined();
+  });
+
+  it("handles a month with no money out", async () => {
+    stubDashboard({
+      ...dashboard,
+      money_out_month_cents: 0,
+      money_out_month_by_kind: {
+        bills_cents: 0,
+        expenses_cents: 0,
+        payables_cents: 0,
+        loans_cents: 0,
+        salaries_cents: 0,
+      },
+    });
+    renderFinance();
+
+    const snapshot = await screen.findByRole("region", {
+      name: "Cash-flow snapshot",
+    });
+    const daily = within(snapshot)
+      .getByText("Daily average")
+      .closest("div") as HTMLElement;
+    expect(within(daily).getByText("₱0")).toBeDefined();
+    expect(within(daily).getByText("no money out yet")).toBeDefined();
+
+    const largest = within(snapshot)
+      .getByText("Largest money out")
+      .closest("div") as HTMLElement;
+    expect(within(largest).getByText("None")).toBeDefined();
+  });
+});
+
+describe("FinancePage upcoming dues", () => {
+  it("lists dues with overdue/due-soon badges and ledger links", async () => {
+    stubDashboard();
+    renderFinance();
+
+    const dues = await screen.findByRole("region", { name: "Upcoming dues" });
+
+    const electric = within(dues)
+      .getByText("Electric bill")
+      .closest("li") as HTMLElement;
+    expect(within(electric).getByText("₱1450")).toBeDefined();
+    expect(within(electric).getByText("18")).toBeDefined();
+    const overdue = within(electric).getByText("Overdue");
+    expect(overdue.className).toContain("text-danger");
+    expect(
+      within(electric)
+        .getByRole("link", { name: /Electric bill/ })
+        .getAttribute("href"),
+    ).toBe("/finance/bills");
+
+    const milk = within(dues).getByText("Milk supplier").closest("li") as HTMLElement;
+    expect(within(milk).getByText("₱620")).toBeDefined();
+    expect(within(milk).getByText("Due tomorrow")).toBeDefined();
+    expect(
+      within(milk)
+        .getByRole("link", { name: /Milk supplier/ })
+        .getAttribute("href"),
+    ).toBe("/finance/payables");
+
+    const loan = within(dues).getByText("Bank loan").closest("li") as HTMLElement;
+    expect(within(loan).getByText("Due in 10 days")).toBeDefined();
+    expect(
+      within(loan).getByRole("link", { name: /Bank loan/ }).getAttribute("href"),
+    ).toBe("/finance/loans");
+  });
+
+  it("shows an empty state when nothing is due", async () => {
+    stubDashboard({ ...dashboard, upcoming_dues: [] });
+    renderFinance();
+
+    const dues = await screen.findByRole("region", { name: "Upcoming dues" });
+    expect(
+      within(dues).getByText("Nothing due in the next 7 days."),
+    ).toBeDefined();
+  });
+});
+
+describe("FinancePage recent expenses", () => {
+  it("shows the five newest expenses, latest date first then newest id", async () => {
+    stubDashboard();
+    renderFinance();
+
+    const recent = await screen.findByRole("region", {
+      name: "Recent expenses",
+    });
+    await within(recent).findByText("Two bags");
+
+    const rows = within(recent).getAllByRole("listitem");
+    expect(rows).toHaveLength(5);
+    expect(rows[0].textContent).toContain("Ice");
+    expect(rows[1].textContent).toContain("Milk");
+    expect(rows[2].textContent).toContain("Cups");
+    expect(rows[3].textContent).toContain("Beans");
+    expect(rows[4].textContent).toContain("Rent");
+    // The sixth, oldest expense is outside the five-row window.
+    expect(within(recent).queryByText("Soap")).toBeNull();
+
+    expect(
+      within(recent).getByRole("link", { name: "View all" }).getAttribute("href"),
+    ).toBe("/finance/expenses");
+  });
+
+  it("shows an empty state when no expenses are logged", async () => {
+    stubDashboard(dashboard, []);
+    renderFinance();
+
+    const recent = await screen.findByRole("region", {
+      name: "Recent expenses",
+    });
+    expect(
+      await within(recent).findByText("No expenses logged yet."),
+    ).toBeDefined();
   });
 });
