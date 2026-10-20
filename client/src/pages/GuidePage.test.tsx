@@ -303,7 +303,7 @@ describe("GuidePage type filter (Task 8)", () => {
   });
 });
 
-describe("GuidePage toolbar and card grid (Task 22)", () => {
+describe("GuidePage toolbar and category rows (Task 22, Task 3)", () => {
   it("puts the category chips and search box inside one toolbar box", async () => {
     stubFetch();
     renderGuide();
@@ -326,28 +326,74 @@ describe("GuidePage toolbar and card grid (Task 22)", () => {
     ).toBe("true");
   });
 
-  it("lays the drinks out as a responsive card grid with a hint per card", async () => {
+  it("shows the Solace · Guide label in an Add row", async () => {
     stubFetch();
     renderGuide();
     await screen.findByRole("button", { name: "Spanish Latte" });
 
-    const list = screen.getByRole("list", { name: "Drinks" });
-    expect(list.className).toContain("grid-cols-1");
-    expect(list.className).toContain("sm:grid-cols-2");
-    expect(list.className).toContain("gap-3");
-
-    const card = screen.getByRole("button", { name: "Spanish Latte" });
-    expect(card.className).toContain("press");
-    expect(card.textContent).toContain("steps");
+    expect(screen.getByText("Solace · Guide")).toBeDefined();
+    expect(screen.getByRole("button", { name: "Add" })).toBeDefined();
   });
 
-  it("keeps aria-pressed selection on the active card", async () => {
+  it("groups recipe rows under sorted category boxes", async () => {
     stubFetch();
     renderGuide();
-    const card = await screen.findByRole("button", { name: "Spanish Latte" });
-    expect(card.getAttribute("aria-pressed")).toBe("false");
+    await screen.findByRole("button", { name: "Spanish Latte" });
 
-    fireEvent.click(card);
+    // Coffee and Matcha hold guides; Soda has none, so it renders no box.
+    const coffee = screen.getByRole("region", { name: "Coffee" });
+    const matcha = screen.getByRole("region", { name: "Matcha" });
+    expect(screen.queryByRole("region", { name: "Soda" })).toBeNull();
+    expect(
+      within(coffee).getByRole("heading", { name: "Coffee" }),
+    ).toBeDefined();
+    expect(
+      within(matcha).getByRole("heading", { name: "Matcha" }),
+    ).toBeDefined();
+    // Sorted order puts Coffee before Matcha.
+    expect(
+      coffee.compareDocumentPosition(matcha) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    expect(
+      within(coffee).getByRole("button", { name: "Spanish Latte" }),
+    ).toBeDefined();
+    expect(
+      within(coffee).getByRole("button", { name: "Dark Mocha" }),
+    ).toBeDefined();
+    expect(
+      within(coffee).queryByRole("button", { name: "Matcha Latte" }),
+    ).toBeNull();
+    expect(
+      within(matcha).getByRole("button", { name: "Matcha Latte" }),
+    ).toBeDefined();
+  });
+
+  it("lays each category out as Menu-style recipe rows with a step hint", async () => {
+    stubFetch();
+    renderGuide();
+    await screen.findByRole("button", { name: "Spanish Latte" });
+
+    const coffee = screen.getByRole("region", { name: "Coffee" });
+    const list = within(coffee).getByRole("list");
+    expect(list.className).toContain("flex-col");
+    expect(list.className).toContain("gap-3");
+    expect(within(list).getAllByRole("listitem")).toHaveLength(2);
+
+    const row = within(coffee).getByRole("button", { name: "Spanish Latte" });
+    expect(row.className).toContain("grid");
+    expect(row.className).toContain("text-left");
+    expect(row.textContent).toContain("steps");
+  });
+
+  it("keeps aria-pressed selection on the active row", async () => {
+    stubFetch();
+    renderGuide();
+    const row = await screen.findByRole("button", { name: "Spanish Latte" });
+    expect(row.getAttribute("aria-pressed")).toBe("false");
+
+    fireEvent.click(row);
     await screen.findByRole("dialog", { name: "Recipe — Spanish Latte" });
     expect(
       screen

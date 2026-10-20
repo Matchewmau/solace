@@ -19,8 +19,8 @@ import {
   type MenuItem,
 } from "../api/menu";
 import { sortCategories } from "../lib/sortCategories";
-import { Reveal, StaggerItem, StaggerList } from "../components/motion";
-import { Badge, Box, Button, PageFrame } from "../components/ui";
+import { Reveal, StaggerGroup, StaggerItem, StaggerList, StaggerSection } from "../components/motion";
+import { Box, Button, PageFrame } from "../components/ui";
 import { Dialog } from "../components/Dialog";
 
 /**
@@ -86,8 +86,8 @@ function LoadingSkeleton() {
  * Pure list + type filter + search browser over mocked-or-fetched recipes.
  * The toolbar `Box` mirrors POS: `All` plus each drink type in the shared
  * `sortCategories` order (Food never lists) over the `Search drinks` input.
- * Matches render as a responsive card grid; the selected drink's detail is
- * fetched by id (see GuidePage).
+ * Matches render as Menu-style category boxes, one recipe row per drink;
+ * the selected drink's detail is fetched by id (see GuidePage).
  */
 export function GuideBrowser({
   recipes,
@@ -106,6 +106,14 @@ export function GuideBrowser({
     activeCategory,
     categoryByMenuItemId,
   );
+  const groups = sortCategories(categories)
+    .map((category) => ({
+      category,
+      rows: filtered.filter(
+        (recipe) => categoryByMenuItemId.get(recipe.menu_item_id) === category.id,
+      ),
+    }))
+    .filter((group) => group.rows.length > 0);
   return (
     <div className="flex flex-col gap-6">
       <Box className="flex flex-col gap-4">
@@ -147,31 +155,34 @@ export function GuideBrowser({
       {filtered.length === 0 ? (
         <p className="py-8 text-center text-muted">No drinks found</p>
       ) : (
-        <StaggerList
-          className="grid grid-cols-1 gap-3 sm:grid-cols-2"
-          ariaLabel="Drinks"
-        >
-          {filtered.map((recipe) => (
-            <StaggerItem key={recipe.id}>
-              <button
-                type="button"
-                onClick={() => onSelect(recipe.id)}
-                aria-pressed={recipe.id === selectedId}
-                aria-label={recipe.menu_item_name}
-                className={
-                  recipe.id === selectedId
-                    ? "press flex w-full flex-col items-start gap-2 rounded-box border border-accent px-4 py-3 text-left text-accent"
-                    : "press flex w-full flex-col items-start gap-2 rounded-box border border-ink/20 px-4 py-3 text-left"
-                }
-              >
-                <span className="text-base font-semibold">
-                  {recipe.menu_item_name}
-                </span>
-                <Badge tone="neutral">{stepHint(recipe.steps)}</Badge>
-              </button>
-            </StaggerItem>
+        <StaggerGroup className="flex flex-col gap-6">
+          {groups.map(({ category, rows }) => (
+            <StaggerSection key={category.id}>
+              <Box title={category.name}>
+                <StaggerList className="flex flex-col gap-3">
+                  {rows.map((recipe) => (
+                    <StaggerItem key={recipe.id}>
+                      <button
+                        type="button"
+                        onClick={() => onSelect(recipe.id)}
+                        aria-pressed={recipe.id === selectedId}
+                        aria-label={recipe.menu_item_name}
+                        className={`grid w-full grid-cols-[1fr_auto] items-baseline gap-4 text-left ${
+                          recipe.id === selectedId ? "text-accent" : ""
+                        }`}
+                      >
+                        <span className="text-lg">{recipe.menu_item_name}</span>
+                        <span className="text-sm text-muted">
+                          {stepHint(recipe.steps)}
+                        </span>
+                      </button>
+                    </StaggerItem>
+                  ))}
+                </StaggerList>
+              </Box>
+            </StaggerSection>
           ))}
-        </StaggerList>
+        </StaggerGroup>
       )}
     </div>
   );
