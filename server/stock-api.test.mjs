@@ -322,6 +322,223 @@ describe("stock_movements ledger (Task 10)", () => {
   });
 });
 
+describe("stock usage ledger (Task 5)", () => {
+  it("used movements subtract and carry the note into the ledger", async () => {
+    const item = (
+      await api
+        .post("/api/stock_items")
+        .send({ name: "Usage Milk", unit: "ml", qty: 10 })
+        .expect(201)
+    ).body;
+    const movement = await api
+      .post("/api/stock_movements")
+      .send({
+        stock_item_id: item.id,
+        delta: -3,
+        reason: "used",
+        note: "  2 Spanish Lattes  ",
+      })
+      .expect(201);
+    expect(movement.body).toMatchObject({
+      stock_item_id: item.id,
+      delta: -3,
+      reason: "used",
+      note: "2 Spanish Lattes",
+    });
+
+    const after = await api
+      .get(`/api/stock_items/${item.id}`)
+      .expect(200);
+    expect(after.body.qty).toBe(7);
+
+    // History rows carry the note plus the item's name and unit.
+    const ledger = await api
+      .get(`/api/stock_movements?stock_item_id=${item.id}`)
+      .expect(200);
+    expect(ledger.body[0]).toMatchObject({
+      reason: "used",
+      note: "2 Spanish Lattes",
+      item_name: "Usage Milk",
+      item_unit: "ml",
+    });
+  });
+
+  it("rejects a non-string note and notes longer than 120 chars", async () => {
+    const item = (
+      await api
+        .post("/api/stock_items")
+        .send({ name: "Strict Note Milk", unit: "ml", qty: 10 })
+        .expect(201)
+    ).body;
+    for (const note of [5, "x".repeat(121)]) {
+      const res = await api
+        .post("/api/stock_movements")
+        .send({ stock_item_id: item.id, delta: -1, reason: "used", note })
+        .expect(400);
+      expect(res.body.error).toEqual(expect.any(String));
+    }
+  });
+
+  it("GET stock items exposes used_in menu names (case-insensitive match)", async () => {
+    const db = app.locals.db;
+    const categoryId = db
+      .prepare("INSERT INTO categories (name) VALUES ('Usage Test')")
+      .run().lastInsertRowid;
+    const menuId = db
+      .prepare(
+        "INSERT INTO menu_items (category_id, name, price_cents) VALUES (?, ?, ?)",
+      )
+      .run(categoryId, "Usage Latte", 15000).lastInsertRowid;
+    const recipeId = db
+      .prepare("INSERT INTO recipes (menu_item_id, steps) VALUES (?, '')")
+      .run(menuId).lastInsertRowid;
+    db.prepare(
+      "INSERT INTO recipe_lines (recipe_id, ingredient, qty, unit) VALUES (?, ?, ?, ?)",
+    ).run(recipeId, "usage sugar", 20, "g");
+
+    const item = (
+      await api
+        .post("/api/stock_items")
+        .send({ name: "Usage Sugar", unit: "g" })
+        .expect(201)
+    ).body;
+    const list = await api.get("/api/stock_items").expect(200);
+    expect(list.body.find((row) => row.id === item.id).used_in).toEqual([
+      "Usage Latte",
+    ]);
+    const single = await api
+      .get(`/api/stock_items/${item.id}`)
+      .expect(200);
+    expect(single.body.used_in).toEqual(["Usage Latte"]);
+  });
+});
+
+describe("sync-recipes endpoint (Task 5)", () => {
+  const syncDir = mkdtempSync(join(tmpdir(), "solace-stock-sync-test-"));
+  const syncApp = createApp(join(syncDir, "sync-test.db"));
+  const syncApi = authed(syncApp);
+
+  afterAll(() => {
+    syncApp.locals.db.close();
+    rmSync(syncDir, { recursive: true, force: true });
+  });
+
+  function addRecipe(menuName, lines) {
+    const db = syncApp.locals.db;
+    const categoryId = db
+      .prepare("INSERT INTO categories (name) VALUES ('Sync Test')")
+      .run().lastInsertRowid;
+    const menuId = db
+      .prepare(
+        "INSERT INTO menu_items (category_id, name, price_cents) VALUES (?, ?, ?)",
+      )
+      .run(categoryId, menuName, 10000).lastInsertRowid;
+    const recipeId = db
+      .prepare("INSERT INTO recipes (menu_item_id, steps) VALUES (?, '')")
+      .run(menuId).lastInsertRowid;
+    for (const [ingredient, qty, unit] of lines) {
+      db.prepare(
+        "INSERT INTO recipe_lines (recipe_id, ingredient, qty, unit) VALUES (?, ?, ?, ?)",
+      ).run(recipeId, ingredient, qty, unit);
+    }
+  }
+
+  it("creates one row per missing ingredient and skips existing names", async () => {
+    // createApp auto-seeds the real recipe book; this fixture is isolated.
+    syncApp.locals.db.exec(
+      "DELETE FROM recipe_lines; DELETE FROM recipes; DELETE FROM stock_items;",
+    );
+    addRecipe("Sync Latte", [
+      ["Sync Oat", 120, "ml"],
+      ["sync oat", 60, "ml"],
+      ["Sync Honey", 10, "g"],
+    ]);
+    await syncApi
+      .post("/api/stock_items")
+      .send({ name: "Sync Oat", unit: "ml", qty: 5 })
+      .expect(201);
+
+    const first = await syncApi
+      .post("/api/stock_items/sync-recipes")
+      .expect(200);
+    expect(first.body).toEqual({ created: 1, skipped: 1 });
+
+    const list = await syncApi.get("/api/stock_items").expect(200);
+    expect(
+      list.body.find(
+        (row) => row.name.toLowerCase() === "sync honey",
+      ),
+    ).toMatchObject({
+      name: "Sync Honey",
+      unit: "g",
+      qty: 0,
+      low_threshold: 0,
+      price_cents: 0,
+    });
+
+    const second = await syncApi
+      .post("/api/stock_items/sync-recipes")
+      .expect(200);
+    expect(second.body).toEqual({ created: 0, skipped: 2 });
+  });
+});
+
+describe("stock movement schema migration (Task 5)", () => {
+  it("upgrades a legacy movements table that rejects used and lacks note", async () => {
+    const legacyDir = mkdtempSync(join(tmpdir(), "solace-stock-legacy-test-"));
+    const legacyPath = join(legacyDir, "legacy.db");
+    const legacy = new Database(legacyPath);
+    legacy.exec(`
+      CREATE TABLE stock_items (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        unit TEXT NOT NULL,
+        qty REAL NOT NULL DEFAULT 0,
+        low_threshold REAL NOT NULL DEFAULT 0,
+        price_cents INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE TABLE stock_movements (
+        id INTEGER PRIMARY KEY,
+        stock_item_id INTEGER NOT NULL REFERENCES stock_items(id),
+        delta REAL NOT NULL,
+        reason TEXT NOT NULL CHECK (reason IN ('delivery', 'adjustment', 'waste')),
+        created_at TEXT NOT NULL
+      );
+      INSERT INTO stock_items (name, unit, qty) VALUES ('Legacy Milk', 'ml', 9);
+      INSERT INTO stock_movements (stock_item_id, delta, reason, created_at)
+        VALUES (1, 9, 'delivery', '2026-10-01 09:00:00');
+    `);
+    legacy.close();
+
+    const legacyApp = createApp(legacyPath);
+    const legacyApi = authed(legacyApp);
+    try {
+      const ledger = await legacyApi.get("/api/stock_movements").expect(200);
+      expect(ledger.body[0]).toMatchObject({
+        reason: "delivery",
+        delta: 9,
+        item_name: "Legacy Milk",
+        item_unit: "ml",
+      });
+      const used = await legacyApi
+        .post("/api/stock_movements")
+        .send({
+          stock_item_id: 1,
+          delta: -1,
+          reason: "used",
+          note: "one latte",
+        })
+        .expect(201);
+      expect(used.body).toMatchObject({ reason: "used", note: "one latte" });
+      const after = await legacyApi.get("/api/stock_items/1").expect(200);
+      expect(after.body.qty).toBe(8);
+    } finally {
+      legacyApp.locals.db.close();
+      rmSync(legacyDir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("seed-stock idempotent (Task 10)", () => {
   const dir2 = mkdtempSync(join(tmpdir(), "solace-seed-stock-test-"));
   const dbPath2 = join(dir2, "seed-stock-test.db");

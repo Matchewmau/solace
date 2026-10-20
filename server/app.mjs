@@ -74,6 +74,41 @@ function openDb(dbPath) {
       "ALTER TABLE stock_items ADD COLUMN price_cents INTEGER NOT NULL DEFAULT 0",
     );
   }
+  // Boot migration: pre-usage Task 5 DBs reject 'used' in the movements CHECK
+  // and lack the note column. SQLite cannot alter a CHECK, so rebuild the
+  // table once, preserving ids/timestamps and recreating the index after the
+  // legacy table (and its index) is dropped.
+  const movementCols = db
+    .prepare("PRAGMA table_info(stock_movements)")
+    .all()
+    .map((col) => col.name);
+  const movementSql =
+    db
+      .prepare(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'stock_movements'",
+      )
+      .get()?.sql ?? "";
+  if (!movementCols.includes("note") || !movementSql.includes("'used'")) {
+    db.transaction(() => {
+      db.exec(`
+        ALTER TABLE stock_movements RENAME TO stock_movements_legacy;
+        CREATE TABLE stock_movements (
+          id INTEGER PRIMARY KEY,
+          stock_item_id INTEGER NOT NULL REFERENCES stock_items(id),
+          delta REAL NOT NULL,
+          reason TEXT NOT NULL CHECK (reason IN ('delivery', 'used', 'adjustment', 'waste')),
+          note TEXT,
+          created_at TEXT NOT NULL
+        );
+        INSERT INTO stock_movements (id, stock_item_id, delta, reason, note, created_at)
+          SELECT id, stock_item_id, delta, reason, NULL, created_at
+          FROM stock_movements_legacy;
+        DROP TABLE stock_movements_legacy;
+        CREATE INDEX IF NOT EXISTS idx_stock_movements_stock_item_id
+          ON stock_movements(stock_item_id);
+      `);
+    })();
+  }
   const salesCols = db
     .prepare("PRAGMA table_info(sales)")
     .all()
@@ -1207,8 +1242,15 @@ export function createApp(dbPath, opts = {}) {
   // qty change so the audit trail is complete). Recipe auto-deduction on
   // sale is explicitly NOT built (spec non-goal).
   const STOCK_COLS = "id, name, unit, qty, low_threshold, price_cents";
-  const MOVEMENT_COLS = "id, stock_item_id, delta, reason, created_at";
-  const MOVEMENT_REASONS = new Set(["delivery", "adjustment", "waste"]);
+  const MOVEMENT_COLS = "id, stock_item_id, delta, reason, note, created_at";
+  const MOVEMENT_SELECT = `sm.id, sm.stock_item_id, sm.delta, sm.reason, sm.note,
+    sm.created_at, si.name AS item_name, si.unit AS item_unit`;
+  const MOVEMENT_REASONS = new Set([
+    "delivery",
+    "used",
+    "adjustment",
+    "waste",
+  ]);
 
   function isNonNegNumber(value) {
     return typeof value === "number" && Number.isFinite(value) && value >= 0;
@@ -1220,6 +1262,25 @@ export function createApp(dbPath, opts = {}) {
       .get(id);
   }
 
+  /** Menu items whose recipe names this ingredient (case-insensitive). */
+  function usedInNames(name) {
+    return db
+      .prepare(
+        `SELECT DISTINCT m.name AS name
+         FROM recipe_lines rl
+         JOIN recipes r ON r.id = rl.recipe_id
+         JOIN menu_items m ON m.id = r.menu_item_id
+         WHERE lower(trim(rl.ingredient)) = lower(trim(?))
+         ORDER BY m.name`,
+      )
+      .all(name)
+      .map((row) => row.name);
+  }
+
+  function stockWithUsage(row) {
+    return row ? { ...row, used_in: usedInNames(row.name) } : row;
+  }
+
   app.get("/api/stock_items", (req, res) => {
     if (req.query.low === "1") {
       return res.json(
@@ -1227,11 +1288,15 @@ export function createApp(dbPath, opts = {}) {
           .prepare(
             `SELECT ${STOCK_COLS} FROM stock_items WHERE qty <= low_threshold ORDER BY id`,
           )
-          .all(),
+          .all()
+          .map(stockWithUsage),
       );
     }
     res.json(
-      db.prepare(`SELECT ${STOCK_COLS} FROM stock_items ORDER BY id`).all(),
+      db
+        .prepare(`SELECT ${STOCK_COLS} FROM stock_items ORDER BY id`)
+        .all()
+        .map(stockWithUsage),
     );
   });
 
@@ -1258,14 +1323,54 @@ export function createApp(dbPath, opts = {}) {
         "INSERT INTO stock_items (name, unit, qty, low_threshold, price_cents) VALUES (?, ?, ?, ?, ?)",
       )
       .run(name.trim(), unit, qty, low_threshold, price_cents);
-    res.status(201).json(stockRow(info.lastInsertRowid));
+    res.status(201).json(stockWithUsage(stockRow(info.lastInsertRowid)));
+  });
+
+  // Create a stock row for every recipe ingredient that has none yet. Names
+  // match case-insensitively; repeated lines for the same ingredient collapse
+  // into one row using the first non-empty unit.
+  app.post("/api/stock_items/sync-recipes", (_req, res) => {
+    const groups = db
+      .prepare(
+        `SELECT lower(trim(ingredient)) AS key,
+                MIN(trim(ingredient)) AS name,
+                COALESCE(MIN(NULLIF(trim(unit), '')), '') AS unit
+         FROM recipe_lines
+         WHERE trim(ingredient) <> ''
+         GROUP BY lower(trim(ingredient))
+         ORDER BY key`,
+      )
+      .all();
+    const existing = new Set(
+      db
+        .prepare("SELECT lower(trim(name)) AS key FROM stock_items")
+        .all()
+        .map((row) => row.key),
+    );
+    const insert = db.prepare(
+      "INSERT INTO stock_items (name, unit, qty, low_threshold, price_cents) VALUES (?, ?, 0, 0, 0)",
+    );
+    let created = 0;
+    let skipped = 0;
+    db.transaction(() => {
+      for (const group of groups) {
+        if (existing.has(group.key)) {
+          skipped += 1;
+          continue;
+        }
+        insert.run(group.name, group.unit);
+        existing.add(group.key);
+        created += 1;
+      }
+    })();
+    res.json({ created, skipped });
   });
 
   app.get("/api/stock_items/:id", (req, res) => {
     const id = parseId(req.params.id);
     const row = id ? stockRow(id) : undefined;
     if (!row) return sendError(res, 404, "stock item not found");
-    res.json(row);
+    res.json(stockWithUsage(row));
   });
 
   app.patch("/api/stock_items/:id", (req, res) => {
@@ -1297,7 +1402,7 @@ export function createApp(dbPath, opts = {}) {
     db.prepare(
       "UPDATE stock_items SET name = ?, unit = ?, qty = ?, low_threshold = ?, price_cents = ? WHERE id = ?",
     ).run(name.trim(), unit, qty, low_threshold, price_cents, id);
-    res.json(stockRow(id));
+    res.json(stockWithUsage(stockRow(id)));
   });
 
   app.delete("/api/stock_items/:id", (req, res) => {
@@ -1317,12 +1422,12 @@ export function createApp(dbPath, opts = {}) {
   });
 
   app.post("/api/stock_movements", (req, res) => {
-    const { stock_item_id, delta, reason } = req.body ?? {};
+    const { stock_item_id, delta, reason, note = null } = req.body ?? {};
     if (!MOVEMENT_REASONS.has(reason)) {
       return sendError(
         res,
         400,
-        "reason must be delivery, adjustment, or waste",
+        "reason must be delivery, used, adjustment, or waste",
       );
     }
     if (typeof delta !== "number" || !Number.isFinite(delta) || delta === 0) {
@@ -1331,6 +1436,14 @@ export function createApp(dbPath, opts = {}) {
     if (!isInt(stock_item_id)) {
       return sendError(res, 400, "stock_item_id must be an integer");
     }
+    if (note !== null && typeof note !== "string") {
+      return sendError(res, 400, "note must be a string");
+    }
+    const trimmedNote = typeof note === "string" ? note.trim() : null;
+    if (trimmedNote !== null && trimmedNote.length > 120) {
+      return sendError(res, 400, "note must be 120 characters or fewer");
+    }
+    const storedNote = trimmedNote === "" ? null : trimmedNote;
     const item = stockRow(stock_item_id);
     if (!item) return sendError(res, 404, "stock item not found");
     const nextQty = item.qty + delta;
@@ -1340,9 +1453,9 @@ export function createApp(dbPath, opts = {}) {
     const apply = db.transaction(() => {
       const info = db
         .prepare(
-          "INSERT INTO stock_movements (stock_item_id, delta, reason, created_at) VALUES (?, ?, ?, ?)",
+          "INSERT INTO stock_movements (stock_item_id, delta, reason, note, created_at) VALUES (?, ?, ?, ?, ?)",
         )
-        .run(stock_item_id, delta, reason, nowStamp());
+        .run(stock_item_id, delta, reason, storedNote, nowStamp());
       db.prepare("UPDATE stock_items SET qty = ? WHERE id = ?").run(
         nextQty,
         stock_item_id,
@@ -1369,14 +1482,23 @@ export function createApp(dbPath, opts = {}) {
       return res.json(
         db
           .prepare(
-            `SELECT ${MOVEMENT_COLS} FROM stock_movements WHERE stock_item_id = ? ORDER BY id DESC`,
+            `SELECT ${MOVEMENT_SELECT}
+             FROM stock_movements sm
+             LEFT JOIN stock_items si ON si.id = sm.stock_item_id
+             WHERE sm.stock_item_id = ?
+             ORDER BY sm.id DESC`,
           )
           .all(stockItemId),
       );
     }
     res.json(
       db
-        .prepare(`SELECT ${MOVEMENT_COLS} FROM stock_movements ORDER BY id DESC`)
+        .prepare(
+          `SELECT ${MOVEMENT_SELECT}
+           FROM stock_movements sm
+           LEFT JOIN stock_items si ON si.id = sm.stock_item_id
+           ORDER BY sm.id DESC`,
+        )
         .all(),
     );
   });

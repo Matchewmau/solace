@@ -19,8 +19,46 @@ const items: StockItem[] = [
 ];
 
 const movements: StockMovement[] = [
-  { id: 9, stock_item_id: 1, delta: -5, reason: "waste", created_at: "2026-10-13 10:00:00" },
-  { id: 10, stock_item_id: 1, delta: 20, reason: "delivery", created_at: "2026-10-14 09:00:00" },
+  {
+    id: 9,
+    stock_item_id: 1,
+    delta: -5,
+    reason: "waste",
+    note: "Spilled",
+    item_name: "Milk",
+    item_unit: "ml",
+    created_at: "2026-10-13 10:00:00",
+  },
+  {
+    id: 10,
+    stock_item_id: 1,
+    delta: 20,
+    reason: "delivery",
+    note: "Morning delivery",
+    item_name: "Milk",
+    item_unit: "ml",
+    created_at: "2026-10-14 09:00:00",
+  },
+  {
+    id: 11,
+    stock_item_id: 1,
+    delta: -2,
+    reason: "used",
+    note: "2 lattes",
+    item_name: "Milk",
+    item_unit: "ml",
+    created_at: "2026-10-15 09:00:00",
+  },
+  {
+    id: 12,
+    stock_item_id: 1,
+    delta: 3,
+    reason: "adjustment",
+    note: "",
+    item_name: "Milk",
+    item_unit: "ml",
+    created_at: "2026-10-16 09:00:00",
+  },
 ];
 
 function ok(data: unknown, status = 200): Response {
@@ -59,24 +97,27 @@ function renderAt(path: string) {
 }
 
 describe("InventoryHistoryPage (own route)", () => {
-  it("GET /inventory/history?item=1 renders a table of movements (reason, delta, date)", async () => {
+  it("GET /inventory/history?item=1 humanizes reasons and shows item context", async () => {
     setStoredAuth("solace123");
     stubFetch();
     renderAt("/inventory/history?item=1");
 
     const table = await screen.findByRole("table", { name: "Movement history" });
-    expect(table.textContent).toContain("waste");
+    expect(table.textContent).toContain("Waste");
+    expect(table.textContent).toContain("Delivery");
+    expect(table.textContent).toContain("Used");
+    expect(table.textContent).toContain("Count correction");
+    expect(table.textContent).toContain("Milk · ml");
+    expect(table.textContent).toContain("Spilled");
+    expect(table.textContent).toContain("2 lattes");
     expect(table.textContent).toContain("-5");
-    expect(table.textContent).toContain("2026-10-13 10:00:00");
-    expect(table.textContent).toContain("delivery");
     expect(table.textContent).toContain("20");
-    expect(
-      screen.getByRole("columnheader", { name: "Reason" }),
-    ).toBeDefined();
-    expect(
-      screen.getByRole("columnheader", { name: "Change" }),
-    ).toBeDefined();
-    expect(screen.getByRole("columnheader", { name: "Date" })).toBeDefined();
+    expect(table.textContent).toContain("2026-10-13 10:00:00");
+    for (const header of ["Reason", "Item", "Change", "Note", "Date"]) {
+      expect(
+        screen.getByRole("columnheader", { name: header }),
+      ).toBeDefined();
+    }
 
     // Every body cell carries its column label for the phone row-card layout.
     for (const row of Array.from(table.querySelectorAll("tbody tr"))) {
@@ -84,7 +125,7 @@ describe("InventoryHistoryPage (own route)", () => {
         Array.from(row.querySelectorAll("td")).map((cell) =>
           cell.getAttribute("data-label"),
         ),
-      ).toEqual(["Reason", "Change", "Date"]);
+      ).toEqual(["Reason", "Item", "Change", "Note", "Date"]);
     }
 
     // Only Date is sortable, so only its header is a button.
@@ -123,7 +164,7 @@ describe("InventoryHistoryPage (own route)", () => {
 
     // Navigation lands on the dedicated history route with a real table.
     const table = await screen.findByRole("table");
-    expect(table.textContent).toContain("waste");
+    expect(table.textContent).toContain("Waste");
     expect(
       screen.getByRole("link", { name: "Back to inventory" }),
     ).toBeDefined();

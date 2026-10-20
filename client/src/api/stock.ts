@@ -13,15 +13,29 @@ export interface StockItem {
   qty: number;
   low_threshold: number;
   price_cents: number;
+  /** Menu items whose recipe uses this ingredient (server-provided). */
+  used_in?: string[];
 }
 
-export type MovementReason = "delivery" | "adjustment" | "waste";
+export type MovementReason = "delivery" | "used" | "adjustment" | "waste";
+
+/** Human labels shared by the inventory list and its history route. */
+export const MOVEMENT_LABELS: Record<MovementReason, string> = {
+  delivery: "Delivery",
+  used: "Used",
+  waste: "Waste",
+  adjustment: "Count correction",
+};
 
 export interface StockMovement {
   id: number;
   stock_item_id: number;
   delta: number;
   reason: MovementReason;
+  note?: string | null;
+  /** Joined stock item context (server-provided). */
+  item_name?: string;
+  item_unit?: string;
   created_at: string;
 }
 
@@ -90,12 +104,28 @@ export function postStockMovement(
   stock_item_id: number,
   delta: number,
   reason: MovementReason,
+  note?: string,
 ): Promise<StockMovement> {
-  return postJson<StockMovement>("/api/stock_movements", {
-    stock_item_id,
-    delta,
-    reason,
-  });
+  const body: {
+    stock_item_id: number;
+    delta: number;
+    reason: MovementReason;
+    note?: string;
+  } = { stock_item_id, delta, reason };
+  const trimmed = note?.trim() ?? "";
+  if (trimmed !== "") body.note = trimmed;
+  return postJson<StockMovement>("/api/stock_movements", body);
+}
+
+/** Create missing ingredient rows from the recipe book. */
+export function syncStockFromRecipes(): Promise<{
+  created: number;
+  skipped: number;
+}> {
+  return postJson<{ created: number; skipped: number }>(
+    "/api/stock_items/sync-recipes",
+    {},
+  );
 }
 
 export function postStockItem(input: {

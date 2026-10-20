@@ -50,7 +50,8 @@ CREATE TABLE IF NOT EXISTS stock_movements (
   id INTEGER PRIMARY KEY,
   stock_item_id INTEGER NOT NULL REFERENCES stock_items(id),
   delta REAL NOT NULL,
-  reason TEXT NOT NULL CHECK (reason IN ('delivery', 'adjustment', 'waste')),
+  reason TEXT NOT NULL CHECK (reason IN ('delivery', 'used', 'adjustment', 'waste')),
+  note TEXT,
   created_at TEXT NOT NULL
 );
 

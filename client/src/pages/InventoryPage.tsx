@@ -9,6 +9,7 @@ import {
   patchStockItem,
   postStockItem,
   postStockMovement,
+  syncStockFromRecipes,
   type MovementReason,
   type StockItem,
 } from "../api/stock";
@@ -27,35 +28,48 @@ function LoadingSkeleton() {
   );
 }
 
-/** The three movement kinds, in the order the dialog offers them. */
+/** The four movement kinds, in the order the dialog offers them. */
 const MOVEMENT_OPTIONS: { value: MovementReason; label: string }[] = [
   { value: "delivery", label: "Delivery" },
+  { value: "used", label: "Used" },
   { value: "waste", label: "Waste" },
-  { value: "adjustment", label: "Set count" },
+  { value: "adjustment", label: "Count correction" },
 ];
 
 interface MovementDialogProps {
   item: StockItem;
+  initialReason: MovementReason;
   pending: boolean;
   error: string | null;
   onClose: () => void;
-  onRecord: (item: StockItem, delta: number, reason: MovementReason) => void;
+  onRecord: (
+    item: StockItem,
+    delta: number,
+    reason: MovementReason,
+    note?: string,
+  ) => void;
 }
 
 /**
- * Record a stock movement: Delivery adds, Waste subtracts, Set count records
- * the difference to a new counted total. qty is never written directly — every
- * change travels through the movements ledger.
+ * Record a stock movement: Delivery adds, Used/Waste subtract, Count
+ * correction records the difference to a new counted total. qty is never
+ * written directly — every change travels through the movements ledger.
  */
 function MovementDialog({
   item,
+  initialReason,
   pending,
   error,
   onClose,
   onRecord,
 }: MovementDialogProps) {
-  const [reason, setReason] = useState<MovementReason>("delivery");
+  const [reason, setReason] = useState<MovementReason>(initialReason);
   const isSetCount = reason === "adjustment";
+  const noteLabel = reason === "used" ? "Used for" : "Note";
+  const notePlaceholder =
+    reason === "used"
+      ? "Cafe/Food note (e.g. 2 lattes)"
+      : "Optional note";
 
   return (
     <Dialog open onClose={onClose} title={`Record movement — ${item.name}`}>
@@ -67,15 +81,17 @@ function MovementDialog({
           const data = new FormData(event.currentTarget);
           const selected = String(data.get("reason") ?? "delivery") as MovementReason;
           const qty = Number(String(data.get("qty") ?? ""));
+          const note = String(data.get("note") ?? "").trim();
           if (!Number.isFinite(qty) || qty < 0) return;
           if (selected === "adjustment") {
             const delta = adjustmentDelta(item.qty, qty);
             if (delta === 0) return;
-            onRecord(item, delta, "adjustment");
+            onRecord(item, delta, "adjustment", note);
             return;
           }
           if (qty <= 0) return;
-          onRecord(item, selected === "waste" ? -qty : qty, selected);
+          const outbound = selected === "waste" || selected === "used";
+          onRecord(item, outbound ? -qty : qty, selected, note);
         }}
       >
         <label className="flex flex-col gap-1 text-sm">
@@ -107,11 +123,31 @@ function MovementDialog({
             className="border border-ink/20 bg-paper px-2 py-1 text-base text-ink"
           />
         </label>
+        <label className="flex flex-col gap-1 text-sm">
+          <span>{noteLabel}</span>
+          <input
+            name="note"
+            type="text"
+            maxLength={120}
+            placeholder={notePlaceholder}
+            aria-label={noteLabel}
+            className="border border-ink/20 bg-paper px-2 py-1 text-base text-ink"
+          />
+        </label>
         <p className="text-sm text-muted">
           {isSetCount
             ? `Records the difference from ${item.qty} to the new count.`
-            : "How many units to deliver or waste."}
+            : reason === "used"
+              ? "How much went into drinks or food."
+              : reason === "waste"
+                ? "How much spoiled or was thrown away."
+                : "How many units arrived."}
         </p>
+        {item.used_in && item.used_in.length > 0 ? (
+          <p className="text-xs text-muted">
+            Used in: {item.used_in.join(", ")}
+          </p>
+        ) : null}
         <div className="flex gap-2">
           <Button type="submit" variant="primary" disabled={pending}>
             Save
@@ -323,6 +359,10 @@ export default function InventoryPage() {
   const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
   const [movementItem, setMovementItem] = useState<StockItem | null>(null);
+  const [movementReason, setMovementReason] =
+    useState<MovementReason>("delivery");
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<StockItem | null>(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<number | null>(
@@ -346,11 +386,13 @@ export default function InventoryPage() {
       item,
       delta,
       reason,
+      note,
     }: {
       item: StockItem;
       delta: number;
       reason: MovementReason;
-    }) => postStockMovement(item.id, delta, reason),
+      note?: string;
+    }) => postStockMovement(item.id, delta, reason, note),
     onSuccess: () => {
       setMoveError(null);
       setMovementItem(null);
@@ -358,6 +400,21 @@ export default function InventoryPage() {
     },
     onError: () => {
       setMoveError("Could not record that movement.");
+    },
+  });
+
+  const syncMutation = useMutation({
+    mutationFn: syncStockFromRecipes,
+    onSuccess: (result) => {
+      setSyncError(null);
+      setSyncMessage(
+        `Created ${result.created} ingredient${result.created === 1 ? "" : "s"}, skipped ${result.skipped}.`,
+      );
+      void queryClient.invalidateQueries({ queryKey: ["stock-items"] });
+    },
+    onError: () => {
+      setSyncMessage(null);
+      setSyncError("Could not sync ingredients from recipes.");
     },
   });
 
@@ -419,6 +476,14 @@ export default function InventoryPage() {
 
   const columns: Column<StockItem>[] = [
     { key: "item", label: "Item", render: (item) => item.name },
+    {
+      key: "used_in",
+      label: "Used in",
+      render: (item) =>
+        item.used_in && item.used_in.length > 0
+          ? item.used_in.join(", ")
+          : "—",
+    },
     { key: "unit", label: "Unit", render: (item) => item.unit },
     { key: "qty", label: "Qty", align: "right", render: (item) => item.qty },
     {
@@ -487,6 +552,17 @@ export default function InventoryPage() {
                 />
               </label>
               <Button
+                variant="outline"
+                disabled={syncMutation.isPending}
+                onClick={() => {
+                  setSyncMessage(null);
+                  setSyncError(null);
+                  syncMutation.mutate();
+                }}
+              >
+                {syncMutation.isPending ? "Syncing…" : "Sync from recipes"}
+              </Button>
+              <Button
                 variant="primary"
                 onClick={() => {
                   setAddError(null);
@@ -496,6 +572,16 @@ export default function InventoryPage() {
                 + Add item
               </Button>
             </Box>
+            {syncMessage ? (
+              <p role="status" className="text-sm text-ok">
+                {syncMessage}
+              </p>
+            ) : null}
+            {syncError ? (
+              <p role="alert" className="text-sm text-accent">
+                {syncError}
+              </p>
+            ) : null}
             <DataTable
               label="Stock"
               columns={columns}
@@ -510,13 +596,36 @@ export default function InventoryPage() {
                 <>
                   <Button
                     variant="outline"
-                    ariaLabel={`Record movement for ${item.name}`}
+                    ariaLabel={`Delivery ${item.name}`}
                     onClick={() => {
                       setMoveError(null);
+                      setMovementReason("delivery");
                       setMovementItem(item);
                     }}
                   >
-                    Record movement
+                    Delivery
+                  </Button>
+                  <Button
+                    variant="outline"
+                    ariaLabel={`Use ${item.name}`}
+                    onClick={() => {
+                      setMoveError(null);
+                      setMovementReason("used");
+                      setMovementItem(item);
+                    }}
+                  >
+                    Use
+                  </Button>
+                  <Button
+                    variant="outline"
+                    ariaLabel={`Count ${item.name}`}
+                    onClick={() => {
+                      setMoveError(null);
+                      setMovementReason("adjustment");
+                      setMovementItem(item);
+                    }}
+                  >
+                    Count
                   </Button>
                   <Link
                     to={`/inventory/history?item=${item.id}`}
@@ -580,14 +689,15 @@ export default function InventoryPage() {
         <MovementDialog
           key={movementItem.id}
           item={movementItem}
+          initialReason={movementReason}
           pending={moveMutation.isPending}
           error={moveError}
           onClose={() => {
             setMovementItem(null);
             setMoveError(null);
           }}
-          onRecord={(item, delta, reason) =>
-            moveMutation.mutate({ item, delta, reason })
+          onRecord={(item, delta, reason, note) =>
+            moveMutation.mutate({ item, delta, reason, note })
           }
         />
       ) : null}

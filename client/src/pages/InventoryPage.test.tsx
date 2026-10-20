@@ -15,7 +15,15 @@ afterEach(() => {
 });
 
 const items: StockItem[] = [
-  { id: 1, name: "Milk", unit: "ml", qty: 45, low_threshold: 10, price_cents: 250 },
+  {
+    id: 1,
+    name: "Milk",
+    unit: "ml",
+    qty: 45,
+    low_threshold: 10,
+    price_cents: 250,
+    used_in: ["Spanish Latte"],
+  },
   { id: 2, name: "Ice", unit: "", qty: 0, low_threshold: 0, price_cents: 0 },
 ];
 
@@ -78,11 +86,12 @@ function row(name: string): HTMLElement {
   return screen.getByText(name).closest("tr") as HTMLElement;
 }
 
-/** Clicks the row's Record movement action and returns the opened dialog. */
-function openMovementDialog(name: string): Promise<HTMLElement> {
-  fireEvent.click(
-    screen.getByRole("button", { name: `Record movement for ${name}` }),
-  );
+/** Clicks one explicit row movement action and returns the opened dialog. */
+function openMovementDialog(
+  name: string,
+  action: "Delivery" | "Use" | "Count" = "Delivery",
+): Promise<HTMLElement> {
+  fireEvent.click(screen.getByRole("button", { name: `${action} ${name}` }));
   return screen.findByRole("dialog", { name: `Record movement — ${name}` });
 }
 
@@ -565,5 +574,82 @@ describe("InventoryPage price, edit, delete, restock (Task 8)", () => {
     expect(requests).toHaveLength(0);
     // Dialog stays open for correction.
     expect(screen.getByRole("dialog", { name: "Edit Milk" })).toBeDefined();
+  });
+});
+
+describe("InventoryPage kitchen stock actions (Task 5)", () => {
+  it("offers explicit Delivery, Use, and Count actions plus the ingredient's menu uses", async () => {
+    stubFetch();
+    renderInventory();
+    await screen.findByText("Milk");
+
+    expect(
+      screen.getByRole("button", { name: "Delivery Milk" }),
+    ).toBeDefined();
+    expect(screen.getByRole("button", { name: "Use Milk" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Count Milk" })).toBeDefined();
+
+    // The Milk row names the drinks whose recipe uses it.
+    expect(within(row("Milk")).getByText("Spanish Latte")).toBeDefined();
+
+    const countDialog = await openMovementDialog("Milk", "Count");
+    expect(
+      (within(countDialog).getByLabelText("Movement type") as HTMLSelectElement)
+        .value,
+    ).toBe("adjustment");
+  });
+
+  it("Use presets the used reason and sends the Cafe/Food note with -qty", async () => {
+    stubFetch();
+    renderInventory();
+    await screen.findByText("Milk");
+
+    const dialog = await openMovementDialog("Milk", "Use");
+    expect(
+      (within(dialog).getByLabelText("Movement type") as HTMLSelectElement)
+        .value,
+    ).toBe("used");
+    fireEvent.change(within(dialog).getByLabelText("Quantity"), {
+      target: { value: "2" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Used for"), {
+      target: { value: "2 Spanish Lattes" },
+    });
+    submitMovement(dialog, "Milk");
+
+    await vi.waitFor(() => {
+      expect(posted).toHaveLength(1);
+    });
+    expect(posted[0].body).toEqual({
+      stock_item_id: 1,
+      delta: -2,
+      reason: "used",
+      note: "2 Spanish Lattes",
+    });
+  });
+
+  it("syncs missing ingredient rows from recipes and reports the counts", async () => {
+    const syncCalls: string[] = [];
+    globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
+      const u = String(url);
+      const method = init?.method ?? "GET";
+      if (u === "/api/stock_items" && method === "GET") return ok(items);
+      if (u === "/api/stock_items/sync-recipes" && method === "POST") {
+        syncCalls.push(u);
+        return ok({ created: 2, skipped: 3 });
+      }
+      throw new Error(`unexpected fetch ${u} ${method}`);
+    }) as typeof fetch;
+    renderInventory();
+    await screen.findByText("Milk");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Sync from recipes" }),
+    );
+
+    expect(
+      await screen.findByText("Created 2 ingredients, skipped 3."),
+    ).toBeDefined();
+    expect(syncCalls).toEqual(["/api/stock_items/sync-recipes"]);
   });
 });

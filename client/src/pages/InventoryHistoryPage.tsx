@@ -1,6 +1,10 @@
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { fetchMovements, type StockMovement } from "../api/stock";
+import {
+  fetchMovements,
+  MOVEMENT_LABELS,
+  type StockMovement,
+} from "../api/stock";
 import DataTable, { type Column } from "../components/DataTable";
 import { Button, PageFrame } from "../components/ui";
 
@@ -21,8 +25,26 @@ export default function InventoryHistoryPage() {
   });
 
   const columns: Column<StockMovement>[] = [
-    { key: "reason", label: "Reason", render: (movement) => movement.reason },
+    {
+      key: "reason",
+      label: "Reason",
+      render: (movement) => MOVEMENT_LABELS[movement.reason],
+    },
+    {
+      key: "item",
+      label: "Item",
+      render: (movement) =>
+        movement.item_name
+          ? `${movement.item_name}${movement.item_unit ? ` · ${movement.item_unit}` : ""}`
+          : "—",
+    },
     { key: "change", label: "Change", render: (movement) => movement.delta },
+    {
+      key: "note",
+      label: "Note",
+      render: (movement) =>
+        movement.note && movement.note !== "" ? movement.note : "—",
+    },
     {
       key: "date",
       label: "Date",
