@@ -20,6 +20,8 @@ export interface SaleItemPayload {
 export interface SaleItem {
   id: number;
   menu_item_id: number;
+  /** Menu item name joined by GET /api/sales/:id; null if the item vanished. */
+  menu_item_name?: string | null;
   qty: number;
   unit_price_cents: number;
   variant: string | null;

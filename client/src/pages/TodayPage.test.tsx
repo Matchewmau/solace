@@ -52,7 +52,7 @@ function fullSale(id: number): Sale {
     voided: 0,
     paid: 0,
     created_at: `${today} 06:30:00`,
-    items: [{ id: 1, menu_item_id: 1, qty: 1, unit_price_cents: 7000, variant: null }],
+    items: [{ id: 1, menu_item_id: 1, menu_item_name: "Cortado", qty: 1, unit_price_cents: 7000, variant: null }],
   };
 }
 
@@ -111,6 +111,43 @@ describe("TodayPage", () => {
     ).toBeNull();
   });
 
+  it("clicking a sale opens its full details without leaving Today", async () => {
+    const detailed = {
+      ...fullSale(24),
+      total_cents: 7000,
+      items: [
+        {
+          id: 1,
+          menu_item_id: 1,
+          menu_item_name: "Cortado",
+          qty: 1,
+          unit_price_cents: 7000,
+          variant: null,
+        },
+      ],
+    };
+    globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
+      const u = String(url);
+      if (u.startsWith("/api/sales/summary")) return ok(summary({ next_order_number: 2 }));
+      if (u === "/api/sales/24" && (init?.method ?? "GET") === "GET")
+        return ok(detailed);
+      if (u.startsWith("/api/sales?")) return ok([row({ id: 24, paid: 0 })]);
+      throw new Error(`unexpected fetch ${u} ${init?.method}`);
+    }) as typeof fetch;
+
+    renderAt("/today");
+    const unpaid = await screen.findByRole("table", { name: "Unpaid sales" });
+    fireEvent.click(within(unpaid).getByRole("button", { name: "Sale #24" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Sale #24" });
+    expect(await within(dialog).findByText("Cortado × 1")).toBeDefined();
+    expect(within(dialog).getByText("Cash")).toBeDefined();
+    expect(within(dialog).getByText("Unpaid")).toBeDefined();
+    // Single-line receipt: line total and receipt total are both ₱70.
+    expect(within(dialog).getAllByText("₱70")).toHaveLength(2);
+    expect(screen.getByRole("heading", { name: /^Today/ })).toBeDefined();
+  });
+
   it("summary header renders split totals with voided flag and Void/Unvoid buttons, zero Mark paid buttons", async () => {
     globalThis.fetch = vi.fn(async (url: unknown) => {
       const u = String(url);
@@ -134,9 +171,9 @@ describe("TodayPage", () => {
     renderAt("/today");
     await screen.findByRole("table", { name: "Unpaid sales" });
 
-    // Split method totals via the shared formatPeso helper. Each amount
-    // appears twice: once in the summary header, once in its sale row.
-    expect(screen.getAllByText("₱160")).toHaveLength(2);
+    // Split method totals via the shared formatPeso helper, plus the
+    // average-sale chip (one live ₱160 sale): three ₱160 nodes.
+    expect(screen.getAllByText("₱160")).toHaveLength(3);
     expect(screen.getAllByText("₱90")).toHaveLength(2);
     expect(screen.getByText("Sale #1")).toBeDefined();
     expect(screen.getByText("Sale #2")).toBeDefined();
@@ -175,6 +212,11 @@ describe("TodayPage", () => {
     expect(screen.getByText("2 sales")).toBeDefined();
     expect(screen.getByText("Next Order")).toBeDefined();
     expect(screen.getByText("#4")).toBeDefined();
+    // Readability strip: live paid/unpaid split and the average sale.
+    expect(screen.getByText("Paid sales")).toBeDefined();
+    expect(screen.getByText("Unpaid sales")).toBeDefined();
+    expect(screen.getByText("Average sale")).toBeDefined();
+    expect(screen.getByText("₱125")).toBeDefined();
   });
 
   it("summary strip appends the voided suffix to the sales chip", async () => {
@@ -236,8 +278,8 @@ describe("TodayPage", () => {
     renderAt("/today");
     const unpaid = await screen.findByRole("table", { name: "Unpaid sales" });
     await within(unpaid).findByText("Sale #1");
-    // ₱160 twice: summary header + the sale row.
-    expect(screen.getAllByText("₱160")).toHaveLength(2);
+    // ₱160 appears three times: cash chip, average-sale chip, and the row.
+    expect(screen.getAllByText("₱160")).toHaveLength(3);
     expect(
       within(unpaid).queryByRole("button", { name: "Unvoid sale 1" }),
     ).toBeNull();

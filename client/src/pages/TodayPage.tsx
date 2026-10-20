@@ -11,8 +11,9 @@ import {
 } from "../api/sales";
 import { formatPeso } from "../lib/formatPeso";
 import { useOrders } from "../store/orders";
+import SaleDetailDialog from "../components/SaleDetailDialog";
 import SalesTable from "../components/SalesTable";
-import { Badge, PageFrame, StatChip } from "../components/ui";
+import { Badge, EmptyState, PageFrame, StatChip } from "../components/ui";
 
 /**
  * Today's UTC-date sales popup page. Rows carry Void/Unvoid only — zero
@@ -30,6 +31,7 @@ export default function TodayPage() {
   const orders = useOrders((s) => s.orders);
   const [actionError, setActionError] = useState("");
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [selectedSaleId, setSelectedSaleId] = useState<number | null>(null);
 
   const summaryQuery = useQuery({
     queryKey: ["sales", "summary", today],
@@ -46,6 +48,28 @@ export default function TodayPage() {
   const paidTotal = paid
     .filter((row) => row.voided !== 1)
     .reduce((sum, row) => sum + row.total_cents, 0);
+
+  // Readability strip uses only live rows (voided sales never count).
+  const liveRows = rows.filter((row) => row.voided !== 1);
+  const paidLive = liveRows.filter((row) => row.paid === 1);
+  const unpaidLive = liveRows.filter((row) => row.paid !== 1);
+  const summary = summaryQuery.data;
+  const averageCents =
+    liveRows.length > 0
+      ? Math.round(
+          liveRows.reduce((sum, row) => sum + row.total_cents, 0) /
+            liveRows.length,
+        )
+      : summary !== undefined && summary.sale_count > 0
+        ? Math.round(
+            (summary.cash_total_cents + summary.gcash_total_cents) /
+              summary.sale_count,
+          )
+        : 0;
+
+  function countLabel(count: number, singular: string): string {
+    return `${count} ${count === 1 ? singular : `${singular}s`}`;
+  }
 
   function noteFor(row: SaleRow): string | null {
     const holder = orders.find((order) => order.sale?.id === row.id);
@@ -126,29 +150,47 @@ export default function TodayPage() {
           </p>
         </header>
         {summaryQuery.data ? (
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            <StatChip
-              label="Cash"
-              value={formatPeso(summaryQuery.data.cash_total_cents)}
-            />
-            <StatChip
-              label="GCash"
-              value={formatPeso(summaryQuery.data.gcash_total_cents)}
-            />
-            <StatChip
-              label="Sales"
-              value={`${summaryQuery.data.sale_count} ${
-                summaryQuery.data.sale_count === 1 ? "sale" : "sales"
-              }${
-                summaryQuery.data.voided_count > 0
-                  ? ` · ${summaryQuery.data.voided_count} voided`
-                  : ""
-              }`}
-            />
-            <StatChip
-              label="Next Order"
-              value={`#${summaryQuery.data.next_order_number}`}
-            />
+          <div className="flex flex-col gap-3">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <StatChip
+                label="Cash"
+                value={formatPeso(summaryQuery.data.cash_total_cents)}
+              />
+              <StatChip
+                label="GCash"
+                value={formatPeso(summaryQuery.data.gcash_total_cents)}
+              />
+              <StatChip
+                label="Sales"
+                value={`${summaryQuery.data.sale_count} ${
+                  summaryQuery.data.sale_count === 1 ? "sale" : "sales"
+                }${
+                  summaryQuery.data.voided_count > 0
+                    ? ` · ${summaryQuery.data.voided_count} voided`
+                    : ""
+                }`}
+              />
+              <StatChip
+                label="Next Order"
+                value={`#${summaryQuery.data.next_order_number}`}
+              />
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <StatChip
+                label="Paid sales"
+                value={countLabel(paidLive.length, "sale")}
+                tone="ok"
+              />
+              <StatChip
+                label="Unpaid sales"
+                value={countLabel(unpaidLive.length, "sale")}
+                tone={unpaidLive.length > 0 ? "danger" : "default"}
+              />
+              <StatChip
+                label="Average sale"
+                value={formatPeso(averageCents)}
+              />
+            </div>
           </div>
         ) : summaryQuery.isLoading ? (
           <p className="text-muted">Loading today&apos;s summary…</p>
@@ -185,20 +227,21 @@ export default function TodayPage() {
                 <Badge tone="danger">{unpaid.length}</Badge>
               </h2>
               {unpaid.length === 0 ? (
-                <p className="text-muted">No unpaid sales.</p>
+                <EmptyState message="No unpaid sales — every tab is settled." />
               ) : (
                 <SalesTable
                   rows={unpaid}
                   label="Unpaid sales"
                   rowNote={noteFor}
                   renderActions={actions}
+                  onRowClick={(row) => setSelectedSaleId(row.id)}
                 />
               )}
             </section>
             <section aria-label="Paid today" className="flex flex-col gap-4">
               <h2 className="text-2xl font-semibold">Paid today</h2>
               {paid.length === 0 ? (
-                <p className="text-muted">No paid sales yet.</p>
+                <EmptyState message="No paid sales yet — settle an order on the POS to see it here." />
               ) : (
                 <>
                   <SalesTable
@@ -206,6 +249,7 @@ export default function TodayPage() {
                     label="Paid today sales"
                     rowNote={noteFor}
                     renderActions={actions}
+                    onRowClick={(row) => setSelectedSaleId(row.id)}
                   />
                   <p className="text-lg">
                     Paid total{" "}
@@ -218,6 +262,10 @@ export default function TodayPage() {
             </section>
           </>
         )}
+        <SaleDetailDialog
+          saleId={selectedSaleId}
+          onClose={() => setSelectedSaleId(null)}
+        />
       </PageFrame>
     </main>
   );

@@ -1,8 +1,10 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchPastSales, utcToday } from "../api/sales";
+import { formatPeso } from "../lib/formatPeso";
+import SaleDetailDialog from "../components/SaleDetailDialog";
 import SalesTable from "../components/SalesTable";
-import { Button, PageFrame } from "../components/ui";
+import { Button, EmptyState, PageFrame, StatChip } from "../components/ui";
 
 /** Rows per page in the history pager. */
 const PAGE_SIZE = 20;
@@ -27,6 +29,7 @@ export default function HistoryPage() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [page, setPage] = useState(1);
+  const [selectedSaleId, setSelectedSaleId] = useState<number | null>(null);
 
   const rows = historyQuery.data ?? [];
 
@@ -44,6 +47,19 @@ export default function HistoryPage() {
   const firstIndex = (currentPage - 1) * PAGE_SIZE;
   const lastIndex = Math.min(firstIndex + PAGE_SIZE, filtered.length);
   const visible = filtered.slice(firstIndex, firstIndex + PAGE_SIZE);
+
+  // Summary reflects the active date range and ignores voided rows.
+  const liveFiltered = filtered.filter((row) => row.voided !== 1);
+  const revenueCents = liveFiltered.reduce(
+    (sum, row) => sum + row.total_cents,
+    0,
+  );
+  const paidCount = liveFiltered.filter((row) => row.paid === 1).length;
+  const unpaidCount = liveFiltered.filter((row) => row.paid !== 1).length;
+  const averageCents =
+    liveFiltered.length > 0
+      ? Math.round(revenueCents / liveFiltered.length)
+      : 0;
 
   function changeFrom(value: string) {
     setFrom(value);
@@ -91,7 +107,7 @@ export default function HistoryPage() {
             </button>
           </div>
         ) : rows.length === 0 ? (
-          <p className="text-muted">No past sales.</p>
+          <EmptyState message="No past sales yet — settled days will appear here." />
         ) : (
           <div className="flex flex-col gap-6">
             <div
@@ -122,10 +138,34 @@ export default function HistoryPage() {
               <Button onClick={clearFilters}>Clear</Button>
             </div>
             {filtered.length === 0 ? (
-              <p className="text-muted">No sales in this date range.</p>
+              <EmptyState message="No sales in this date range. Clear the dates to see the full ledger." />
             ) : (
               <>
-                <SalesTable rows={visible} label="Past sales" />
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                  <StatChip
+                    label="Sales"
+                    value={`${liveFiltered.length} ${
+                      liveFiltered.length === 1 ? "sale" : "sales"
+                    }`}
+                  />
+                  <StatChip
+                    label="Revenue"
+                    value={formatPeso(revenueCents)}
+                  />
+                  <StatChip
+                    label="Paid / Unpaid"
+                    value={`${paidCount} / ${unpaidCount}`}
+                  />
+                  <StatChip
+                    label="Average sale"
+                    value={formatPeso(averageCents)}
+                  />
+                </div>
+                <SalesTable
+                  rows={visible}
+                  label="Past sales"
+                  onRowClick={(row) => setSelectedSaleId(row.id)}
+                />
                 <footer className="flex flex-wrap items-center justify-between gap-3">
                   <p className="text-sm text-muted">
                     Showing {firstIndex + 1}–{lastIndex} of {filtered.length}
@@ -149,6 +189,10 @@ export default function HistoryPage() {
             )}
           </div>
         )}
+        <SaleDetailDialog
+          saleId={selectedSaleId}
+          onClose={() => setSelectedSaleId(null)}
+        />
       </PageFrame>
     </main>
   );

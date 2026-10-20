@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import SalesTable from "./SalesTable";
 import type { SaleRow } from "../api/sales";
@@ -136,5 +136,31 @@ describe("SalesTable", () => {
     fireEvent.click(screen.getByRole("button", { name: "Total" }));
     expect(totalHeader.getAttribute("aria-sort")).toBe("ascending");
     expect(firstRowText()).toContain("Sale #31");
+  });
+
+  it("opens details from a row click and from the keyboard-focusable Sale # button", () => {
+    const onRowClick = vi.fn();
+    const target = row({ id: 7 });
+    render(
+      <SalesTable
+        label="Sales"
+        rows={[target]}
+        onRowClick={onRowClick}
+        renderActions={() => <button type="button">Void</button>}
+      />,
+    );
+
+    // The Sale # cell is a real button, so Enter/Space work for free.
+    const opener = screen.getByRole("button", { name: "Sale #7" });
+    fireEvent.click(opener);
+    expect(onRowClick).toHaveBeenCalledWith(target);
+
+    // Clicking anywhere else on the row opens the same details.
+    fireEvent.click(document.querySelector("tbody tr")!);
+    expect(onRowClick).toHaveBeenCalledTimes(2);
+
+    // Row actions stay independent: clicking Void must not open details.
+    fireEvent.click(screen.getByRole("button", { name: "Void" }));
+    expect(onRowClick).toHaveBeenCalledTimes(2);
   });
 });

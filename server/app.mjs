@@ -714,7 +714,12 @@ export function createApp(dbPath, opts = {}) {
     if (!sale) return undefined;
     sale.items = db
       .prepare(
-        "SELECT id, menu_item_id, qty, unit_price_cents, variant FROM sale_items WHERE sale_id = ? ORDER BY id",
+        `SELECT si.id, si.menu_item_id, m.name AS menu_item_name,
+                si.qty, si.unit_price_cents, si.variant
+           FROM sale_items si
+           LEFT JOIN menu_items m ON m.id = si.menu_item_id
+          WHERE si.sale_id = ?
+          ORDER BY si.id`,
       )
       .all(saleId);
     return sale;

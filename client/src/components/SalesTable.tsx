@@ -46,12 +46,15 @@ export default function SalesTable({
   rows,
   renderActions,
   rowNote,
+  onRowClick,
   label = "Sales",
 }: {
   rows: SaleRow[];
   renderActions?: (row: SaleRow) => ReactNode;
   /** Extra note appended to the Sale # cell (e.g. the holding order label). */
   rowNote?: (row: SaleRow) => string | null;
+  /** Opens the row's receipt. The Sale # cell also becomes a real button. */
+  onRowClick?: (row: SaleRow) => void;
   label?: string;
 }) {
   const [sortKey, setSortKey] = useState<SalesSortKey | null>(null);
@@ -139,13 +142,31 @@ export default function SalesTable({
         {sorted.map((row) => (
           <tr
             key={row.id}
+            onClick={onRowClick ? () => onRowClick(row) : undefined}
             className={`border-b border-ink/10 ${ROW_CARD}${
               row.voided === 1 ? " text-muted" : ""
-            }`}
+            }${onRowClick ? " cursor-pointer hover:bg-ink/5" : ""}`}
           >
             <td data-label="Sale #" className={`py-2 pr-4 font-semibold ${CELL_CARD}`}>
-              Sale #{row.id}
-              {rowNote?.(row) ? ` (${rowNote(row)})` : ""}
+              {onRowClick ? (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    // The row itself is clickable; keep this click to one open.
+                    event.stopPropagation();
+                    onRowClick(row);
+                  }}
+                  className="text-left font-semibold underline decoration-dotted underline-offset-4"
+                >
+                  Sale #{row.id}
+                  {rowNote?.(row) ? ` (${rowNote(row)})` : ""}
+                </button>
+              ) : (
+                <>
+                  Sale #{row.id}
+                  {rowNote?.(row) ? ` (${rowNote(row)})` : ""}
+                </>
+              )}
             </td>
             <td data-label="Date" className={`py-2 pr-4 text-muted ${CELL_CARD}`}>
               {row.created_at.slice(0, 10)}
@@ -163,7 +184,11 @@ export default function SalesTable({
               {statusBadge(row)}
             </td>
             {renderActions ? (
-              <td data-label="Actions" className={`py-2 ${CELL_CARD}`}>
+              <td
+                data-label="Actions"
+                className={`py-2 ${CELL_CARD}`}
+                onClick={(event) => event.stopPropagation()}
+              >
                 <span className="flex flex-wrap gap-2">
                   {renderActions(row)}
                 </span>

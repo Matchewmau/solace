@@ -223,4 +223,27 @@ describe("sales cash received and change", () => {
     expect(settled.body.received_cents).toBeNull();
     expect(settled.body.change_cents).toBeNull();
   });
+
+  it("GET /api/sales/:id joins each line's menu item name", async () => {
+    const item = await newItem("Named Cortado", 7000);
+    const sale = (
+      await api
+        .post("/api/sales")
+        .send({
+          payment: "cash",
+          items: [{ menu_item_id: item.id, qty: 2 }],
+        })
+        .expect(201)
+    ).body;
+
+    const fetched = await api.get(`/api/sales/${sale.id}`).expect(200);
+    expect(fetched.body.items).toEqual([
+      expect.objectContaining({
+        menu_item_id: item.id,
+        menu_item_name: "Named Cortado",
+        qty: 2,
+        unit_price_cents: 7000,
+      }),
+    ]);
+  });
 });

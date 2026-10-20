@@ -5,7 +5,7 @@ import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { AuthProvider } from "../components/AuthProvider";
 import { routes } from "../routes";
 import { clearStoredAuth, setStoredAuth } from "../lib/auth";
-import type { SaleRow } from "../api/sales";
+import type { Sale, SaleRow } from "../api/sales";
 
 afterEach(() => {
   cleanup();
@@ -30,9 +30,10 @@ function row(id: number, totalCents: number): SaleRow {
   };
 }
 
-function renderHistory(rows: SaleRow[]) {
+function renderHistory(rows: SaleRow[], detail?: Sale) {
   globalThis.fetch = vi.fn(async (url: unknown) => {
     const u = String(url);
+    if (detail && u === `/api/sales/${detail.id}`) return ok(detail);
     if (u.startsWith("/api/sales?")) return ok(rows);
     throw new Error(`unexpected fetch ${u}`);
   }) as typeof fetch;
@@ -100,6 +101,53 @@ describe("HistoryPage table", () => {
     expect(firstRow()).toContain("Sale #31");
     // No back link: the global rail owns the way back to POS.
     expect(screen.queryByRole("link", { name: "Back to POS" })).toBeNull();
+  });
+
+  it("shows a readable summary of the filtered ledger", async () => {
+    renderHistory([
+      row(31, 5000),
+      { ...row(32, 7000), paid: 0 },
+    ]);
+    await screen.findByRole("table");
+
+    expect(screen.getByText("Sales")).toBeDefined();
+    expect(screen.getByText("₱120")).toBeDefined();
+    expect(screen.getByText("Paid / Unpaid")).toBeDefined();
+    expect(screen.getByText("1 / 1")).toBeDefined();
+    expect(screen.getByText("Average sale")).toBeDefined();
+    expect(screen.getByText("₱60")).toBeDefined();
+  });
+
+  it("opens the full receipt for a past sale", async () => {
+    const detail: Sale = {
+      id: 31,
+      daily_seq: 31,
+      total_cents: 5000,
+      payment: "gcash",
+      voided: 0,
+      paid: 1,
+      created_at: "2026-10-12 01:00:00",
+      items: [
+        {
+          id: 1,
+          menu_item_id: 5,
+          menu_item_name: "Latte",
+          qty: 1,
+          unit_price_cents: 5000,
+          variant: null,
+        },
+      ],
+    };
+    renderHistory([row(31, 5000)], detail);
+    await screen.findByRole("table");
+
+    fireEvent.click(screen.getByRole("button", { name: "Sale #31" }));
+    const dialog = await screen.findByRole("dialog", { name: "Sale #31" });
+    expect(await within(dialog).findByText("Latte × 1")).toBeDefined();
+    expect(within(dialog).getByText("GCash")).toBeDefined();
+    expect(within(dialog).getByText("Paid")).toBeDefined();
+    // Single-line receipt: line total and receipt total are both ₱50.
+    expect(within(dialog).getAllByText("₱50")).toHaveLength(2);
   });
 
   it("logged-out visits bounce to /login", async () => {
