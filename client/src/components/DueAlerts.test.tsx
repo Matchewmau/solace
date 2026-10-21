@@ -194,7 +194,9 @@ describe("DueAlerts", () => {
     renderAlerts();
     await screen.findByText("Rent");
 
-    fireEvent.click(screen.getByRole("button", { name: "Dismiss all" }));
+    const dismissAll = screen.getByRole("button", { name: "Dismiss all" });
+    expect(dismissAll.className).toContain("min-h-11");
+    fireEvent.click(dismissAll);
 
     expect(screen.queryByRole("status")).toBeNull();
     expect(screen.queryByText("Rent")).toBeNull();

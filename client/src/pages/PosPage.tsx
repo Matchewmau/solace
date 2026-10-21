@@ -479,7 +479,7 @@ export default function PosPage() {
               <button
                 type="button"
                 onClick={() => setPromptItem(null)}
-                className="self-start px-2 py-1 text-sm text-muted underline hover:text-ink"
+                className="inline-flex min-h-11 items-center self-start px-2 py-1 text-sm text-muted underline hover:text-ink"
               >
                 Cancel
               </button>
@@ -527,7 +527,7 @@ export default function PosPage() {
                         type="button"
                         aria-label={`Remove ${name} from cart`}
                         onClick={() => removeLine(active.key, line.menu_item_id, line.variant)}
-                        className="press ml-auto px-2 py-1 text-sm text-muted underline hover:text-danger"
+                        className="press ml-auto inline-flex min-h-11 items-center px-2 py-1 text-sm text-muted underline hover:text-danger"
                       >
                         Remove
                       </button>
@@ -787,7 +787,7 @@ export default function PosPage() {
                   <button
                     type="button"
                     onClick={() => setCartOpen(false)}
-                    className="press px-2 py-1 text-sm text-muted underline hover:text-ink"
+                    className="press inline-flex min-h-11 items-center px-2 py-1 text-sm text-muted underline hover:text-ink"
                   >
                     Close
                   </button>

@@ -291,7 +291,9 @@ describe("POS nav dedup (global rail owns Pages)", () => {
     expect(screen.getByLabelText("Cortado quantity").textContent).toBe("2");
     fireEvent.click(screen.getByRole("button", { name: "Decrease Cortado quantity" }));
     expect(screen.getByLabelText("Cortado quantity").textContent).toBe("1");
-    fireEvent.click(screen.getByRole("button", { name: "Remove Cortado from cart" }));
+    const remove = screen.getByRole("button", { name: "Remove Cortado from cart" });
+    expect(remove.className).toContain("min-h-11");
+    fireEvent.click(remove);
     expect(screen.queryByLabelText("Cortado quantity")).toBeNull();
     expect(
       (screen.getByRole("button", { name: "Done" }) as HTMLButtonElement)
@@ -1376,7 +1378,9 @@ describe("POS variant prompt", () => {
     await screen.findByText("Siomai");
 
     fireEvent.click(menuTile(/Siomai/));
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    expect(cancel.className).toContain("min-h-11");
+    fireEvent.click(cancel);
 
     expect(
       screen.queryByRole("dialog", { name: "Choose Siomai variant" }),
@@ -1699,7 +1703,9 @@ describe("POS phone register layout", () => {
     // …and so does the visible Close button.
     fireEvent.click(bar);
     const reopened = screen.getByRole("dialog", { name: "Your order" });
-    fireEvent.click(within(reopened).getByRole("button", { name: "Close" }));
+    const close = within(reopened).getByRole("button", { name: "Close" });
+    expect(close.className).toContain("min-h-11");
+    fireEvent.click(close);
     expect(screen.queryByRole("dialog", { name: "Your order" })).toBeNull();
   });
 

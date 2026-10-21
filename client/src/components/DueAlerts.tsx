@@ -146,7 +146,7 @@ export default function DueAlerts() {
           <button
             type="button"
             onClick={dismissAll}
-            className="press text-xs font-semibold text-accent underline hover:text-ink"
+            className="press inline-flex min-h-11 items-center text-xs font-semibold text-accent underline hover:text-ink"
           >
             Dismiss all
           </button>
