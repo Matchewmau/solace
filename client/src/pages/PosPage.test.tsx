@@ -1642,6 +1642,11 @@ describe("POS phone register layout", () => {
     expect(screen.getAllByRole("region", { name: "Cart" })).toHaveLength(1);
     expect(screen.queryByRole("tablist", { name: "Order chips" })).toBeNull();
     expect(screen.queryByRole("button", { name: /View order/ })).toBeNull();
+
+    // The order column only appears beside the inline cart at lg+.
+    const rail = screen.getByRole("complementary", { name: "Order rail" });
+    expect(rail.className).toContain("lg:flex");
+    expect(rail.className).not.toContain("md:flex");
   });
 
   it("shows phone chips and the cart bar, opening the sheet with the cart exactly once", async () => {
@@ -1651,6 +1656,13 @@ describe("POS phone register layout", () => {
     renderPos();
     await screen.findByText("Cortado");
 
+    // Phone category pills and menu tiles keep 44 px targets + shared hover.
+    const all = screen.getByRole("button", { name: "All" });
+    expect(all.className).toContain("min-h-11");
+    const espresso = screen.getByRole("button", { name: "Espresso" });
+    expect(espresso.className).toContain("hover:border-ink/60");
+    expect(menuTile(/Cortado/).className).toContain("card-interactive");
+
     // Chips replace the desktop column; the cart is not inline below lg.
     expect(screen.getByRole("tablist", { name: "Order chips" })).toBeDefined();
     expect(screen.queryByRole("region", { name: "Cart" })).toBeNull();
@@ -1659,9 +1671,10 @@ describe("POS phone register layout", () => {
     const bar = screen.getByRole("button", { name: /View order/ });
     expect(bar.textContent).toContain("1 items");
     expect(bar.textContent).toContain("₱70");
-    // 44 px touch target on the cart bar.
+    // 44 px touch target on the cart bar, sitting above the phone nav.
     expect(bar.className).toContain("min-h-11");
-    expect(bar.className).toContain("md:left-44");
+    expect(bar.className).toContain("bottom-[var(--bottom-nav-height)]");
+    expect(bar.className).toContain("md:left-52");
 
     fireEvent.click(bar);
     const dialog = screen.getByRole("dialog", { name: "Your order" });
@@ -1731,7 +1744,8 @@ describe("POS phone register layout", () => {
   });
 
   it("slides a right-side drawer in (not a sheet) at tablet widths", async () => {
-    // md true, lg false ⇒ tablet: overlay cart as a drawer, rail still shown.
+    // md true, lg false ⇒ tablet: overlay cart as a drawer. The rail is
+    // CSS-hidden at this width and the chips row stands in for it.
     stubMedia((query) => query === "(min-width: 768px)");
     globalThis.fetch = vi.fn(menuFetch()) as typeof fetch;
 
@@ -1739,6 +1753,13 @@ describe("POS phone register layout", () => {
     await screen.findByText("Cortado");
 
     expect(screen.getByRole("tablist", { name: "Orders" })).toBeDefined();
+    // Both tablists exist in jsdom; `lg:flex` hides the rail and `lg:hidden`
+    // shows the chips at tablet widths.
+    const chips = screen.getByRole("tablist", { name: "Order chips" });
+    expect(chips).toBeDefined();
+    expect(chips.parentElement?.className).toContain("lg:hidden");
+    const rail = screen.getByRole("complementary", { name: "Order rail" });
+    expect(rail.className).toContain("lg:flex");
 
     fireEvent.click(menuTile(/Cortado/));
     fireEvent.click(screen.getByRole("button", { name: /View order/ }));

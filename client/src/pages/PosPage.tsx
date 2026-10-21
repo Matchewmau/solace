@@ -16,11 +16,18 @@ import { useMediaQuery } from "../lib/useMediaQuery";
 
 const methodButton = (pressed: boolean) =>
   pressed
-    ? "press flex-1 min-h-11 bg-ink px-4 py-4 text-lg font-semibold text-paper"
-    : "press flex-1 min-h-11 border border-ink px-4 py-4 text-lg font-semibold";
+    ? "press flex-1 min-h-11 bg-ink px-4 py-4 text-lg font-semibold text-paper hover:bg-ink/90"
+    : "press flex-1 min-h-11 border border-ink px-4 py-4 text-lg font-semibold hover:bg-ink/[0.04]";
+
+const categoryButton = (pressed: boolean) =>
+  `press shrink-0 min-h-11 border px-4 text-sm font-semibold ${
+    pressed
+      ? "border-ink bg-ink text-paper"
+      : "border-ink/30 hover:border-ink/60 hover:bg-ink/[0.04]"
+  }`;
 
 /**
- * One order tab, shared by the desktop rail (≥ md) and the phone chips row.
+ * One order tab, shared by the desktop rail (lg+) and the phone chips row.
  *
  * The loud-vs-quiet decision (status classes + Paid/Unpaid label) lives here
  * and nowhere else, so both presentations stay in lockstep.
@@ -49,9 +56,9 @@ function OrderTab({
         ? "border border-dashed border-ink/40 text-muted"
         : "border border-ink/20 border-l-4 border-l-accent bg-paper text-ink";
   const className = [
-    "press flex flex-col items-start gap-0.5 px-3 py-2 text-left text-sm font-semibold",
+    "press shrink-0 min-h-11 flex flex-col items-start gap-0.5 px-3 py-2 text-left text-sm font-semibold",
     status,
-    selected ? "ring-2 ring-ink" : "",
+    selected ? "ring-2 ring-ink" : "hover:ring-1 hover:ring-ink/25",
     celebrating ? "pop-glow" : "",
   ]
     .filter(Boolean)
@@ -371,7 +378,7 @@ export default function PosPage() {
               type="button"
               onClick={() => void togglePaidTab(active.key, doneSale.id, 0)}
               disabled={detailBusy}
-              className="press border border-ink px-4 py-3 text-base font-semibold disabled:opacity-40"
+              className="press min-h-11 border border-ink px-4 py-3 text-base font-semibold hover:bg-ink/[0.04] disabled:opacity-40"
             >
               Mark unpaid
             </button>
@@ -388,7 +395,7 @@ export default function PosPage() {
                 }
               }}
               disabled={detailBusy}
-              className="press bg-ink px-4 py-3 text-base font-semibold text-paper disabled:opacity-40"
+              className="press min-h-11 bg-ink px-4 py-3 text-base font-semibold text-paper hover:bg-ink/90 disabled:opacity-40"
             >
               Pay {formatMoney(doneSale.total_cents)}
             </button>
@@ -419,7 +426,7 @@ export default function PosPage() {
               type="button"
               onClick={editOrder}
               disabled={doneSale.paid === 1 || detailBusy}
-              className="press flex-1 border border-ink px-4 py-3 text-base font-semibold disabled:opacity-40"
+              className="press flex-1 min-h-11 border border-ink px-4 py-3 text-base font-semibold hover:bg-ink/[0.04] disabled:opacity-40"
             >
               Edit
             </button>
@@ -427,7 +434,7 @@ export default function PosPage() {
               <button
                 type="button"
                 onClick={closeReceipt}
-                className="press flex-1 border border-ink px-4 py-3 text-base font-semibold"
+                className="press flex-1 min-h-11 border border-ink px-4 py-3 text-base font-semibold hover:bg-ink/[0.04]"
               >
                 Close
               </button>
@@ -436,7 +443,7 @@ export default function PosPage() {
                 type="button"
                 onClick={() => void deleteOrder()}
                 disabled={detailBusy}
-                className="press flex-1 border border-red-600 px-4 py-3 text-base font-semibold text-red-600 disabled:opacity-40"
+                className="press flex-1 min-h-11 border border-red-600 px-4 py-3 text-base font-semibold text-red-600 hover:bg-danger/5 disabled:opacity-40"
               >
                 {detailBusy ? "Deleting…" : "Delete"}
               </button>
@@ -463,7 +470,7 @@ export default function PosPage() {
                       addItem(active.key, promptItem.id, variant);
                       setPromptItem(null);
                     }}
-                    className="border border-ink px-4 py-2 text-sm font-semibold"
+                    className="press min-h-11 border border-ink px-4 py-2 text-sm font-semibold hover:bg-ink/[0.04]"
                   >
                     {variant}
                   </button>
@@ -472,7 +479,7 @@ export default function PosPage() {
               <button
                 type="button"
                 onClick={() => setPromptItem(null)}
-                className="self-start px-2 py-1 text-sm text-muted underline"
+                className="self-start px-2 py-1 text-sm text-muted underline hover:text-ink"
               >
                 Cancel
               </button>
@@ -501,7 +508,7 @@ export default function PosPage() {
                         type="button"
                         aria-label={`Decrease ${name} quantity`}
                         onClick={() => setQty(active.key, line.menu_item_id, line.variant, line.qty - 1)}
-                        className="press border border-ink px-3 py-1 text-base font-semibold"
+                        className="press min-h-11 min-w-11 border border-ink px-0 text-base font-semibold"
                       >
                         −
                       </button>
@@ -512,7 +519,7 @@ export default function PosPage() {
                         type="button"
                         aria-label={`Increase ${name} quantity`}
                         onClick={() => setQty(active.key, line.menu_item_id, line.variant, line.qty + 1)}
-                        className="press border border-ink px-3 py-1 text-base font-semibold"
+                        className="press min-h-11 min-w-11 border border-ink px-0 text-base font-semibold"
                       >
                         +
                       </button>
@@ -520,7 +527,7 @@ export default function PosPage() {
                         type="button"
                         aria-label={`Remove ${name} from cart`}
                         onClick={() => removeLine(active.key, line.menu_item_id, line.variant)}
-                        className="press ml-auto px-2 py-1 text-sm text-muted underline"
+                        className="press ml-auto px-2 py-1 text-sm text-muted underline hover:text-danger"
                       >
                         Remove
                       </button>
@@ -560,7 +567,7 @@ export default function PosPage() {
             type="button"
             onClick={() => void checkout()}
             disabled={active.lines.length === 0 || pending}
-            className="press min-h-11 bg-ink px-4 py-3 text-base font-semibold text-paper disabled:opacity-40"
+            className="press min-h-11 bg-ink px-4 py-3 text-base font-semibold text-paper hover:bg-ink/90 disabled:opacity-40"
           >
             {pending ? "Saving…" : "Done"}
           </button>
@@ -572,7 +579,7 @@ export default function PosPage() {
               <button
                 type="button"
                 onClick={() => void checkout()}
-                className="border border-ink px-4 py-2 text-sm font-semibold"
+                className="press min-h-11 border border-ink px-4 py-2 text-sm font-semibold hover:bg-ink/[0.04]"
               >
                 Retry
               </button>
@@ -595,18 +602,18 @@ export default function PosPage() {
           <button
             type="button"
             onClick={dismissRolloverCue}
-            className="press min-h-11 border border-ink px-4 text-sm font-semibold"
+            className="press min-h-11 border border-ink px-4 text-sm font-semibold hover:bg-ink/[0.04]"
           >
             Dismiss
           </button>
         </div>
       ) : null}
       <div className="flex min-h-screen">
-        {/* Order rail (md+): pinned to the viewport, with the tab list owning
+        {/* Order rail (lg+): pinned to the viewport, with the tab list owning
             its scroll so a long day of orders never pushes the register away. */}
         <aside
           aria-label="Order rail"
-          className="sticky top-0 hidden h-screen w-36 shrink-0 self-start flex-col gap-2 overflow-hidden border-r border-ink/10 bg-white p-3 md:flex"
+          className="sticky top-0 hidden h-screen w-36 shrink-0 self-start flex-col gap-2 overflow-hidden border-r border-ink/10 bg-white p-3 lg:flex"
         >
           <h2 className="shrink-0 text-xs font-semibold tracking-widest text-muted">
             ORDERS
@@ -614,7 +621,7 @@ export default function PosPage() {
           <button
             type="button"
             onClick={newTab}
-            className="press shrink-0 border border-dashed border-ink px-3 py-2 text-sm font-semibold"
+            className="press shrink-0 min-h-11 border border-dashed border-ink px-3 py-2 text-sm font-semibold hover:bg-ink/[0.04]"
           >
             New order
           </button>
@@ -635,19 +642,19 @@ export default function PosPage() {
             ))}
           </div>
         </aside>
-        <div className="flex min-w-0 flex-1 flex-col gap-8 px-6 pt-12 pb-28 lg:pb-12">
+        <div className="flex min-w-0 flex-1 flex-col gap-8 px-4 pt-8 pb-28 sm:px-6 sm:pt-12 lg:pb-12">
           <header className="flex flex-col gap-3">
             <p className="label text-xs text-muted">Cafe</p>
             <h1 className="text-4xl font-semibold">POS</h1>
             <p className="text-sm text-muted">Tap to add, checkout with cash or GCash.</p>
           </header>
-          {/* Phone chips (below md) stand in for the rail's order column. */}
+          {/* Phone chips (below lg) stand in for the rail's order column. */}
           {!isDesktopCart ? (
-            <div className="flex flex-nowrap items-stretch gap-2 overflow-x-auto md:hidden">
+            <div className="flex flex-nowrap items-stretch gap-2 overflow-x-auto lg:hidden">
               <button
                 type="button"
                 onClick={newTab}
-                className="press shrink-0 border border-dashed border-ink px-3 py-2 text-sm font-semibold"
+                className="press shrink-0 min-h-11 border border-dashed border-ink px-3 py-2 text-sm font-semibold hover:bg-ink/[0.04]"
               >
                 New order
               </button>
@@ -676,7 +683,7 @@ export default function PosPage() {
             </p>
             <button
               type="button"
-              className="border border-ink px-4 py-2 text-sm font-semibold"
+              className="press min-h-11 border border-ink px-4 py-2 text-sm font-semibold hover:bg-ink/[0.04]"
               onClick={() => {
                 void categoriesQuery.refetch();
                 void itemsQuery.refetch();
@@ -694,11 +701,7 @@ export default function PosPage() {
                   type="button"
                   aria-pressed={activeCategory === "all"}
                   onClick={() => setActiveCategory("all")}
-                  className={
-                    activeCategory === "all"
-                      ? "bg-ink px-4 py-2 text-sm font-semibold text-paper"
-                      : "border border-ink px-4 py-2 text-sm font-semibold"
-                  }
+                  className={categoryButton(activeCategory === "all")}
                 >
                   All
                 </button>
@@ -708,11 +711,7 @@ export default function PosPage() {
                     type="button"
                     aria-pressed={activeCategory === category.id}
                     onClick={() => setActiveCategory(category.id)}
-                    className={
-                      activeCategory === category.id
-                        ? "bg-ink px-4 py-2 text-sm font-semibold text-paper"
-                        : "border border-ink px-4 py-2 text-sm font-semibold"
-                    }
+                    className={categoryButton(activeCategory === category.id)}
                   >
                     {category.name}
                   </button>
@@ -721,7 +720,7 @@ export default function PosPage() {
               {visible.length === 0 ? (
                 <p className="py-16 text-center text-muted">No items available</p>
               ) : (
-                <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-4">
                   {visible.map((item) => (
                     <li key={item.id}>
                       <button
@@ -734,7 +733,7 @@ export default function PosPage() {
                             addItem(active.key, item.id);
                           }
                         }}
-                        className="press flex h-full w-full flex-col items-start gap-1 border border-ink px-4 py-3 text-left"
+                        className="press card-interactive flex h-full w-full flex-col items-start gap-1 border border-ink/25 px-4 py-3 text-left"
                       >
                         <span className="text-base font-semibold">{item.name}</span>
                         <span className="text-base text-accent">{formatPeso(item.price_cents)}</span>
@@ -754,13 +753,14 @@ export default function PosPage() {
         )}
         </div>
       </div>
-      {/* Below lg the cart moves into an overlay; the fixed bar opens it. */}
+      {/* Below lg the cart moves into an overlay; the fixed bar opens it and
+          sits above the phone nav, clear of the tablet rail at md+. */}
       {!isDesktopCart ? (
         <>
           <button
             type="button"
             onClick={() => setCartOpen(true)}
-            className="press fixed inset-x-0 bottom-14 z-30 flex min-h-11 items-center justify-center gap-2 border-t border-ink/10 bg-paper px-4 text-sm font-semibold md:bottom-0 md:left-44 lg:hidden"
+            className="press fixed inset-x-0 bottom-[var(--bottom-nav-height)] z-30 flex min-h-11 items-center justify-center gap-2 border-t border-ink/10 bg-paper px-4 text-sm font-semibold hover:bg-ink/[0.04] md:bottom-0 md:left-52 lg:hidden"
           >
             {cartQty} items · {formatPeso(totalCents)} · View order
           </button>
@@ -780,14 +780,14 @@ export default function PosPage() {
                 className={
                   isTablet
                     ? "drawer-in fixed right-0 top-0 z-40 h-full w-96 max-w-full overflow-y-auto rounded-l-box bg-paper p-6 text-ink shadow-sheet"
-                    : "sheet-up fixed inset-x-0 bottom-0 z-40 max-h-[85vh] overflow-y-auto rounded-t-box bg-paper p-6 text-ink shadow-sheet"
+                    : "sheet-up fixed inset-x-0 bottom-0 z-40 max-h-[85vh] overflow-y-auto rounded-t-box bg-paper px-6 pt-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] text-ink shadow-sheet"
                 }
               >
                 <div className="mb-2 flex justify-end">
                   <button
                     type="button"
                     onClick={() => setCartOpen(false)}
-                    className="press px-2 py-1 text-sm text-muted underline"
+                    className="press px-2 py-1 text-sm text-muted underline hover:text-ink"
                   >
                     Close
                   </button>
