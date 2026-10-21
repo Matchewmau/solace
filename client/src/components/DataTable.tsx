@@ -1,4 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
+import { CELL_CARD, ROW_CARD, ROW_HOVER, SORT_HEADER } from "./tableStyles";
 
 export type Column<T> = {
   key: string;
@@ -11,19 +12,6 @@ export type Column<T> = {
 };
 
 type SortState = { key: string; dir: "asc" | "desc" };
-
-/**
- * Row-card classes: below `md` the same `<table>` markup restyles into
- * label+value cards (single DOM — no second card list). The row becomes a
- * block so its cells stack one-per-line; each cell is a flex line with its
- * label on the left (from `data-label`) and its value on the right. Reused
- * verbatim by SalesTable and every other table page.
- */
-const ROW_CARD = "max-md:block";
-const CELL_CARD = `max-md:flex max-md:justify-between max-md:before:content-[attr(data-label)] max-md:text-muted`;
-
-const headerButton =
-  "font-semibold underline decoration-dotted underline-offset-4";
 
 function compareRows<T>(column: Column<T>, a: T, b: T): number {
   if (column.value === undefined) return 0;
@@ -103,7 +91,7 @@ export default function DataTable<T>({
                 <button
                   type="button"
                   onClick={() => toggle(column.key)}
-                  className={headerButton}
+                  className={SORT_HEADER}
                 >
                   {column.label}
                 </button>
@@ -133,7 +121,7 @@ export default function DataTable<T>({
           sorted.map((row) => (
             <tr
               key={rowKey(row)}
-              className={`border-b border-ink/10 ${ROW_CARD}`}
+              className={`border-b border-ink/10 ${ROW_CARD} ${ROW_HOVER}`}
             >
               {columns.map((column) => (
                 <td

@@ -49,6 +49,16 @@ describe("DataTable", () => {
     expect(screen.getByText("Rent")).toBeDefined();
     expect(screen.getByText("350")).toBeDefined();
     expect(screen.getByText("6000")).toBeDefined();
+
+    const rows = screen.getAllByRole("row").slice(1);
+    for (const row of rows) {
+      expect(row.className).toContain("row-hover");
+      expect(row.className).toContain("focus-within:bg-ink/[0.04]");
+    }
+
+    const amount = screen.getByRole("button", { name: "Amount" });
+    expect(amount.className).toContain("min-h-11");
+    expect(amount.className).toContain("hover:text-accent");
   });
 
   it("sorts descending on the first click and ascending on the second", () => {

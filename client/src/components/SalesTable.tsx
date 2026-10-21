@@ -1,18 +1,16 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { formatPeso } from "../lib/formatPeso";
 import { Badge } from "./ui";
+import {
+  CELL_CARD,
+  ROW_CARD,
+  ROW_HOVER,
+  ROW_HOVER_STRONG,
+  SORT_HEADER,
+} from "./tableStyles";
 import type { SaleRow } from "../api/sales";
 
 export type SalesSortKey = "id" | "date" | "total" | "payment";
-
-/**
- * Row-card classes copied verbatim from DataTable (Task 4 fix round): below
- * `md` the `tr` stacks its cells (`block`); each `td` is a flex line whose
- * label comes from `data-label` (value on the right). Do not merge these —
- * `block` + `flex` on the same element loses to stylesheet order.
- */
-const ROW_CARD = "max-md:block";
-const CELL_CARD = `max-md:flex max-md:justify-between max-md:before:content-[attr(data-label)] max-md:text-muted`;
 
 function compareRows(key: SalesSortKey, a: SaleRow, b: SaleRow): number {
   switch (key) {
@@ -79,9 +77,6 @@ export default function SalesTable({
     return sortDir === 1 ? "ascending" : "descending";
   }
 
-  const headerButton =
-    "font-semibold underline decoration-dotted underline-offset-4";
-
   return (
     <table
       aria-label={label}
@@ -93,7 +88,7 @@ export default function SalesTable({
             <button
               type="button"
               onClick={() => toggle("id")}
-              className={headerButton}
+              className={SORT_HEADER}
             >
               Sale #
             </button>
@@ -102,7 +97,7 @@ export default function SalesTable({
             <button
               type="button"
               onClick={() => toggle("date")}
-              className={headerButton}
+              className={SORT_HEADER}
             >
               Date
             </button>
@@ -114,7 +109,7 @@ export default function SalesTable({
             <button
               type="button"
               onClick={() => toggle("payment")}
-              className={headerButton}
+              className={SORT_HEADER}
             >
               Payment
             </button>
@@ -123,7 +118,7 @@ export default function SalesTable({
             <button
               type="button"
               onClick={() => toggle("total")}
-              className={headerButton}
+              className={SORT_HEADER}
             >
               Total
             </button>
@@ -143,9 +138,11 @@ export default function SalesTable({
           <tr
             key={row.id}
             onClick={onRowClick ? () => onRowClick(row) : undefined}
-            className={`border-b border-ink/10 ${ROW_CARD}${
-              row.voided === 1 ? " text-muted" : ""
-            }${onRowClick ? " cursor-pointer hover:bg-ink/5" : ""}`}
+            className={`border-b border-ink/10 ${ROW_CARD} ${
+              onRowClick ? ROW_HOVER_STRONG : ROW_HOVER
+            }${row.voided === 1 ? " text-muted" : ""}${
+              onRowClick ? " cursor-pointer" : ""
+            }`}
           >
             <td data-label="Sale #" className={`py-2 pr-4 font-semibold ${CELL_CARD}`}>
               {onRowClick ? (
@@ -156,7 +153,7 @@ export default function SalesTable({
                     event.stopPropagation();
                     onRowClick(row);
                   }}
-                  className="text-left font-semibold underline decoration-dotted underline-offset-4"
+                  className="text-left font-semibold underline decoration-dotted underline-offset-4 hover:text-accent"
                 >
                   Sale #{row.id}
                   {rowNote?.(row) ? ` (${rowNote(row)})` : ""}

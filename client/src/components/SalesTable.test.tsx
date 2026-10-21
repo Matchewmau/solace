@@ -150,6 +150,10 @@ describe("SalesTable", () => {
       />,
     );
 
+    const clickable = screen.getAllByRole("row").slice(1)[0];
+    expect(clickable.className).toContain("row-hover-strong");
+    expect(clickable.className).toContain("cursor-pointer");
+
     // The Sale # cell is a real button, so Enter/Space work for free.
     const opener = screen.getByRole("button", { name: "Sale #7" });
     fireEvent.click(opener);
