@@ -143,7 +143,7 @@ export default function TodayPage() {
       <PageFrame>
         <header className="flex flex-col gap-3">
           <p className="label text-xs text-muted">Cafe</p>
-          <h1 className="text-4xl font-semibold">Today &middot; {today}</h1>
+          <h1 className="page-title">Today &middot; {today}</h1>
           <p className="text-sm text-muted">
             Today&apos;s sales — void corrections only. Settling happens in
             Order Details on the POS.
@@ -175,7 +175,7 @@ export default function TodayPage() {
                 value={`#${summaryQuery.data.next_order_number}`}
               />
             </div>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <StatChip
                 label="Paid sales"
                 value={countLabel(paidLive.length, "sale")}

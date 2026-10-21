@@ -148,7 +148,7 @@ export default function DashboardPage() {
       <PageFrame>
         <Reveal className="flex flex-col gap-3">
           <p className="label text-xs text-muted">Cafe</p>
-          <h1 className="text-4xl font-semibold">Dashboard</h1>
+          <h1 className="page-title">Dashboard</h1>
           <p className="text-sm text-muted">
             Day net is today's sales minus today's expenses. Month net is money
             in minus money out, including salaries, bills, payables, loans, and

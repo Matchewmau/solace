@@ -1656,6 +1656,10 @@ describe("POS phone register layout", () => {
     renderPos();
     await screen.findByText("Cortado");
 
+    expect(screen.getByRole("heading", { name: "POS" }).className).toContain(
+      "page-title",
+    );
+
     // Phone category pills and menu tiles keep 44 px targets + shared hover.
     const all = screen.getByRole("button", { name: "All" });
     expect(all.className).toContain("min-h-11");

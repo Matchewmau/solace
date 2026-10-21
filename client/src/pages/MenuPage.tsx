@@ -613,7 +613,7 @@ export default function MenuPage() {
       <PageFrame>
         <Reveal className="flex flex-col gap-3">
           <p className="label text-xs text-muted">Cafe</p>
-          <h1 className="text-4xl font-semibold">Solace</h1>
+          <h1 className="page-title">Solace</h1>
           <p className="text-sm text-muted">Warm espresso, quiet room.</p>
         </Reveal>
         {isLoading ? (

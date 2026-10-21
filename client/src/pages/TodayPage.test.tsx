@@ -214,6 +214,9 @@ describe("TodayPage", () => {
     expect(screen.getByText("#4")).toBeDefined();
     // Readability strip: live paid/unpaid split and the average sale.
     expect(screen.getByText("Paid sales")).toBeDefined();
+    expect(
+      screen.getByText("Paid sales").closest(".grid")?.className,
+    ).toContain("grid-cols-1");
     expect(screen.getByText("Unpaid sales")).toBeDefined();
     expect(screen.getByText("Average sale")).toBeDefined();
     expect(screen.getByText("₱125")).toBeDefined();

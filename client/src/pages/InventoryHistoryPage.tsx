@@ -61,7 +61,7 @@ export default function InventoryHistoryPage() {
       <PageFrame>
         <header className="flex flex-col gap-3">
           <p className="label text-xs text-muted">Cafe</p>
-          <h1 className="text-4xl font-semibold">Inventory history</h1>
+          <h1 className="page-title">Inventory history</h1>
           <p className="text-sm text-muted">
             {itemId === null
               ? "Stock movements ledger."

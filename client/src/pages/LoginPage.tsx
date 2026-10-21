@@ -41,7 +41,7 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-paper px-6 py-12 text-ink">
+    <main className="flex min-h-screen items-center justify-center bg-paper px-4 py-8 text-ink sm:px-6 sm:py-12">
       <Box className="flex w-full max-w-sm flex-col gap-4">
         <div className="flex flex-col gap-2">
           <p className="label text-xs text-muted">Cafe</p>

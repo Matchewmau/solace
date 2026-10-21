@@ -112,7 +112,7 @@ export default function FinancePayablesPage() {
             ← Back to finance
           </Link>
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <h1 className="text-4xl font-semibold">Payables</h1>
+            <h1 className="page-title">Payables</h1>
             <Button
               variant="primary"
               onClick={() => {

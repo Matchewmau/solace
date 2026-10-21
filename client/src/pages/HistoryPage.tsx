@@ -80,7 +80,7 @@ export default function HistoryPage() {
       <PageFrame>
         <header className="flex flex-col gap-3">
           <p className="label text-xs text-muted">Cafe</p>
-          <h1 className="text-4xl font-semibold">History</h1>
+          <h1 className="page-title">History</h1>
           <p className="text-sm text-muted">
             Past sales ledger — read-only, sortable, never alterable.
           </p>

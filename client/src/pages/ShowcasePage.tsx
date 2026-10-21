@@ -39,7 +39,7 @@ export function ShowcaseHero() {
   return (
     <div className="flex flex-col gap-3">
       <p className="label text-xs text-muted">Solace &middot; Showcase</p>
-      <h1 className="text-4xl font-semibold">Showcase</h1>
+      <h1 className="page-title">Showcase</h1>
       <p className="text-sm text-muted">
         Warm espresso, quiet room — a slow-turning mark in brand ink and
         accent.

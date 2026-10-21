@@ -125,6 +125,9 @@ describe("DashboardPage", () => {
 
     // Five chips: Day in, Day net, Month in, Month out, Month net.
     expect(await screen.findByText("Day in")).toBeDefined();
+    expect(
+      screen.getByRole("heading", { name: "Dashboard" }).className,
+    ).toContain("page-title");
     expect(screen.queryByText("Day out")).toBeNull();
     const strip = screen.getByRole("region", { name: "Money strip" });
     expect(strip.querySelectorAll(".rounded-box")).toHaveLength(5);

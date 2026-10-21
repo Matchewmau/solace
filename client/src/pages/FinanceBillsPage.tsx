@@ -141,7 +141,7 @@ export default function FinanceBillsPage() {
             ← Back to finance
           </Link>
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <h1 className="text-4xl font-semibold">Bills</h1>
+            <h1 className="page-title">Bills</h1>
             <Button
               variant="primary"
               onClick={() => {

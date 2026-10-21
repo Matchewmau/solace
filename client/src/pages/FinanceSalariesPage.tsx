@@ -90,7 +90,7 @@ export default function FinanceSalariesPage() {
             ← Back to finance
           </Link>
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <h1 className="text-4xl font-semibold">Salaries</h1>
+            <h1 className="page-title">Salaries</h1>
             <Button
               variant="primary"
               onClick={() => {

@@ -187,7 +187,7 @@ export default function FinancePage() {
       <PageFrame>
         <Reveal className="flex flex-col gap-3">
           <p className="label text-xs text-muted">Cafe</p>
-          <h1 className="text-4xl font-semibold">Finance</h1>
+          <h1 className="page-title">Finance</h1>
           <p className="text-sm text-muted">
             Money in vs money out this month, and where it goes.
           </p>

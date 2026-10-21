@@ -645,7 +645,7 @@ export default function PosPage() {
         <div className="flex min-w-0 flex-1 flex-col gap-8 px-4 pt-8 pb-28 sm:px-6 sm:pt-12 lg:pb-12">
           <header className="flex flex-col gap-3">
             <p className="label text-xs text-muted">Cafe</p>
-            <h1 className="text-4xl font-semibold">POS</h1>
+            <h1 className="page-title">POS</h1>
             <p className="text-sm text-muted">Tap to add, checkout with cash or GCash.</p>
           </header>
           {/* Phone chips (below lg) stand in for the rail's order column. */}

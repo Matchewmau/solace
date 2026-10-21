@@ -601,7 +601,7 @@ export default function GuidePage() {
       <PageFrame>
         <Reveal className="flex flex-col gap-3">
           <p className="label text-xs text-muted">Cafe</p>
-          <h1 className="text-4xl font-semibold">Barista Guide</h1>
+          <h1 className="page-title">Barista Guide</h1>
           <p className="text-sm text-muted">Brew steps for every drink.</p>
         </Reveal>
         {isLoading ? (

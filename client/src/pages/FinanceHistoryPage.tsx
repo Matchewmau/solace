@@ -47,7 +47,7 @@ export default function FinanceHistoryPage() {
       <PageFrame>
         <header className="flex flex-col gap-3">
           <p className="label text-xs text-muted">Cafe</p>
-          <h1 className="text-4xl font-semibold">Loan history</h1>
+          <h1 className="page-title">Loan history</h1>
           <p className="text-sm text-muted">
             {loanId === null
               ? "Loan payments ledger."
