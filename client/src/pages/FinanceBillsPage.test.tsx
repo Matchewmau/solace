@@ -109,6 +109,9 @@ describe("FinanceBillsPage", () => {
 
     expect(await screen.findByRole("table", { name: "Bills" })).toBeDefined();
     expect(
+      screen.getByRole("link", { name: "Back to finance" }).className,
+    ).toContain("back-link");
+    expect(
       screen.getByRole("link", { name: "Back to finance" }).getAttribute("href"),
     ).toBe("/finance");
 

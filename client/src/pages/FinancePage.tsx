@@ -121,7 +121,7 @@ function DrillBox({
       {extra}
       <Link
         to={to}
-        className="press mt-auto self-start rounded-box border border-ink/20 px-3 py-1 text-sm font-semibold"
+        className="action-link mt-auto self-start"
       >
         Open
       </Link>
@@ -284,7 +284,7 @@ export default function FinancePage() {
                           <div className="min-w-0">
                             <Link
                               to={LEDGER_BY_KIND[due.kind]}
-                              className="font-semibold underline-offset-2 hover:underline"
+                              className="font-semibold underline-offset-2 hover:text-accent hover:underline"
                             >
                               {due.label}
                             </Link>
@@ -312,7 +312,7 @@ export default function FinancePage() {
                   action={
                     <Link
                       to="/finance/expenses"
-                      className="text-sm font-semibold underline-offset-2 hover:underline"
+                      className="text-sm font-semibold underline-offset-2 hover:text-accent hover:underline"
                     >
                       View all
                     </Link>

@@ -305,21 +305,16 @@ export function ItemPopup({
           ) : null}
         </div>
         <div className="mt-4 flex gap-2">
-          <button
-            type="button"
-            onClick={onEdit}
-            className="border border-ink px-4 py-2 text-sm font-semibold"
-          >
+          <Button variant="outline" onClick={onEdit}>
             Edit
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="outline"
             onClick={onToggleActive}
             disabled={togglePending}
-            className="border border-ink px-4 py-2 text-sm font-semibold disabled:opacity-40"
           >
             {item.active === 1 ? "Deactivate" : "Activate"}
-          </button>
+          </Button>
         </div>
         {toggleError ? (
           <p role="alert" className="mt-2 text-sm text-accent">
@@ -449,16 +444,15 @@ export function MenuShowcase({ categories, items }: ShowcaseProps) {
               ))}
             </select>
           </label>
-          <button
-            type="button"
+          <Button
+            variant="outline"
             onClick={() => {
               setSaveError(null);
               setDialog({ mode: "add" });
             }}
-            className="border border-ink px-4 py-2 text-sm font-semibold"
           >
             Add
-          </button>
+          </Button>
         </div>
       </div>
       {categories.length === 0 || items.length === 0 ? (
@@ -479,7 +473,7 @@ export function MenuShowcase({ categories, items }: ShowcaseProps) {
                               setToggleError(null);
                               setPopupItem(item);
                             }}
-                            className="press flex h-full min-h-24 w-full flex-col items-start justify-between gap-3 rounded-box border border-ink/15 bg-paper px-4 py-3 text-left transition-colors hover:border-ink/40"
+                            className="card-interactive press flex h-full min-h-24 w-full flex-col items-start justify-between gap-3 rounded-box border border-ink/15 bg-paper px-4 py-3 text-left"
                           >
                             <span className="text-lg font-medium leading-snug">
                               {item.name}
@@ -502,7 +496,7 @@ export function MenuShowcase({ categories, items }: ShowcaseProps) {
                 type="button"
                 onClick={() => setShowInactive((value) => !value)}
                 aria-expanded={showInactive}
-                className="self-start border border-ink px-4 py-2 text-sm font-semibold"
+                className="press min-h-11 self-start border border-ink px-4 py-2 text-sm font-semibold hover:bg-ink/[0.04]"
               >
                 {showInactive ? "Hide inactive" : "Show inactive"}
               </button>
@@ -521,7 +515,7 @@ export function MenuShowcase({ categories, items }: ShowcaseProps) {
                               setToggleError(null);
                               setPopupItem(item);
                             }}
-                            className="press flex h-full min-h-24 w-full flex-col items-start justify-between gap-3 rounded-box border border-ink/15 bg-paper px-4 py-3 text-left text-muted transition-colors hover:border-ink/40"
+                            className="card-interactive press flex h-full min-h-24 w-full flex-col items-start justify-between gap-3 rounded-box border border-ink/15 bg-paper px-4 py-3 text-left text-muted"
                           >
                             <span className="text-lg">
                               {item.name} <Badge tone="neutral">Inactive</Badge>
@@ -623,16 +617,15 @@ export default function MenuPage() {
             <p role="alert" className="text-lg">
               Could not load the menu.
             </p>
-            <button
-              type="button"
-              className="border border-ink px-4 py-2 text-sm font-semibold"
+            <Button
+              variant="outline"
               onClick={() => {
                 void categoriesQuery.refetch();
                 void itemsQuery.refetch();
               }}
             >
               Retry
-            </button>
+            </Button>
           </div>
         ) : (
           <MenuShowcase

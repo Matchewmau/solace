@@ -304,7 +304,7 @@ export default function DashboardPage() {
                 action={
                   <Link
                     to="/finance/loans"
-                    className="press rounded-box border border-ink/20 px-3 py-1 text-sm font-semibold"
+                    className="action-link"
                   >
                     Open
                   </Link>

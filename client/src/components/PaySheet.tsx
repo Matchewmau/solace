@@ -74,7 +74,7 @@ export function PaySheet({
               key={cents}
               type="button"
               onClick={() => pick(cents)}
-              className="press min-h-11 flex-1 border border-ink px-3 text-base font-semibold"
+              className="press min-h-11 flex-1 border border-ink px-3 text-base font-semibold hover:bg-ink/[0.04]"
             >
               ₱{cents / 100}
             </button>
@@ -82,7 +82,7 @@ export function PaySheet({
           <button
             type="button"
             onClick={() => pick(totalCents)}
-            className="press min-h-11 flex-1 border border-ink px-3 text-base font-semibold"
+            className="press min-h-11 flex-1 border border-ink px-3 text-base font-semibold hover:bg-ink/[0.04]"
           >
             Exact {formatMoney(totalCents)}
           </button>
@@ -121,7 +121,7 @@ export function PaySheet({
           <button
             type="button"
             onClick={onCancel}
-            className="press min-h-11 flex-1 border border-ink px-4 text-base font-semibold"
+            className="press min-h-11 flex-1 border border-ink px-4 text-base font-semibold hover:bg-ink/[0.04]"
           >
             Cancel
           </button>
@@ -130,7 +130,7 @@ export function PaySheet({
             aria-busy={pending ? "true" : undefined}
             disabled={!canConfirm}
             onClick={() => onConfirm(received ?? 0)}
-            className="press min-h-11 flex-1 bg-ink px-4 text-base font-semibold text-paper disabled:opacity-40"
+            className="press min-h-11 flex-1 bg-ink px-4 text-base font-semibold text-paper hover:bg-ink/90 disabled:opacity-40"
           >
             {pending ? "Saving…" : `Confirm — paid ${formatMoney(totalCents)}`}
           </button>

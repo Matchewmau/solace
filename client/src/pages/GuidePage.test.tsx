@@ -392,6 +392,7 @@ describe("GuidePage toolbar and category rows (Task 22, Task 3)", () => {
     expect(within(grid).getAllByRole("listitem")).toHaveLength(2);
 
     const card = within(coffee).getByRole("button", { name: "Spanish Latte" });
+    expect(card.className).toContain("card-interactive");
     expect(card.className).toContain("rounded-box");
     expect(card.className).toContain("border");
     expect(card.className).toContain("text-left");

@@ -13,7 +13,7 @@ import { formatPeso } from "../lib/formatPeso";
 import { useOrders } from "../store/orders";
 import SaleDetailDialog from "../components/SaleDetailDialog";
 import SalesTable from "../components/SalesTable";
-import { Badge, EmptyState, PageFrame, StatChip } from "../components/ui";
+import { Badge, Button, EmptyState, PageFrame, StatChip } from "../components/ui";
 
 /**
  * Today's UTC-date sales popup page. Rows carry Void/Unvoid only — zero
@@ -114,25 +114,25 @@ export default function TodayPage() {
   function actions(row: SaleRow) {
     return (
       <>
-        <button
-          type="button"
-          aria-label={row.voided === 1 ? `Unvoid sale ${row.id}` : `Void sale ${row.id}`}
+        <Button
+          variant="outline"
+          ariaLabel={
+            row.voided === 1 ? `Unvoid sale ${row.id}` : `Void sale ${row.id}`
+          }
           onClick={() => void toggleVoid(row)}
           disabled={busyId !== null}
-          className="border border-ink px-3 py-1 text-sm font-semibold disabled:opacity-40"
         >
           {row.voided === 1 ? "Unvoid" : "Void"}
-        </button>
+        </Button>
         {row.paid !== 1 && row.voided !== 1 ? (
-          <button
-            type="button"
-            aria-label={`Reopen sale ${row.id}`}
+          <Button
+            variant="outline"
+            ariaLabel={`Reopen sale ${row.id}`}
             onClick={() => void reopen(row)}
             disabled={busyId !== null}
-            className="border border-ink px-3 py-1 text-sm font-semibold disabled:opacity-40"
           >
             Reopen
-          </button>
+          </Button>
         ) : null}
       </>
     );
@@ -209,15 +209,14 @@ export default function TodayPage() {
             <p role="alert" className="text-lg">
               Could not load today&apos;s sales.
             </p>
-            <button
-              type="button"
-              className="border border-ink px-4 py-2 text-sm font-semibold"
+            <Button
+              variant="outline"
               onClick={() => {
                 void todaySalesQuery.refetch();
               }}
             >
               Retry
-            </button>
+            </Button>
           </div>
         ) : (
           <>

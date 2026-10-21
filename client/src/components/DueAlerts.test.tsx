@@ -172,6 +172,10 @@ describe("DueAlerts", () => {
     renderAlerts();
     await screen.findByText("Rent");
 
+    expect(
+      screen.getByRole("button", { name: "Dismiss due alert for Rent" }).className,
+    ).toContain("min-h-11");
+
     fireEvent.click(
       screen.getByRole("button", { name: "Dismiss due alert for Rent" }),
     );

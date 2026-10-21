@@ -92,6 +92,7 @@ describe("MenuShowcase category boxes and aligned rows (Task 21)", () => {
     expect(grid.className).toContain("xl:grid-cols-3");
 
     const card = within(espresso).getByRole("button", { name: /Cortado/ });
+    expect(card.className).toContain("card-interactive");
     expect(card.className).toContain("rounded-box");
     expect(card.className).toContain("border");
     expect(card.className).toContain("text-left");

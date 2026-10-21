@@ -583,7 +583,7 @@ export default function InventoryPage() {
                   <Link
                     to={`/inventory/history?item=${item.id}`}
                     aria-label={`Show history for ${item.name}`}
-                    className="border border-ink/20 px-3 py-1 text-sm"
+                    className="action-link gap-2"
                   >
                     History
                   </Link>

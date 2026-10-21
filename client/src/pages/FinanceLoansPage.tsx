@@ -158,7 +158,7 @@ export default function FinanceLoansPage() {
           <Link
             to="/finance"
             aria-label="Back to finance"
-            className="self-start border border-ink/20 px-3 py-1 text-sm"
+            className="back-link self-start"
           >
             ← Back to finance
           </Link>
@@ -213,7 +213,7 @@ export default function FinanceLoansPage() {
                 <Link
                   to={`/finance/history?loan=${loan.id}`}
                   aria-label={`View history for ${loan.lender}`}
-                  className="border border-ink/20 px-3 py-1 text-sm"
+                  className="action-link"
                 >
                   History
                 </Link>

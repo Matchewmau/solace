@@ -208,10 +208,10 @@ export function GuideBrowser({
                         onClick={() => onSelect(recipe.id)}
                         aria-pressed={recipe.id === selectedId}
                         aria-label={recipe.menu_item_name}
-                        className={`press flex h-full min-h-24 w-full flex-col items-start justify-between gap-3 rounded-box border bg-paper px-4 py-3 text-left transition-colors ${
+                        className={`press flex h-full min-h-24 w-full flex-col items-start justify-between gap-3 rounded-box border px-4 py-3 text-left ${
                           recipe.id === selectedId
-                            ? "border-accent text-accent"
-                            : "border-ink/15 hover:border-ink/40"
+                            ? "border-accent bg-accent/5 text-accent"
+                            : "card-interactive border-ink/15 bg-paper"
                         }`}
                       >
                         <span className="text-lg font-medium leading-snug">
@@ -611,9 +611,8 @@ export default function GuidePage() {
             <p role="alert" className="text-lg">
               Could not load the guide.
             </p>
-            <button
-              type="button"
-              className="border border-ink px-4 py-2 text-sm font-semibold"
+            <Button
+              variant="outline"
               onClick={() => {
                 void listQuery.refetch();
                 void categoriesQuery.refetch();
@@ -621,22 +620,21 @@ export default function GuidePage() {
               }}
             >
               Retry
-            </button>
+            </Button>
           </div>
         ) : (
           <div className="flex flex-col gap-10">
             <div className="flex items-center justify-between gap-4">
               <p className="label text-xs text-muted">Solace &middot; Guide</p>
-              <button
-                type="button"
+              <Button
+                variant="outline"
                 onClick={() => {
                   setSaveError(null);
                   setForm({ mode: "add" });
                 }}
-                className="border border-ink px-4 py-2 text-sm font-semibold"
               >
                 Add
-              </button>
+              </Button>
             </div>
             {recipes.length === 0 ? (
               <p className="py-16 text-center text-muted">No recipes available</p>

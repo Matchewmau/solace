@@ -234,6 +234,9 @@ describe("FinancePage money dashboard", () => {
     expect(within(bills).getByText("₱3000")).toBeDefined();
     expect(within(bills).getByText("2 unpaid")).toBeDefined();
     expect(
+      within(bills).getByRole("link", { name: "Open" }).className,
+    ).toContain("action-link");
+    expect(
       within(bills).getByRole("link", { name: "Open" }).getAttribute("href"),
     ).toBe("/finance/bills");
 

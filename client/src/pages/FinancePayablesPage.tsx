@@ -107,7 +107,7 @@ export default function FinancePayablesPage() {
           <Link
             to="/finance"
             aria-label="Back to finance"
-            className="self-start border border-ink/20 px-3 py-1 text-sm"
+            className="back-link self-start"
           >
             ← Back to finance
           </Link>

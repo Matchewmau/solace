@@ -94,15 +94,14 @@ export default function HistoryPage() {
             <p role="alert" className="text-lg">
               Could not load past sales.
             </p>
-            <button
-              type="button"
-              className="border border-ink px-4 py-2 text-sm font-semibold"
+            <Button
+              variant="outline"
               onClick={() => {
                 void historyQuery.refetch();
               }}
             >
               Retry
-            </button>
+            </Button>
           </div>
         ) : rows.length === 0 ? (
           <EmptyState message="No past sales yet — settled days will appear here." />

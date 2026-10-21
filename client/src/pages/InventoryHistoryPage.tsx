@@ -103,7 +103,7 @@ export default function InventoryHistoryPage() {
           <Link
             to="/inventory"
             aria-label="Back to inventory"
-            className="border border-ink px-3 py-1 text-sm font-semibold"
+            className="back-link self-start"
           >
             ← Back to inventory
           </Link>

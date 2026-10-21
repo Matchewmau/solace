@@ -287,6 +287,10 @@ describe("TodayPage", () => {
       within(unpaid).queryByRole("button", { name: "Unvoid sale 1" }),
     ).toBeNull();
 
+    expect(
+      screen.getByRole("button", { name: "Void sale 1" }).className,
+    ).toContain("min-h-11");
+
     fireEvent.click(screen.getByRole("button", { name: "Void sale 1" }));
 
     await waitFor(() => {

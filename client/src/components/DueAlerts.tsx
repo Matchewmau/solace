@@ -125,7 +125,7 @@ export default function DueAlerts() {
           type="button"
           aria-expanded={false}
           onClick={() => setOpen(true)}
-          className="press flex min-h-11 items-center rounded-full border border-ink/15 bg-paper px-4 text-sm font-semibold text-ink shadow-soft"
+          className="press flex min-h-11 items-center rounded-full border border-ink/15 bg-paper px-4 text-sm font-semibold text-ink shadow-soft hover:border-ink/30 hover:bg-ink/[0.04]"
         >
           Due soon · {visible.length}
         </button>
@@ -146,7 +146,7 @@ export default function DueAlerts() {
           <button
             type="button"
             onClick={dismissAll}
-            className="press text-xs font-semibold text-accent underline"
+            className="press text-xs font-semibold text-accent underline hover:text-ink"
           >
             Dismiss all
           </button>
@@ -167,7 +167,7 @@ export default function DueAlerts() {
                     <Link
                       to={ledger.to}
                       aria-label={`View ${alert.label} in ${ledger.name}`}
-                      className="truncate font-semibold underline"
+                      className="truncate font-semibold underline hover:text-accent"
                     >
                       {alert.label}
                     </Link>
@@ -185,7 +185,7 @@ export default function DueAlerts() {
                   type="button"
                   aria-label={`Dismiss due alert for ${alert.label}`}
                   onClick={() => dismiss(alert.key)}
-                  className="press shrink-0 rounded-full px-2 text-lg leading-none text-muted hover:text-ink"
+                  className="press min-h-11 min-w-11 shrink-0 rounded-full px-2 text-lg leading-none text-muted hover:bg-ink/[0.04] hover:text-ink"
                 >
                   ×
                 </button>
