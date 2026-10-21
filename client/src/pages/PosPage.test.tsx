@@ -1682,6 +1682,7 @@ describe("POS phone register layout", () => {
 
     fireEvent.click(bar);
     const dialog = screen.getByRole("dialog", { name: "Your order" });
+    expect(screen.getByTestId("cart-backdrop").className).toContain("z-50");
     // 44 px touch target on Done.
     expect(
       within(dialog).getByRole("button", { name: "Done" }).className,
@@ -1770,6 +1771,9 @@ describe("POS phone register layout", () => {
     const panel = screen.getByRole("dialog", { name: "Your order" });
     expect(panel.className).toContain("drawer-in");
     expect(panel.className).toContain("rounded-l-box");
+    expect(panel.className).toContain(
+      "pb-[calc(1.5rem+env(safe-area-inset-bottom))]",
+    );
     expect(panel.className).not.toContain("sheet-up");
   });
 

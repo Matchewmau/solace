@@ -124,7 +124,7 @@ export function Dialog({
         aria-label={title}
         tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
-        className={`sheet-up max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto overscroll-contain rounded-box bg-paper p-6 text-ink shadow-sheet ${className}`.trim()}
+        className={`sheet-up max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto overscroll-contain rounded-box bg-paper px-6 pt-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] text-ink shadow-sheet ${className}`.trim()}
       >
         {children}
       </div>

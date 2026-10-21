@@ -33,7 +33,7 @@ export function BottomSheet({
         aria-label={title}
         tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
-        className="sheet-up fixed inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-box bg-paper p-6 text-ink shadow-sheet"
+        className="sheet-up fixed inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto overscroll-contain rounded-t-box bg-paper px-6 pt-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] text-ink shadow-sheet"
       >
         {children}
       </div>

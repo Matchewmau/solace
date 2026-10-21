@@ -230,6 +230,11 @@ describe("MenuShowcase add/edit and popup (Task 7)", () => {
 
     expect(within(dialog).getByRole("heading", { name: "Cortado" })).toBeDefined();
     expect(within(dialog).getByRole("button", { name: "Close" })).toBeDefined();
+    expect(dialog.className).toContain("max-h-[calc(100dvh-2rem)]");
+    expect(dialog.className).toContain("overflow-y-auto");
+    expect(dialog.className).toContain(
+      "pb-[calc(1.5rem+env(safe-area-inset-bottom))]",
+    );
   });
 
   it("popup closes on Escape", async () => {

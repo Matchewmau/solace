@@ -263,7 +263,7 @@ export function ItemPopup({
     <div
       data-testid="menu-popup-backdrop"
       onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 px-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 px-4 py-4"
     >
       <div
         ref={panelRef}
@@ -272,7 +272,7 @@ export function ItemPopup({
         aria-label={item.name}
         tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
-        className="w-full max-w-lg border border-ink/20 bg-paper p-6 text-ink"
+        className="max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto overscroll-contain border border-ink/20 bg-paper px-6 pt-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] text-ink"
       >
         <div className="flex items-start justify-between gap-4">
           <p className="label text-xs text-muted">Solace &middot; Menu item</p>

@@ -30,6 +30,9 @@ describe("BottomSheet", () => {
     expect(panel.getAttribute("aria-modal")).toBe("true");
     expect(panel.className).toContain("sheet-up");
     expect(panel.className).toContain("bottom-0");
+    expect(panel.className).toContain(
+      "pb-[calc(1.5rem+env(safe-area-inset-bottom))]",
+    );
     expect(panel.contains(document.activeElement)).toBe(true);
   });
 

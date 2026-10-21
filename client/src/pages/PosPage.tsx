@@ -768,7 +768,7 @@ export default function PosPage() {
             <div
               data-testid="cart-backdrop"
               onClick={() => setCartOpen(false)}
-              className="fixed inset-0 z-40 bg-ink/40"
+              className="fixed inset-0 z-50 bg-ink/40"
             >
               <div
                 ref={cartPanelRef}
@@ -779,8 +779,8 @@ export default function PosPage() {
                 onClick={(event) => event.stopPropagation()}
                 className={
                   isTablet
-                    ? "drawer-in fixed right-0 top-0 z-40 h-full w-96 max-w-full overflow-y-auto rounded-l-box bg-paper p-6 text-ink shadow-sheet"
-                    : "sheet-up fixed inset-x-0 bottom-0 z-40 max-h-[85vh] overflow-y-auto rounded-t-box bg-paper px-6 pt-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] text-ink shadow-sheet"
+                    ? "drawer-in fixed right-0 top-0 z-40 h-full w-96 max-w-full overflow-y-auto overscroll-contain rounded-l-box bg-paper px-6 pt-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] text-ink shadow-sheet"
+                    : "sheet-up fixed inset-x-0 bottom-0 z-40 max-h-[85vh] overflow-y-auto overscroll-contain rounded-t-box bg-paper px-6 pt-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] text-ink shadow-sheet"
                 }
               >
                 <div className="mb-2 flex justify-end">
