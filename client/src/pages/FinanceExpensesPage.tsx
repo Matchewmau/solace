@@ -156,7 +156,7 @@ export default function FinanceExpensesPage() {
             type="date"
             required
             aria-label="Expense date"
-            className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+            className="field"
           />
           <input
             name="category"
@@ -164,7 +164,7 @@ export default function FinanceExpensesPage() {
             required
             placeholder="Category"
             aria-label="Expense category"
-            className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+            className="field"
           />
           <input
             name="amount"
@@ -174,14 +174,14 @@ export default function FinanceExpensesPage() {
             required
             placeholder="₱ amount"
             aria-label="Expense amount in pesos"
-            className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+            className="field"
           />
           <input
             name="note"
             type="text"
             placeholder="Note (optional)"
             aria-label="Expense note"
-            className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+            className="field"
           />
           <div className="flex gap-2">
             <Button

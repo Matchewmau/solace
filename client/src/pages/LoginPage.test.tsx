@@ -52,6 +52,7 @@ describe("LoginPage", () => {
     stubLogin(true);
     renderLogin();
 
+    expect(screen.getByLabelText("Username").className).toContain("field");
     expect(screen.getByRole("heading", { name: "Login" })).toBeDefined();
     expect(screen.getByLabelText("Username")).toBe(document.activeElement);
     expect(screen.getByLabelText("Password")).toHaveProperty("type", "password");

@@ -191,7 +191,7 @@ export default function FinancePayablesPage() {
             required
             placeholder="Payable label"
             aria-label="Payable label"
-            className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+            className="field"
           />
           <input
             name="amount"
@@ -201,14 +201,14 @@ export default function FinancePayablesPage() {
             required
             placeholder="₱ amount"
             aria-label="Payable amount in pesos"
-            className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+            className="field"
           />
           <input
             name="due_date"
             type="date"
             required
             aria-label="Payable due date"
-            className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+            className="field"
           />
           <div className="flex gap-2">
             <Button

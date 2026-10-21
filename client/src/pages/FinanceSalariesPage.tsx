@@ -153,7 +153,7 @@ export default function FinanceSalariesPage() {
             required
             placeholder="Name"
             aria-label="Salary name"
-            className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+            className="field"
           />
           <input
             name="amount"
@@ -163,14 +163,14 @@ export default function FinanceSalariesPage() {
             required
             placeholder="₱ amount"
             aria-label="Salary amount in pesos"
-            className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+            className="field"
           />
           <input
             name="note"
             type="text"
             placeholder="Note (optional)"
             aria-label="Salary note"
-            className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+            className="field"
           />
           <div className="flex gap-2">
             <Button

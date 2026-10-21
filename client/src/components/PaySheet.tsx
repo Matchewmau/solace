@@ -96,7 +96,7 @@ export function PaySheet({
             min="0"
             value={amount}
             onChange={(event) => onAmountInput(event.target.value)}
-            className="min-h-11 rounded-box border border-ink px-3 text-lg"
+            className="field rounded-box text-lg"
           />
         </label>
 

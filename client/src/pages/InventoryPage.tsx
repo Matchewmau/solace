@@ -102,7 +102,7 @@ function MovementDialog({
             value={reason}
             onChange={(event) => setReason(event.target.value as MovementReason)}
             aria-label="Movement type"
-            className="border border-ink/20 bg-paper px-2 py-1 text-base text-ink"
+            className="field"
           >
             {MOVEMENT_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
@@ -121,7 +121,7 @@ function MovementDialog({
             required
             placeholder={isSetCount ? "New count" : "Qty"}
             aria-label="Quantity"
-            className="border border-ink/20 bg-paper px-2 py-1 text-base text-ink"
+            className="field"
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
@@ -132,7 +132,7 @@ function MovementDialog({
             maxLength={120}
             placeholder={notePlaceholder}
             aria-label={noteLabel}
-            className="border border-ink/20 bg-paper px-2 py-1 text-base text-ink"
+            className="field"
           />
         </label>
         <p className="text-sm text-muted">
@@ -218,7 +218,7 @@ function EditDialog({ item, pending, error, onClose, onSave }: EditDialogProps) 
           defaultValue={item.name}
           placeholder="Item name"
           aria-label="Item name"
-          className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+          className="field"
         />
         <input
           name="price"
@@ -229,7 +229,7 @@ function EditDialog({ item, pending, error, onClose, onSave }: EditDialogProps) 
           defaultValue={pricePesos}
           placeholder="Price (₱)"
           aria-label="Price in pesos"
-          className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+          className="field"
         />
         <UnitSelect
           name="unit"
@@ -245,7 +245,7 @@ function EditDialog({ item, pending, error, onClose, onSave }: EditDialogProps) 
           defaultValue={item.low_threshold}
           placeholder="Threshold"
           aria-label="Low threshold"
-          className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+          className="field"
         />
         <div className="flex gap-2">
           <Button type="submit" variant="primary" disabled={pending}>
@@ -306,7 +306,7 @@ function AddItemDialog({ pending, error, onClose, onAdd }: AddItemDialogProps) {
           required
           placeholder="Item name"
           aria-label="Stock item name"
-          className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+          className="field"
         />
         <UnitSelect
           name="unit"
@@ -321,7 +321,7 @@ function AddItemDialog({ pending, error, onClose, onAdd }: AddItemDialogProps) {
           step="any"
           placeholder="Qty (0)"
           aria-label="Stock item quantity"
-          className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+          className="field"
         />
         <input
           name="threshold"
@@ -330,7 +330,7 @@ function AddItemDialog({ pending, error, onClose, onAdd }: AddItemDialogProps) {
           step="any"
           placeholder="Threshold (0)"
           aria-label="Stock item threshold"
-          className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+          className="field"
         />
         <div className="flex gap-2">
           <Button type="submit" variant="primary" disabled={pending}>
@@ -522,7 +522,7 @@ export default function InventoryPage() {
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder="Search stock…"
                   aria-label="Search stock"
-                  className="border border-ink/20 bg-paper px-4 py-2 text-base text-ink"
+                  className="field"
                 />
               </label>
               <Button

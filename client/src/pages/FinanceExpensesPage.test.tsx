@@ -145,4 +145,13 @@ describe("FinanceExpensesPage", () => {
       },
     });
   });
+
+  it("uses the shared field style in the add form", async () => {
+    stubFetch();
+    renderPage();
+    await screen.findByText("Beans");
+    fireEvent.click(screen.getByRole("button", { name: "+ Add expense" }));
+    const amount = screen.getByLabelText("Expense amount in pesos");
+    expect(amount.className).toContain("field");
+  });
 });

@@ -253,7 +253,7 @@ export default function FinanceLoansPage() {
               required
               defaultValue={payingLoan.installment_cents / 100}
               aria-label="Payment amount in pesos"
-              className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+              className="field"
             />
             <div className="flex gap-2">
               <Button
@@ -328,7 +328,7 @@ export default function FinanceLoansPage() {
             required
             placeholder="Lender"
             aria-label="Loan lender"
-            className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+            className="field"
           />
           <input
             name="principal"
@@ -338,7 +338,7 @@ export default function FinanceLoansPage() {
             required
             placeholder="₱ principal"
             aria-label="Loan principal in pesos"
-            className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+            className="field"
           />
           <input
             name="installment"
@@ -348,7 +348,7 @@ export default function FinanceLoansPage() {
             required
             placeholder="₱ installment"
             aria-label="Loan installment in pesos"
-            className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+            className="field"
           />
           <label className="flex flex-col gap-1 text-sm">
             Due date
@@ -357,7 +357,7 @@ export default function FinanceLoansPage() {
               type="date"
               required
               defaultValue={utcToday()}
-              className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+              className="field"
             />
           </label>
           <label className="flex flex-col gap-1 text-sm">
@@ -365,7 +365,7 @@ export default function FinanceLoansPage() {
             <select
               name="frequency"
               defaultValue="monthly"
-              className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+              className="field"
             >
               <option value="monthly">Monthly</option>
               <option value="weekly">Weekly</option>
@@ -376,7 +376,7 @@ export default function FinanceLoansPage() {
             <input
               name="end_date"
               type="date"
-              className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+              className="field"
             />
           </label>
           <label className="flex flex-col gap-1 text-sm">
@@ -390,7 +390,7 @@ export default function FinanceLoansPage() {
               required
               value={alertDays}
               onChange={(event) => setAlertDays(event.target.value)}
-              className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+              className="field"
             />
           </label>
           <div className="flex gap-2">

@@ -143,7 +143,7 @@ export function MenuItemDialog({
             defaultValue={initial?.name ?? ""}
             placeholder="Item name"
             aria-label="Name"
-            className="border border-ink/20 bg-paper px-2 py-1 text-base text-ink"
+            className="field"
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
@@ -152,7 +152,7 @@ export function MenuItemDialog({
             name="category_id"
             aria-label="Type"
             defaultValue={defaultCategoryId}
-            className="border border-ink/20 bg-paper px-2 py-1 text-base text-ink"
+            className="field"
           >
             {categories.map((category) => (
               <option key={category.id} value={category.id}>
@@ -172,7 +172,7 @@ export function MenuItemDialog({
             defaultValue={pricePesos}
             placeholder="Price (₱)"
             aria-label="Price"
-            className="border border-ink/20 bg-paper px-2 py-1 text-base text-ink"
+            className="field"
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
@@ -183,7 +183,7 @@ export function MenuItemDialog({
             defaultValue={variantsDefault}
             placeholder="Hot, Iced"
             aria-label="Variants"
-            className="border border-ink/20 bg-paper px-2 py-1 text-base text-ink"
+            className="field"
           />
         </label>
         <p className="text-sm text-muted">

@@ -63,7 +63,7 @@ export default function LoginPage() {
             value={username}
             onChange={(event) => setUsername(event.currentTarget.value)}
             placeholder="Username"
-            className="border border-ink/20 bg-paper px-3 py-2 text-lg text-ink"
+            className="field text-lg"
           />
           <div className="flex gap-2">
             <input
@@ -73,7 +73,7 @@ export default function LoginPage() {
               value={password}
               onChange={(event) => setPassword(event.currentTarget.value)}
               placeholder="Password"
-              className="min-w-0 flex-1 border border-ink/20 bg-paper px-3 py-2 text-lg text-ink"
+              className="field min-w-0 flex-1 text-lg"
             />
             <Button
               ariaLabel={showPassword ? "Hide password" : "Show password"}

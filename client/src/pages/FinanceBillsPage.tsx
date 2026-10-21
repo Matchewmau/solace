@@ -249,7 +249,7 @@ export default function FinanceBillsPage() {
             required
             placeholder="Bill name"
             aria-label="Bill name"
-            className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+            className="field"
           />
           <input
             name="amount"
@@ -259,7 +259,7 @@ export default function FinanceBillsPage() {
             required
             placeholder="₱ amount"
             aria-label="Bill amount in pesos"
-            className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+            className="field"
           />
           <label className="flex flex-col gap-1 text-sm">
             Due date
@@ -268,7 +268,7 @@ export default function FinanceBillsPage() {
               type="date"
               required
               defaultValue={utcToday()}
-              className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+              className="field"
             />
           </label>
           <label className="flex flex-col gap-1 text-sm">
@@ -276,7 +276,7 @@ export default function FinanceBillsPage() {
             <select
               name="frequency"
               defaultValue="monthly"
-              className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+              className="field"
             >
               <option value="monthly">Monthly</option>
               <option value="weekly">Weekly</option>
@@ -287,7 +287,7 @@ export default function FinanceBillsPage() {
             <input
               name="end_date"
               type="date"
-              className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+              className="field"
             />
           </label>
           <label className="flex flex-col gap-1 text-sm">
@@ -301,7 +301,7 @@ export default function FinanceBillsPage() {
               required
               value={alertDays}
               onChange={(event) => setAlertDays(event.target.value)}
-              className="border border-ink/20 bg-paper px-2 py-1 text-sm text-ink"
+              className="field"
             />
           </label>
           <div className="flex gap-2">

@@ -25,7 +25,7 @@ export function UnitSelect({
       value={value}
       onChange={(event) => onChange(event.target.value)}
       aria-label={ariaLabel}
-      className={`border border-ink/20 bg-paper px-2 py-1 text-base text-ink ${className}`.trim()}
+      className={`field ${className}`.trim()}
     >
       <option value="">No unit</option>
       {unitOptions(value).map((unit) => (

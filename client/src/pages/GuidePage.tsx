@@ -173,7 +173,7 @@ export function GuideBrowser({
               onChange={(event) => onQueryChange(event.target.value)}
               placeholder="Search drinks…"
               aria-label="Search drinks"
-              className="border border-ink/20 bg-paper px-4 py-2 text-base text-ink"
+              className="field"
             />
           </label>
           <label className="flex flex-col gap-2">
@@ -354,7 +354,7 @@ export function GuideForm({
               value={drinkId}
               onChange={(event) => setDrinkId(event.target.value)}
               aria-label="Drink"
-              className="border border-ink/20 bg-paper px-2 py-1 text-base text-ink"
+              className="field"
             >
               {drinks.map((drink) => (
                 <option key={drink.id} value={drink.id}>
@@ -379,7 +379,7 @@ export function GuideForm({
             rows={4}
             placeholder={"1. …\n2. …"}
             aria-label="Steps"
-            className="border border-ink/20 bg-paper px-2 py-1 text-base text-ink"
+            className="field"
           />
         </label>
         <div className="flex flex-col gap-2">
@@ -399,7 +399,7 @@ export function GuideForm({
                   }
                   placeholder="Ingredient or description"
                   aria-label={`Ingredient ${index + 1}`}
-                  className="border border-ink/20 bg-paper px-2 py-1 text-base text-ink"
+                  className="field"
                 />
               </label>
               <label className="flex flex-col gap-1 text-sm">
@@ -414,7 +414,7 @@ export function GuideForm({
                   }
                   placeholder="Qty"
                   aria-label={`Qty ${index + 1}`}
-                  className="border border-ink/20 bg-paper px-2 py-1 text-base text-ink"
+                  className="field"
                 />
               </label>
               <label className="flex flex-col gap-1 text-sm">

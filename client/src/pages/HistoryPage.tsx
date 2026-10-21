@@ -9,8 +9,6 @@ import { Button, EmptyState, PageFrame, StatChip } from "../components/ui";
 /** Rows per page in the history pager. */
 const PAGE_SIZE = 20;
 
-const DATE_INPUT = "border border-ink/20 bg-paper px-2 py-1 text-sm text-ink";
-
 /**
  * Read-only past-sales ledger (everything before today's UTC date).
  * No Mark paid, no Mark unpaid, no Void/Unvoid, no line editing — the
@@ -122,7 +120,7 @@ export default function HistoryPage() {
                   aria-label="From date"
                   value={from}
                   onChange={(event) => changeFrom(event.target.value)}
-                  className={DATE_INPUT}
+                  className="field"
                 />
               </label>
               <label className="flex flex-col gap-1 text-xs text-muted">
@@ -132,7 +130,7 @@ export default function HistoryPage() {
                   aria-label="To date"
                   value={to}
                   onChange={(event) => changeTo(event.target.value)}
-                  className={DATE_INPUT}
+                  className="field"
                 />
               </label>
               <Button onClick={clearFilters}>Clear</Button>
