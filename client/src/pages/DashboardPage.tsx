@@ -218,10 +218,10 @@ export default function DashboardPage() {
                           type="button"
                           aria-pressed={selected}
                           onClick={() => setSalesPeriod(period.value)}
-                          className={`press rounded-[7px] px-3 py-1 text-xs font-semibold ${
+                          className={`press min-h-11 rounded-[7px] px-3 py-1 text-xs font-semibold ${
                             selected
                               ? "bg-ink text-paper"
-                              : "text-muted hover:text-ink"
+                              : "text-muted hover:bg-ink/[0.04] hover:text-ink"
                           }`}
                         >
                           {period.label}

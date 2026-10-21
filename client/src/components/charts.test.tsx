@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { Bars, Donut } from "./charts";
 
 afterEach(() => cleanup());
@@ -74,6 +74,23 @@ describe("Donut", () => {
     render(<Donut segments={[]} />);
 
     expect(screen.getByText("No data yet.")).toBeDefined();
+  });
+
+  it("links donut segment hover and focus to the legend row", () => {
+    const { container } = render(<Donut segments={MONEY_OUT} />);
+    const bills = container.querySelector('[data-segment="Bills"]') as SVGElement;
+    const legend = container.querySelector('[data-legend="Bills"]') as HTMLElement;
+
+    expect(bills.getAttribute("tabindex")).toBe("0");
+    fireEvent.mouseEnter(bills);
+    expect(bills.getAttribute("data-active")).toBe("true");
+    expect(legend.getAttribute("data-active")).toBe("true");
+
+    fireEvent.mouseLeave(bills);
+    expect(bills.getAttribute("data-active")).toBeNull();
+
+    fireEvent.focus(bills);
+    expect(bills.getAttribute("data-active")).toBe("true");
   });
 });
 
@@ -163,5 +180,27 @@ describe("Bars", () => {
     render(<Bars items={[]} emptyMessage="Nothing sold yet." />);
 
     expect(screen.getByText("Nothing sold yet.")).toBeDefined();
+  });
+
+  it("pins bar values and exposes one keyboard entry point", () => {
+    const { container } = render(
+      <Bars items={SALES} formatValue={(value) => `₱${value}`} showValues={false} />,
+    );
+    const chart = screen.getByRole("group", { name: /bar chart/i });
+
+    expect(chart.getAttribute("tabindex")).toBe("0");
+    expect(container.querySelectorAll('[tabindex="0"]')).toHaveLength(1);
+
+    fireEvent.focus(chart);
+    expect(within(chart).getByRole("status").textContent).toContain("12: ₱100");
+
+    fireEvent.keyDown(chart, { key: "ArrowRight" });
+    expect(within(chart).getByRole("status").textContent).toContain("13: ₱50");
+
+    fireEvent.click(container.querySelectorAll("[data-bar-item]")[2]);
+    expect(within(chart).getByRole("status").textContent).toContain("14: ₱200");
+
+    fireEvent.blur(chart);
+    expect(within(chart).getByRole("status").textContent).toContain("14: ₱200");
   });
 });

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type KeyboardEvent, type ReactNode } from "react";
 
 /**
  * Hand-rolled chart primitives shared by the finance + dashboard rebuilds.
@@ -46,6 +46,7 @@ export function Donut({
   emptyMessage?: string;
 }) {
   const total = segments.reduce((sum, segment) => sum + segment.value, 0);
+  const [active, setActive] = useState<number | null>(null);
 
   if (total <= 0) {
     return <p className="py-6 text-center text-sm text-muted">{emptyMessage}</p>;
@@ -61,7 +62,7 @@ export function Donut({
     <div className="flex flex-wrap items-center gap-5">
       <div className="relative shrink-0" style={{ width: size, height: size }}>
         <svg
-          role="img"
+          role="group"
           aria-label="Breakdown"
           width={size}
           height={size}
@@ -85,15 +86,24 @@ export function Donut({
               <circle
                 key={`${segment.label}-${index}`}
                 data-segment={segment.label}
+                data-active={active === index ? "true" : undefined}
+                role="img"
+                tabIndex={0}
+                aria-label={`${segment.label}: ${formatValue(segment.value)} (${percent(segment.value, total)}%)`}
                 cx={center}
                 cy={center}
                 r={radius}
                 fill="none"
                 stroke={segment.color}
-                strokeWidth={strokeWidth}
+                strokeWidth={active === index ? strokeWidth + 2 : strokeWidth}
+                opacity={active !== null && active !== index ? 0.45 : undefined}
                 strokeDasharray={`${length} ${circumference - length}`}
                 strokeDashoffset={dashOffset}
                 transform={`rotate(-90 ${center} ${center})`}
+                onMouseEnter={() => setActive(index)}
+                onMouseLeave={() => setActive(null)}
+                onFocus={() => setActive(index)}
+                onBlur={() => setActive(null)}
               >
                 <title>{`${segment.label}: ${percent(segment.value, total)}%`}</title>
               </circle>
@@ -108,7 +118,16 @@ export function Donut({
       </div>
       <ul className="flex min-w-0 flex-col gap-2 text-sm">
         {segments.map((segment, index) => (
-          <li key={`${segment.label}-${index}`} className="flex items-center gap-2">
+          <li
+            key={`${segment.label}-${index}`}
+            data-legend={segment.label}
+            data-active={active === index ? "true" : undefined}
+            onMouseEnter={() => setActive(index)}
+            onMouseLeave={() => setActive(null)}
+            className={`-mx-2 flex items-center gap-2 rounded-box px-2 py-1 transition-colors ${
+              active === index ? "bg-ink/[0.04]" : ""
+            }`}
+          >
             <span
               aria-hidden="true"
               className="h-3 w-3 shrink-0 rounded-full"
@@ -147,74 +166,151 @@ export function Bars({
   showValues?: boolean;
 }) {
   const max = items.reduce((peak, item) => Math.max(peak, item.value), 0);
+  const [hovered, setHovered] = useState<number | null>(null);
+  const [pinned, setPinned] = useState<number | null>(null);
 
   if (max <= 0) {
     return <p className="py-6 text-center text-sm text-muted">{emptyMessage}</p>;
   }
 
   const share = (value: number) => `${(value / max) * 100}%`;
+  const inRange = (index: number | null) =>
+    index !== null && index >= 0 && index < items.length;
+  const shownIndex = inRange(hovered)
+    ? hovered
+    : inRange(pinned)
+      ? pinned
+      : null;
+
+  const togglePinned = (index: number) => {
+    const next = pinned === index ? null : index;
+    setPinned(next);
+    setHovered(next);
+  };
+
+  const move = (delta: number) => {
+    const current = shownIndex ?? 0;
+    const next = Math.min(Math.max(current + delta, 0), items.length - 1);
+    setHovered(next);
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      event.preventDefault();
+      move(1);
+    } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      event.preventDefault();
+      move(-1);
+    } else if (event.key === "Escape") {
+      setHovered(null);
+      setPinned(null);
+    }
+  };
+
+  const groupProps = {
+    role: "group",
+    "aria-label": "Bar chart. Use arrow keys to inspect values.",
+    tabIndex: 0,
+    onFocus: () => setHovered(inRange(pinned) ? pinned : 0),
+    onBlur: () => setHovered(null),
+    onKeyDown: handleKeyDown,
+  } as const;
 
   if (orientation === "horizontal") {
     return (
-      <ul className="flex flex-col gap-2">
-        {items.map((item, index) => (
-          <li
-            key={`${item.label}-${index}`}
-            data-row=""
-            className="flex items-center gap-3 text-sm"
-          >
-            <span
-              data-label=""
-              className="w-24 shrink-0 truncate text-muted"
-            >
-              {item.label}
-            </span>
-            <span className="flex h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-ink/5">
-              <span
-                data-bar=""
-                className="block h-full rounded-full bg-accent"
-                style={{ width: share(item.value) }}
-              />
-            </span>
-            <span
-              data-value=""
-              className="shrink-0 text-right font-semibold text-ink"
-            >
-              {formatValue(item.value)}
-            </span>
-          </li>
-        ))}
-      </ul>
+      <div {...groupProps}>
+        <ul className="flex flex-col gap-2">
+          {items.map((item, index) => {
+            const isShown = shownIndex === index;
+            return (
+              <li
+                key={`${item.label}-${index}`}
+                data-row=""
+                data-bar-item=""
+                data-active={isShown ? "true" : undefined}
+                className={`flex items-center gap-3 rounded-box text-sm transition-colors ${
+                  isShown ? "bg-ink/[0.04]" : ""
+                }`}
+                onMouseEnter={() => setHovered(index)}
+                onMouseLeave={() => setHovered(null)}
+                onClick={() => togglePinned(index)}
+              >
+                <span
+                  data-label=""
+                  className="w-24 shrink-0 truncate text-muted"
+                >
+                  {item.label}
+                </span>
+                <span className="flex h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-ink/5">
+                  <span
+                    data-bar=""
+                    className={`block h-full rounded-full bg-accent transition-opacity ${
+                      shownIndex !== null && !isShown ? "opacity-50" : ""
+                    }`}
+                    style={{ width: share(item.value) }}
+                  />
+                </span>
+                <span
+                  data-value=""
+                  className="shrink-0 text-right font-semibold text-ink"
+                >
+                  {formatValue(item.value)}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
     );
   }
 
   return (
-    <div className="flex items-end gap-1">
-      {items.map((item, index) => (
-        <div
-          key={`${item.label}-${index}`}
-          className="flex min-w-0 flex-1 flex-col items-center gap-1"
-        >
-          {showValues ? (
-            <span data-value="" className="text-[10px] font-semibold text-muted">
-              {formatValue(item.value)}
-            </span>
-          ) : null}
-          <span className="flex h-24 w-full items-end">
-            <span
-              data-bar=""
-              className="block w-full rounded-t bg-accent"
-              style={{ height: share(item.value) }}
-            />
-          </span>
-          <span
-            data-label=""
-            className="w-full truncate text-center text-[10px] text-muted"
-          >
-            {item.label}
-          </span>
-        </div>
-      ))}
+    <div {...groupProps}>
+      <div className="flex items-end gap-1 pt-7">
+        {items.map((item, index) => {
+          const isShown = shownIndex === index;
+          return (
+            <div
+              key={`${item.label}-${index}`}
+              data-bar-item=""
+              data-active={isShown ? "true" : undefined}
+              className="relative flex min-w-0 flex-1 flex-col items-center gap-1"
+              onMouseEnter={() => setHovered(index)}
+              onMouseLeave={() => setHovered(null)}
+              onClick={() => togglePinned(index)}
+            >
+              {isShown ? (
+                <span
+                  role="status"
+                  className="absolute bottom-full left-1/2 z-10 mb-1 -translate-x-1/2 whitespace-nowrap rounded-box bg-ink px-2 py-1 text-[10px] font-semibold text-paper shadow-soft"
+                >
+                  {`${item.label}: ${formatValue(item.value)}`}
+                </span>
+              ) : null}
+              {showValues ? (
+                <span data-value="" className="text-[10px] font-semibold text-muted">
+                  {formatValue(item.value)}
+                </span>
+              ) : null}
+              <span className="flex h-24 w-full items-end">
+                <span
+                  data-bar=""
+                  className={`block w-full rounded-t bg-accent transition-opacity ${
+                    shownIndex !== null && !isShown ? "opacity-50" : ""
+                  }`}
+                  style={{ height: share(item.value) }}
+                />
+              </span>
+              <span
+                data-label=""
+                className="w-full truncate text-center text-[10px] text-muted"
+              >
+                {item.label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
