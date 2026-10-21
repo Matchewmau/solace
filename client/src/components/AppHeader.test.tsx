@@ -115,8 +115,13 @@ describe("SideNav shell", () => {
     expect(pages.className).toContain("h-screen");
     // Wide enough for icon+word rows, and nothing scrolls inside: every
     // tab shows at once for quick navigation.
-    expect(pages.className).toContain("w-44");
-    const list = rail().getByRole("link", { name: "Dashboard" }).parentElement;
+    expect(pages.className).toContain("w-52");
+    expect(pages.className).toContain("lg:w-56");
+    const dashboard = rail().getByRole("link", { name: "Dashboard" });
+    expect(dashboard.className).toContain("min-h-11");
+    expect(dashboard.className).toContain("text-[15px]");
+    expect(dashboard.className).toContain("focus-paper");
+    const list = dashboard.parentElement;
     expect(list?.className).not.toContain("overflow");
     for (const name of tabs) {
       const link = rail().getByRole("link", { name });
@@ -213,7 +218,7 @@ describe("SideNav shell", () => {
 });
 
 describe("BottomNav", () => {
-  it("shows the four phone targets with POS active and a More trigger", () => {
+  it("shows the five phone targets with POS active and a More trigger", () => {
     renderAt("/pos");
     expect(
       phoneNav().getByRole("link", { name: "POS" }).getAttribute("href"),
@@ -224,7 +229,16 @@ describe("BottomNav", () => {
     expect(
       phoneNav().getByRole("link", { name: "Money" }).getAttribute("href"),
     ).toBe("/finance");
+    expect(
+      phoneNav().getByRole("link", { name: "Dashboard" }).getAttribute("href"),
+    ).toBe("/dashboard");
     expect(phoneNav().getByRole("button", { name: "More" })).toBeDefined();
+    expect(
+      screen.getByRole("navigation", { name: "Primary" }).className,
+    ).toContain("h-[var(--bottom-nav-height)]");
+    expect(
+      phoneNav().getByRole("link", { name: "POS" }).className,
+    ).toContain("after:bg-accent");
     expect(
       phoneNav().getByRole("link", { name: "POS" }).getAttribute("aria-current"),
     ).toBe("page");
@@ -234,6 +248,25 @@ describe("BottomNav", () => {
         .getAttribute("aria-current"),
     ).toBeNull();
   });
+
+  it("marks Dashboard current on the dashboard route", () => {
+    renderAt("/dashboard");
+    expect(
+      phoneNav()
+        .getByRole("link", { name: "Dashboard" })
+        .getAttribute("aria-current"),
+    ).toBe("page");
+  });
+
+  it.each(["/guide", "/menu", "/history", "/inventory"])(
+    "marks More current on %s",
+    (path) => {
+      renderAt(path);
+      expect(
+        phoneNav().getByRole("button", { name: "More" }).className,
+      ).toContain("text-accent");
+    },
+  );
 
   it("marks Money current on finance drill-in routes", () => {
     renderAt("/finance/loans");
@@ -255,7 +288,6 @@ describe("BottomNav", () => {
     fireEvent.click(phoneNav().getByRole("button", { name: "More" }));
     const sheet = screen.getByRole("dialog", { name: "More pages" });
     for (const name of [
-      "Dashboard",
       "Guide",
       "Menu",
       "History",
@@ -265,7 +297,17 @@ describe("BottomNav", () => {
         routes[name],
       );
     }
+    expect(within(sheet).queryByRole("link", { name: "Dashboard" })).toBeNull();
     expect(within(sheet).getByRole("button", { name: "Log out" })).toBeDefined();
+  });
+
+  it("marks the active row inside the More sheet", () => {
+    renderAt("/guide");
+    fireEvent.click(phoneNav().getByRole("button", { name: "More" }));
+    const sheet = screen.getByRole("dialog", { name: "More pages" });
+    const guide = within(sheet).getByRole("link", { name: "Guide" });
+    expect(guide.getAttribute("aria-current")).toBe("page");
+    expect(guide.className).toContain("text-accent");
   });
 
   it("logs out from the More sheet and lands on login", () => {
