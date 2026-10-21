@@ -13,6 +13,7 @@
   --radius-box: 10px;
   --shadow-soft: 0 1px 2px rgba(20, 18, 16, 0.08);
   --shadow-sheet: 0 12px 32px rgba(20, 18, 16, 0.18);
+  --bottom-nav-height: calc(4rem + env(safe-area-inset-bottom));
 }
 
 @theme inline {
@@ -51,13 +52,119 @@ h3 {
   text-transform: uppercase;
 }
 
+@layer components {
+  .page-title {
+    font-size: 1.875rem;
+    font-weight: 600;
+  }
+
+  @media (min-width: 40rem) {
+    .page-title {
+      font-size: 2.25rem;
+    }
+  }
+
+  .field {
+    min-height: 2.75rem;
+    border: 1px solid color-mix(in srgb, var(--color-ink) 20%, transparent);
+    background-color: var(--color-paper);
+    padding: 0.5rem 0.75rem;
+    font-size: 1rem;
+    color: var(--color-ink);
+    transition: border-color 150ms ease;
+  }
+
+  .field::placeholder {
+    color: var(--color-muted);
+  }
+
+  @media (hover: hover) {
+    .field:hover {
+      border-color: color-mix(in srgb, var(--color-ink) 45%, transparent);
+    }
+  }
+
+  .field:focus-visible {
+    border-color: var(--color-accent);
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+  }
+
+  .back-link,
+  .action-link {
+    display: inline-flex;
+    min-height: 2.75rem;
+    align-items: center;
+    gap: 0.5rem;
+    border: 1px solid color-mix(in srgb, var(--color-ink) 20%, transparent);
+    padding: 0 0.75rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--color-ink);
+    transition:
+      border-color 150ms ease,
+      background-color 150ms ease;
+  }
+
+  .action-link {
+    border-radius: var(--radius-box);
+  }
+
+  @media (hover: hover) {
+    .back-link:hover,
+    .action-link:hover {
+      border-color: color-mix(in srgb, var(--color-ink) 45%, transparent);
+      background-color: color-mix(
+        in srgb,
+        var(--color-ink) 4%,
+        var(--color-paper)
+      );
+    }
+  }
+}
+
+.card-interactive {
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease,
+    transform 150ms ease;
+}
+
+@media (hover: hover) {
+  .card-interactive:hover {
+    border-color: color-mix(in srgb, var(--color-ink) 40%, transparent);
+    background-color: color-mix(
+      in srgb,
+      var(--color-ink) 3%,
+      var(--color-paper)
+    );
+    transform: translateY(-1px);
+  }
+}
+
+.row-hover,
+.row-hover-strong {
+  transition: background-color 120ms ease;
+}
+
+@media (hover: hover) {
+  .row-hover:hover {
+    background-color: color-mix(in srgb, var(--color-ink) 4%, transparent);
+  }
+
+  .row-hover-strong:hover {
+    background-color: color-mix(in srgb, var(--color-ink) 6%, transparent);
+  }
+}
+
 /* Motion utilities — pure CSS so the eager/POS chain never pulls motion/react. */
 
 .press {
   transition:
     transform 120ms ease,
     color 150ms ease,
-    background-color 150ms ease;
+    background-color 150ms ease,
+    border-color 150ms ease;
 }
 
 .press:active {
@@ -118,7 +225,14 @@ h3 {
   .press:active,
   .pop-glow,
   .sheet-up,
-  .drawer-in {
+  .drawer-in,
+  .field,
+  .back-link,
+  .action-link,
+  .row-hover,
+  .row-hover-strong,
+  .card-interactive,
+  .card-interactive:hover {
     animation: none;
     transition: none;
     transform: none;
@@ -128,4 +242,9 @@ h3 {
 :focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
+}
+
+/* The global :focus-visible ring is accent; this keeps it visible on ink. */
+.focus-paper:focus-visible {
+  outline-color: var(--color-paper);
 }

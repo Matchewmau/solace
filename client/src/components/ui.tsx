@@ -24,7 +24,7 @@ const TONE_TEXT: Record<Tone, string> = {
  */
 export function PageFrame({ children }: { children?: ReactNode }) {
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-10 px-6 py-12">
+    <div className="mx-auto flex max-w-6xl flex-col gap-8 px-4 py-8 sm:gap-10 sm:px-6 sm:py-12">
       {children}
     </div>
   );
@@ -108,15 +108,15 @@ export type ButtonVariant = "primary" | "outline" | "danger" | "ghost";
 export type ButtonSize = "md" | "lg";
 
 const BUTTON_VARIANT: Record<ButtonVariant, string> = {
-  primary: "bg-ink text-paper",
-  outline: "border border-ink/20",
-  danger: "border border-danger text-danger",
-  ghost: "text-muted underline",
+  primary: "bg-ink text-paper hover:bg-ink/90",
+  outline: "border border-ink/20 hover:border-ink/45 hover:bg-ink/[0.04]",
+  danger: "border border-danger text-danger hover:bg-danger/5",
+  ghost: "text-muted underline hover:text-ink",
 };
 
 const BUTTON_SIZE: Record<ButtonSize, string> = {
-  md: "px-4 py-2 text-sm font-semibold",
-  lg: "px-4 py-3 text-base font-semibold min-h-11",
+  md: "min-h-11 px-4 py-2 text-sm font-semibold",
+  lg: "min-h-11 px-4 py-3 text-base font-semibold",
 };
 
 /** Shared button. `loading` disables the control and sets `aria-busy`. */

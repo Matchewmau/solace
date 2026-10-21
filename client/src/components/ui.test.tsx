@@ -50,6 +50,13 @@ describe("Button", () => {
       "border-danger",
     );
   });
+
+  it("gives a md button a 44px target and hover feedback", () => {
+    render(<Button>Open</Button>);
+    const button = screen.getByRole("button", { name: "Open" });
+    expect(button.className).toContain("min-h-11");
+    expect(button.className).toContain("hover:border-ink/45");
+  });
 });
 
 describe("EmptyState", () => {
@@ -79,7 +86,16 @@ describe("PageFrame", () => {
       </PageFrame>,
     );
     const frame = screen.getByText("Content").parentElement as HTMLElement;
-    for (const cls of ["mx-auto", "max-w-6xl", "gap-10", "px-6", "py-12"]) {
+    for (const cls of [
+      "mx-auto",
+      "max-w-6xl",
+      "gap-8",
+      "sm:gap-10",
+      "px-4",
+      "py-8",
+      "sm:px-6",
+      "sm:py-12",
+    ]) {
       expect(frame.className).toContain(cls);
     }
   });
