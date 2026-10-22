@@ -10,24 +10,41 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-/** 14 days, oldest → newest, ending on the fixture date; totals climb 1000…14000. */
-const SALES_BY_DAY = Array.from({ length: 14 }, (_, index) => ({
-  date: `2026-10-${String(index + 1).padStart(2, "0")}`,
+/** Calendar week Mon 12 → Sun 18; totals climb 1000…7000. */
+const WEEK_SALES = Array.from({ length: 7 }, (_, index) => ({
+  date: `2026-10-${String(index + 12).padStart(2, "0")}`,
   total_cents: (index + 1) * 1000,
 }));
 
-// Net math: day 13800 − 4000 = 9800; month 40000 − 11000 = 29000.
+/** Every day in October; only four selling days, summing to 40000. */
+const MONTH_DAILY_TOTALS: Record<string, number> = {
+  "2026-10-01": 8000,
+  "2026-10-05": 6000,
+  "2026-10-14": 10000,
+  "2026-10-31": 16000,
+};
+const MONTH_SALES = Array.from({ length: 31 }, (_, index) => {
+  const date = `2026-10-${String(index + 1).padStart(2, "0")}`;
+  return { date, total_cents: MONTH_DAILY_TOTALS[date] ?? 0 };
+});
+
+// Month net math: 40000 − 11000 = 29000. Average/day = 40000 ÷ 4 selling days.
 const dashboard: Dashboard = {
   date: "2026-10-14",
   month: "2026-10",
   income_day: { cash_cents: 10000, gcash_cents: 3800, total_cents: 13800, count: 2 },
+  income_week: {
+    cash_cents: 20000,
+    gcash_cents: 5000,
+    total_cents: 25000,
+    count: 4,
+  },
   income_month: {
     cash_cents: 30000,
     gcash_cents: 10000,
     total_cents: 40000,
     count: 5,
   },
-  expenses_day_cents: 4000,
   expenses_month_cents: 5000,
   money_out_month_cents: 11000,
   money_out_month_by_kind: {
@@ -39,8 +56,8 @@ const dashboard: Dashboard = {
   },
   salaries_month_cents: 1000,
   salaries_month_count: 1,
-  sales_by_day: SALES_BY_DAY,
-  net_day_cents: 9800,
+  sales_by_day_week: WEEK_SALES,
+  sales_by_day_month: MONTH_SALES,
   net_month_cents: 29000,
   unpaid_bills_cents: 300000,
   unpaid_bills_count: 2,
@@ -86,7 +103,11 @@ const dashboard: Dashboard = {
   ],
   loans: [{ id: 1, lender: "BDO", balance_cents: 90000 }],
   // Deliberately unsorted: the page must rank best sellers by qty.
-  best_sellers: [
+  best_sellers_week: [
+    { menu_item_id: 2, name: "Halo-halo", qty: 4, revenue_cents: 8000 },
+    { menu_item_id: 1, name: "Adobo", qty: 2, revenue_cents: 2000 },
+  ],
+  best_sellers_month: [
     { menu_item_id: 2, name: "Halo-halo", qty: 8, revenue_cents: 16000 },
     { menu_item_id: 1, name: "Adobo", qty: 10, revenue_cents: 10000 },
   ],
@@ -119,57 +140,89 @@ function chip(label: string) {
 }
 
 describe("DashboardPage", () => {
-  it("renders five chips with no Day out and day net uses today's expenses", async () => {
+  it("renders five chips with average day sale and no day net", async () => {
     stubDashboard();
     renderDashboard();
 
-    // Five chips: Day in, Day net, Month in, Month out, Month net.
+    // Five chips: Day in, Average/day, Month in, Month out, Month net.
     expect(await screen.findByText("Day in")).toBeDefined();
     expect(
       screen.getByRole("heading", { name: "Dashboard" }).className,
     ).toContain("page-title");
     expect(screen.queryByText("Day out")).toBeNull();
+    expect(screen.queryByText("Day net")).toBeNull();
     const strip = screen.getByRole("region", { name: "Money strip" });
     expect(strip.querySelectorAll(".rounded-box")).toHaveLength(5);
 
     expect(within(chip("Day in")).getByText("₱138")).toBeDefined();
-    const dayNet = within(chip("Day net")).getByText("₱98");
-    expect(dayNet.className).toContain("text-ok");
+    // (8000 + 6000 + 10000 + 16000) / 4 selling days = 10000 cents.
+    expect(within(chip("Average/day")).getByText("₱100")).toBeDefined();
+    expect(
+      within(chip("Average/day")).getByText("4 selling days"),
+    ).toBeDefined();
 
     expect(within(chip("Month in")).getByText("₱400")).toBeDefined();
     expect(within(chip("Month out")).getByText("₱110")).toBeDefined();
     const monthNet = within(chip("Month net")).getByText("₱290");
     expect(monthNet.className).toContain("text-ok");
 
-    // The subtitle explains the day and month rules.
+    // The subtitle explains the month-only net and average rule.
     expect(
-      screen.getByText(/today's sales minus today's expenses/i),
+      screen.getByText(/money in minus money out/i),
     ).toBeDefined();
     expect(
       screen.getByText(/salaries, bills, payables, loans, and expenses/i),
     ).toBeDefined();
+    expect(screen.getByText(/mean of daily sales totals/i)).toBeDefined();
   });
 
-  it("tones a negative day and month net as danger", async () => {
-    stubDashboard({ ...dashboard, net_day_cents: -1500, net_month_cents: -2000 });
+  it("averages the daily totals for days that had sales", async () => {
+    const dailyTotals: Record<number, number> = {
+      19: 152000,
+      20: 139000,
+      21: 107000,
+    };
+    stubDashboard({
+      ...dashboard,
+      date: "2026-10-21",
+      month: "2026-10",
+      income_month: {
+        cash_cents: 398000,
+        gcash_cents: 0,
+        total_cents: 398000,
+        count: 3,
+      },
+      sales_by_day_month: Array.from({ length: 31 }, (_, index) => ({
+        date: `2026-10-${String(index + 1).padStart(2, "0")}`,
+        total_cents: dailyTotals[index + 1] ?? 0,
+      })),
+    });
+    renderDashboard();
+    expect(await screen.findByText("Average/day")).toBeDefined();
+    // (1520 + 1390 + 1070) / 3 selling days = 1326.66…
+    expect(within(chip("Average/day")).getByText("₱1326.67")).toBeDefined();
+    expect(
+      within(chip("Average/day")).getByText("3 selling days"),
+    ).toBeDefined();
+  });
+
+  it("tones a negative month net as danger", async () => {
+    stubDashboard({ ...dashboard, net_month_cents: -2000 });
     renderDashboard();
 
-    expect(await screen.findByText("Day net")).toBeDefined();
-    expect(within(chip("Day net")).getByText("₱-15").className).toContain(
-      "text-danger",
-    );
+    expect(await screen.findByText("Month net")).toBeDefined();
     expect(within(chip("Month net")).getByText("₱-20").className).toContain(
       "text-danger",
     );
   });
 
-  it("filters sales by Today, Week, and Month with weekday labels", async () => {
+  it("filters sales by the Monday-Sunday week and calendar month", async () => {
     stubDashboard();
     renderDashboard();
 
     const sales = await screen.findByRole("region", { name: "Sales" });
     const controls = within(sales).getByRole("group", { name: "Sales period" });
-    const today = within(controls).getByRole("button", { name: "Today" });
+    expect(within(controls).queryByRole("button", { name: "Today" })).toBeNull();
     const week = within(controls).getByRole("button", { name: "Week" });
     const month = within(controls).getByRole("button", { name: "Month" });
     expect(week.getAttribute("aria-pressed")).toBe("true");
@@ -178,45 +231,66 @@ describe("DashboardPage", () => {
       [...sales.querySelectorAll("[data-label]")].map((node) => node.textContent);
     let bars = sales.querySelectorAll("[data-bar]");
     expect(bars.length).toBe(7);
-    expect(labels()[0]).toBe("Thu 08");
-    expect(labels()[6]).toBe("Wed 14");
+    expect(labels()[0]).toBe("Mon 12");
+    expect(labels()[6]).toBe("Sun 18");
 
     // The peak day fills the column; the smallest is a proportional sliver.
     expect((bars[6] as HTMLElement).style.height).toBe("100%");
     expect((bars[0] as HTMLElement).style.height).not.toBe("100%");
 
-    fireEvent.click(today);
-    expect(today.getAttribute("aria-pressed")).toBe("true");
-    bars = sales.querySelectorAll("[data-bar]");
-    expect(bars.length).toBe(1);
-    expect(labels()).toEqual(["Wed 14"]);
-
     fireEvent.click(month);
     expect(month.getAttribute("aria-pressed")).toBe("true");
     bars = sales.querySelectorAll("[data-bar]");
-    expect(bars.length).toBe(14);
-    // Month view uses weekday names for every day in the 31-day window and
-    // drops the per-bar peso labels so a dense month stays legible.
+    expect(bars.length).toBe(31);
+    // Month view covers every calendar day and drops the per-bar peso labels
+    // so a dense month stays legible.
     expect(labels()[0]).toBe("Thu");
-    expect(labels()[13]).toBe("Wed");
+    expect(labels()[30]).toBe("Sat");
     expect(sales.querySelectorAll("[data-value]")).toHaveLength(0);
   });
 
-  it("shows the month payment split donut with Cash and GCash percentages", async () => {
+  it("shows the payment split donut with Cash and GCash percentages for each period", async () => {
     stubDashboard();
     renderDashboard();
 
     const split = await screen.findByRole("region", { name: "Payment split" });
-    expect(within(split).getByText("Cash")).toBeDefined();
-    expect(within(split).getByText("GCash")).toBeDefined();
+    const controls = within(split).getByRole("group", {
+      name: "Payment split period",
+    });
+    const today = within(controls).getByRole("button", { name: "Today" });
+    const week = within(controls).getByRole("button", { name: "Week" });
+    const month = within(controls).getByRole("button", { name: "Month" });
+    expect(month.getAttribute("aria-pressed")).toBe("true");
 
-    const cash = within(split).getByText("Cash").closest("li") as HTMLElement;
-    expect(cash.textContent).toContain("₱300");
-    expect(cash.textContent).toContain("75%");
+    const cashRow = () =>
+      within(split).getByText("Cash").closest("li") as HTMLElement;
+    const gcashRow = () =>
+      within(split).getByText("GCash").closest("li") as HTMLElement;
 
-    const gcash = within(split).getByText("GCash").closest("li") as HTMLElement;
-    expect(gcash.textContent).toContain("₱100");
-    expect(gcash.textContent).toContain("25%");
+    // Defaults to the month: 30000 cash / 40000 total = 75%.
+    expect(cashRow().textContent).toContain("₱300");
+    expect(cashRow().textContent).toContain("75%");
+    expect(gcashRow().textContent).toContain("₱100");
+    expect(gcashRow().textContent).toContain("25%");
+    expect(within(split).getByText("₱400")).toBeDefined();
+
+    fireEvent.click(today);
+    expect(today.getAttribute("aria-pressed")).toBe("true");
+    // 10000 cash / 13800 total = 72%; 3800 gcash / 13800 = 28%.
+    expect(cashRow().textContent).toContain("₱100");
+    expect(cashRow().textContent).toContain("72%");
+    expect(gcashRow().textContent).toContain("₱38");
+    expect(gcashRow().textContent).toContain("28%");
+    expect(within(split).getByText("₱138")).toBeDefined();
+
+    fireEvent.click(week);
+    expect(week.getAttribute("aria-pressed")).toBe("true");
+    // Calendar-week fixture: 20000 cash / 25000 total = 80%; 5000 gcash = 20%.
+    expect(cashRow().textContent).toContain("₱200");
+    expect(cashRow().textContent).toContain("80%");
+    expect(gcashRow().textContent).toContain("₱50");
+    expect(gcashRow().textContent).toContain("20%");
+    expect(within(split).getByText("₱250")).toBeDefined();
   });
 
   it("shows loan dues with days_until badges in Upcoming dues", async () => {
@@ -271,39 +345,53 @@ describe("DashboardPage", () => {
     ).toBe("/finance/loans");
   });
 
-  it("ranks best sellers by quantity with horizontal bars", async () => {
+  it("ranks best sellers by quantity and toggles Week/Month", async () => {
     stubDashboard();
     renderDashboard();
 
     const sellers = await screen.findByRole("region", { name: "Best sellers" });
-    const rows = sellers.querySelectorAll("[data-row]");
-    expect(rows.length).toBe(2);
+    const controls = within(sellers).getByRole("group", {
+      name: "Best sellers period",
+    });
+    const week = within(controls).getByRole("button", { name: "Week" });
+    const month = within(controls).getByRole("button", { name: "Month" });
+    expect(month.getAttribute("aria-pressed")).toBe("true");
 
-    // Adobo (qty 10) outranks Halo-halo (qty 8) even though it comes second.
-    const labels = [...sellers.querySelectorAll("[data-label]")].map(
-      (node) => node.textContent,
-    );
-    expect(labels).toEqual(["Adobo · ₱100", "Halo-halo · ₱160"]);
-    const values = [...sellers.querySelectorAll("[data-value]")].map(
-      (node) => node.textContent,
-    );
-    expect(values).toEqual(["10 sold", "8 sold"]);
+    const labels = () =>
+      [...sellers.querySelectorAll("[data-label]")].map(
+        (node) => node.textContent,
+      );
+    const values = () =>
+      [...sellers.querySelectorAll("[data-value]")].map(
+        (node) => node.textContent,
+      );
+
+    expect(labels()).toEqual(["Adobo · ₱100", "Halo-halo · ₱160"]);
+    expect(values()).toEqual(["10 sold", "8 sold"]);
     expect(
       (sellers.querySelectorAll("[data-bar]")[0] as HTMLElement).style.width,
     ).toBe("100%");
+
+    fireEvent.click(week);
+    expect(week.getAttribute("aria-pressed")).toBe("true");
+    // Week: Halo-halo (4) outranks Adobo (2).
+    expect(labels()).toEqual(["Halo-halo · ₱80", "Adobo · ₱20"]);
+    expect(values()).toEqual(["4 sold", "2 sold"]);
   });
 
   it("renders empty states for a fresh day instead of blanks or NaN", async () => {
     stubDashboard({
       ...dashboard,
       income_day: { cash_cents: 0, gcash_cents: 0, total_cents: 0, count: 0 },
+      income_week: { cash_cents: 0, gcash_cents: 0, total_cents: 0, count: 0 },
       income_month: { cash_cents: 0, gcash_cents: 0, total_cents: 0, count: 0 },
       money_out_month_cents: 0,
-      net_day_cents: 0,
       net_month_cents: 0,
-      sales_by_day: SALES_BY_DAY.map((day) => ({ ...day, total_cents: 0 })),
+      sales_by_day_week: WEEK_SALES.map((day) => ({ ...day, total_cents: 0 })),
+      sales_by_day_month: MONTH_SALES.map((day) => ({ ...day, total_cents: 0 })),
       upcoming_dues: [],
-      best_sellers: [],
+      best_sellers_week: [],
+      best_sellers_month: [],
     });
     renderDashboard();
 
@@ -312,7 +400,7 @@ describe("DashboardPage", () => {
     expect(screen.getByText("No payments this month.")).toBeDefined();
     expect(screen.getByText("No sales this month.")).toBeDefined();
     // Zero money still renders as ₱0, never NaN or a blank chip.
-    expect(within(chip("Day net")).getByText("₱0")).toBeDefined();
+    expect(within(chip("Average/day")).getByText("₱0")).toBeDefined();
   });
 
   it("preserves the loading and error/retry state", async () => {

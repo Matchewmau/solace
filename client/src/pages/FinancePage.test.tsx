@@ -23,13 +23,13 @@ const dashboard: Dashboard = {
   date: "2026-10-13",
   month: "2026-10",
   income_day: { cash_cents: 0, gcash_cents: 0, total_cents: 0, count: 0 },
+  income_week: { cash_cents: 0, gcash_cents: 0, total_cents: 0, count: 0 },
   income_month: {
     cash_cents: 26500,
     gcash_cents: 3800,
     total_cents: 30300,
     count: 3,
   },
-  expenses_day_cents: 0,
   expenses_month_cents: 4000,
   money_out_month_cents: 9000,
   money_out_month_by_kind: {
@@ -41,7 +41,6 @@ const dashboard: Dashboard = {
   },
   salaries_month_cents: 1000,
   salaries_month_count: 1,
-  net_day_cents: 0,
   net_month_cents: 21300,
   unpaid_bills_cents: 300000,
   unpaid_bills_count: 2,
@@ -78,7 +77,10 @@ const dashboard: Dashboard = {
     },
   ],
   loans: [],
-  best_sellers: [],
+  sales_by_day_week: [],
+  sales_by_day_month: [],
+  best_sellers_week: [],
+  best_sellers_month: [],
 };
 
 /** Newest dates first, and id descending within the same date. */
@@ -295,7 +297,7 @@ describe("FinancePage money dashboard", () => {
 });
 
 describe("FinancePage cash-flow summary", () => {
-  it("condenses the month into three stats plus daily and largest notes", async () => {
+  it("condenses the month into three stats without daily or largest notes", async () => {
     stubDashboard();
     renderFinance();
 
@@ -307,48 +309,56 @@ describe("FinancePage cash-flow summary", () => {
     expect(within(summary).getByText("Net")).toBeDefined();
     expect(within(summary).queryByText(/2026-10/)).toBeNull();
 
-    // 9000 cents out across 13 elapsed days = 692.3 → ₱6.92 per day.
-    const daily = within(summary)
-      .getByText("Daily average")
-      .closest("p") as HTMLElement;
-    expect(within(daily).getByText("₱6.92")).toBeDefined();
-    expect(within(daily).getByText("over 13 days")).toBeDefined();
+    // The old secondary notes are gone from the cash-flow box.
+    expect(within(summary).queryByText("Daily average")).toBeNull();
+    expect(within(summary).queryByText("Largest money out")).toBeNull();
+  });
+});
 
-    // Expenses (4000) is the biggest slice of the 9000 money out.
-    const largest = within(summary)
-      .getByText("Largest money out")
-      .closest("p") as HTMLElement;
-    expect(within(largest).getByText("Expenses")).toBeDefined();
-    expect(within(largest).getByText("₱40 of ₱90")).toBeDefined();
+describe("FinancePage finance insights", () => {
+  it("shows margin, average sales, and outstanding obligations beside the donut", async () => {
+    stubDashboard();
+    renderFinance();
+
+    const insights = await screen.findByRole("region", {
+      name: "Finance insights",
+    });
+    await within(insights).findByText("Net margin");
+
+    // 21300 net / 30300 income = 70%.
+    expect(within(insights).getByText("70%")).toBeDefined();
+    expect(within(insights).getByText("of ₱303 money in")).toBeDefined();
+
+    // 30300 income across 13 elapsed days = 2330.8 → ₱23.31 per day.
+    expect(within(insights).getByText("Average daily sales")).toBeDefined();
+    expect(within(insights).getByText("₱23.31")).toBeDefined();
+    expect(within(insights).getByText("over 13 days")).toBeDefined();
+
+    // 30300 income across 3 sales = ₱101 per sale.
+    expect(within(insights).getByText("Average sale")).toBeDefined();
+    expect(within(insights).getByText("₱101")).toBeDefined();
+    expect(within(insights).getByText("across 3 sales")).toBeDefined();
+
+    // 300000 bills + 100000 payables + 90000 loans.
+    expect(within(insights).getByText("Outstanding obligations")).toBeDefined();
+    expect(within(insights).getByText("₱4900")).toBeDefined();
+    expect(within(insights).getByText("bills, payables, loans")).toBeDefined();
   });
 
-  it("handles a month with no money out", async () => {
+  it("shows placeholders when the month has no sales", async () => {
     stubDashboard({
       ...dashboard,
-      money_out_month_cents: 0,
-      money_out_month_by_kind: {
-        bills_cents: 0,
-        expenses_cents: 0,
-        payables_cents: 0,
-        loans_cents: 0,
-        salaries_cents: 0,
-      },
+      income_month: { cash_cents: 0, gcash_cents: 0, total_cents: 0, count: 0 },
+      net_month_cents: 0,
     });
     renderFinance();
 
-    const summary = await screen.findByRole("region", {
-      name: "Cash flow · October 2026",
+    const insights = await screen.findByRole("region", {
+      name: "Finance insights",
     });
-    const daily = within(summary)
-      .getByText("Daily average")
-      .closest("p") as HTMLElement;
-    expect(within(daily).getByText("₱0")).toBeDefined();
-    expect(within(daily).getByText("no money out yet")).toBeDefined();
-
-    const largest = within(summary)
-      .getByText("Largest money out")
-      .closest("p") as HTMLElement;
-    expect(within(largest).getByText("None")).toBeDefined();
+    // No denominator for net margin or average sale.
+    expect(within(insights).getAllByText("—")).toHaveLength(2);
+    expect(within(insights).getByText("no sales yet")).toBeDefined();
   });
 });
 

@@ -16,6 +16,7 @@ afterAll(() => {
 });
 
 // Fixed dashboard window: date = day under test, month = its month.
+// DATE is Tuesday 2026-10-13, so its calendar week is Mon 10-12..Sun 10-18.
 // Cutoff for the dues window is date + 7 days = 2026-10-20 (UTC).
 const DATE = "2026-10-13";
 const MONTH = "2026-10";
@@ -127,7 +128,7 @@ const seed = db.transaction(() => {
     "2026-10-05",
     "2026-10-05 12:00:00",
   );
-  // Paid on the dashboard day: must never reduce the day net.
+  // Paid on the dashboard day: counts in month money-out, never a day bucket.
   addPaidPayable.run(
     "Paid Day Payable",
     1234,
@@ -193,9 +194,22 @@ describe("dashboard reconciliation (Task 13)", () => {
       "SELECT COUNT(*) AS v FROM sales WHERE created_at LIKE ? AND voided = 0",
       `${MONTH}%`,
     ).v;
-    const expDay = scalar(
-      "SELECT COALESCE(SUM(amount_cents), 0) AS v FROM expenses WHERE date LIKE ?",
-      `${DATE}%`,
+    const weekStart = "2026-10-12";
+    const weekEnd = "2026-10-18";
+    const weekCash = scalar(
+      "SELECT COALESCE(SUM(CASE WHEN payment = 'cash' THEN total_cents ELSE 0 END), 0) AS v FROM sales WHERE substr(created_at, 1, 10) BETWEEN ? AND ? AND voided = 0",
+      weekStart,
+      weekEnd,
+    ).v;
+    const weekGcash = scalar(
+      "SELECT COALESCE(SUM(CASE WHEN payment = 'gcash' THEN total_cents ELSE 0 END), 0) AS v FROM sales WHERE substr(created_at, 1, 10) BETWEEN ? AND ? AND voided = 0",
+      weekStart,
+      weekEnd,
+    ).v;
+    const weekCount = scalar(
+      "SELECT COUNT(*) AS v FROM sales WHERE substr(created_at, 1, 10) BETWEEN ? AND ? AND voided = 0",
+      weekStart,
+      weekEnd,
     ).v;
     const expMonth = scalar(
       "SELECT COALESCE(SUM(amount_cents), 0) AS v FROM expenses WHERE date LIKE ?",
@@ -290,7 +304,12 @@ describe("dashboard reconciliation (Task 13)", () => {
       monthGcash: 3800,
       monthCount: 3,
     });
-    expect({ expDay, expMonth }).toEqual({ expDay: 4000, expMonth: 5000 });
+    expect({ weekCash, weekGcash, weekCount }).toEqual({
+      weekCash: 10000,
+      weekGcash: 3800,
+      weekCount: 2,
+    });
+    expect(expMonth).toBe(5000);
     expect(unpaidBills).toBe(300000);
     expect(unpaidPayables).toBe(100000);
     expect(outstanding).toBe(90000);
@@ -307,7 +326,16 @@ describe("dashboard reconciliation (Task 13)", () => {
       total_cents: monthCash + monthGcash,
       count: monthCount,
     });
-    expect(body.expenses_day_cents).toBe(expDay);
+    expect(body.income_week).toEqual({
+      cash_cents: weekCash,
+      gcash_cents: weekGcash,
+      total_cents: weekCash + weekGcash,
+      count: weekCount,
+    });
+    expect(body).not.toHaveProperty("expenses_day_cents");
+    expect(body).not.toHaveProperty("net_day_cents");
+    expect(body).not.toHaveProperty("sales_by_day");
+    expect(body).not.toHaveProperty("best_sellers");
     expect(body.expenses_month_cents).toBe(expMonth);
     expect(body.expenses_month_count).toBe(expMonthCount);
     expect(body.salaries_month_cents).toBe(salariesMonth);
@@ -326,15 +354,12 @@ describe("dashboard reconciliation (Task 13)", () => {
         loansMonth +
         salariesMonth,
     );
-    // Net rules (spec §2): day net is sales minus today's expenses only;
-    // month net is income minus all payments-based money-out (including
-    // salaries). Stocks stay separate memo lines.
-    expect(body.net_day_cents).toBe(dayCash + dayGcash - expDay);
+    // Net rules: the month total is the only net. Money-out is
+    // payments-based (including salaries); stocks stay separate memo lines.
     expect(body.net_month_cents).toBe(
       monthCash + monthGcash - body.money_out_month_cents,
     );
     expect(body.money_out_month_cents).toBe(51234);
-    expect(body.net_day_cents).toBe(9800);
     expect(body.net_month_cents).toBe(-20934);
     expect(body.unpaid_bills_cents).toBe(unpaidBills);
     expect(body.unpaid_payables_cents).toBe(unpaidPayables);
@@ -366,61 +391,20 @@ describe("dashboard reconciliation (Task 13)", () => {
     expect(res.body.money_out_month_cents).toBe(
       15000 + 5000 + 9234 + 7000 + 15000,
     );
-    // Day net uses expenses only; the 12,000 salary paid today stays out.
-    expect(res.body.net_day_cents).toBe(9800);
+    expect(res.body).not.toHaveProperty("net_day_cents");
   });
 
-  it("computes day net from income minus today's expenses only", async () => {
-    const res = await api
-      .get(`/api/dashboard?date=${DATE}&month=${MONTH}`)
-      .expect(200);
-
-    // Payments on DATE: a paid bill, a paid payable, a loan payment, and a
-    // salary all land today, yet none of them may reduce the day net.
-    const paidBillsDay = scalar(
-      "SELECT COALESCE(SUM(amount_cents), 0) AS v FROM bills WHERE paid = 1 AND paid_at LIKE ?",
-      `${DATE}%`,
-    ).v;
-    const paidPayablesDay = scalar(
-      "SELECT COALESCE(SUM(amount_cents), 0) AS v FROM payables WHERE paid = 1 AND paid_at LIKE ?",
-      `${DATE}%`,
-    ).v;
-    const loanPaymentsDay = scalar(
-      "SELECT COALESCE(SUM(amount_cents), 0) AS v FROM loan_payments WHERE paid_at LIKE ?",
-      `${DATE}%`,
-    ).v;
-    const salariesDay = scalar(
-      "SELECT COALESCE(SUM(amount_cents), 0) AS v FROM salaries WHERE paid_at LIKE ?",
-      `${DATE}%`,
-    ).v;
-    expect({
-      paidBillsDay,
-      paidPayablesDay,
-      loanPaymentsDay,
-      salariesDay,
-    }).toEqual({
-      paidBillsDay: 15000,
-      paidPayablesDay: 1234,
-      loanPaymentsDay: 5000,
-      salariesDay: 12000,
-    });
-
-    // Day in 13,800 − today's expenses 4,000 = 9,800.
-    expect(res.body.income_day.total_cents).toBe(13800);
-    expect(res.body.expenses_day_cents).toBe(4000);
-    expect(res.body.net_day_cents).toBe(9800);
-    expect(res.body.net_day_cents).toBe(
-      res.body.income_day.total_cents - res.body.expenses_day_cents,
-    );
-  });
-
-  it("does not return money_out_day_cents", async () => {
+  it("exposes month net only; day-only subtraction fields are gone", async () => {
     const res = await api
       .get(`/api/dashboard?date=${DATE}&month=${MONTH}`)
       .expect(200);
     expect(res.body).not.toHaveProperty("money_out_day_cents");
-    expect(res.body.expenses_day_cents).toBe(4000);
+    expect(res.body).not.toHaveProperty("expenses_day_cents");
+    expect(res.body).not.toHaveProperty("net_day_cents");
     expect(res.body.money_out_month_cents).toBe(51234);
+    expect(res.body.net_month_cents).toBe(
+      res.body.income_month.total_cents - res.body.money_out_month_cents,
+    );
   });
 
   it("upcoming dues keeps a 7-day horizon and includes loans with days_until", async () => {
@@ -484,21 +468,90 @@ describe("dashboard reconciliation (Task 13)", () => {
     expect(res.body.overdue_payables_count).toBe(1);
   });
 
-  it("sales_by_day: 31 zero-filled days ending at date; voided sales excluded", async () => {
+  it("income_week: Monday-Sunday calendar week, resetting on Monday", async () => {
+    // Sunday 2026-10-11 closes the week Mon 10-05..Sun 10-11. It catches s4
+    // (2026-10-05, cash 16500), not the following week.
+    const sunday = await api
+      .get("/api/dashboard?date=2026-10-11&month=2026-10")
+      .expect(200);
+    expect(sunday.body.income_day.total_cents).toBe(0);
+    expect(sunday.body.income_week).toEqual({
+      cash_cents: 16500,
+      gcash_cents: 0,
+      total_cents: 16500,
+      count: 1,
+    });
+
+    // Monday 2026-10-12 starts a fresh week Mon 10-12..Sun 10-18. It catches
+    // s1 + s2 on Tuesday and excludes s4 from the prior week.
+    const monday = await api
+      .get("/api/dashboard?date=2026-10-12&month=2026-10")
+      .expect(200);
+    expect(monday.body.income_week).toEqual({
+      cash_cents: 10000,
+      gcash_cents: 3800,
+      total_cents: 13800,
+      count: 2,
+    });
+
+    // The same week's Sunday resolves to the same bucket.
+    const nextSunday = await api
+      .get("/api/dashboard?date=2026-10-18&month=2026-10")
+      .expect(200);
+    expect(nextSunday.body.income_week).toEqual(monday.body.income_week);
+  });
+
+  it("sales_by_day_week: exactly Monday-Sunday containing date", async () => {
     const res = await api
       .get(`/api/dashboard?date=${DATE}&month=${MONTH}`)
       .expect(200);
-    const days = res.body.sales_by_day;
-    expect(days).toHaveLength(31);
-    expect(days[0].date).toBe("2026-09-13");
-    expect(days.at(-1).date).toBe(DATE);
+    const days = res.body.sales_by_day_week;
+    expect(days.map((day) => day.date)).toEqual([
+      "2026-10-12",
+      "2026-10-13",
+      "2026-10-14",
+      "2026-10-15",
+      "2026-10-16",
+      "2026-10-17",
+      "2026-10-18",
+    ]);
     const byDate = Object.fromEntries(days.map((d) => [d.date, d.total_cents]));
-    expect(byDate["2026-09-30"]).toBe(100000); // s5, in the widened window
-    expect(byDate["2026-10-01"]).toBe(0); // zero-filled gap
-    expect(byDate["2026-10-05"]).toBe(16500); // s4
+    expect(byDate["2026-10-12"]).toBe(0);
     // s1 (10000) + s2 (3800); voided s3 (10000) is excluded.
     expect(byDate[DATE]).toBe(13800);
-    expect(days.at(-1)).toEqual({ date: DATE, total_cents: 13800 });
+    expect(byDate["2026-10-18"]).toBe(0);
+  });
+
+  it("sales_by_day_month: every calendar day in the month, zero-filled", async () => {
+    const res = await api
+      .get(`/api/dashboard?date=${DATE}&month=${MONTH}`)
+      .expect(200);
+    const days = res.body.sales_by_day_month;
+    expect(days).toHaveLength(31);
+    expect(days[0].date).toBe("2026-10-01");
+    expect(days.at(-1).date).toBe("2026-10-31");
+    const byDate = Object.fromEntries(days.map((d) => [d.date, d.total_cents]));
+    expect(byDate["2026-09-30"]).toBeUndefined(); // prior month is out
+    expect(byDate["2026-10-01"]).toBe(0); // zero-filled gap
+    expect(byDate["2026-10-05"]).toBe(16500); // s4
+    expect(byDate[DATE]).toBe(13800);
+  });
+
+  it("sales_by_day_month follows 28/29/30/31-day calendar months", async () => {
+    for (const [month, length, last] of [
+      ["2026-02", 28, "28"],
+      ["2028-02", 29, "29"],
+      ["2026-09", 30, "30"],
+      ["2026-10", 31, "31"],
+    ]) {
+      const res = await api
+        .get(`/api/dashboard?date=${DATE}&month=${month}`)
+        .expect(200);
+      const days = res.body.sales_by_day_month;
+      expect(days).toHaveLength(length);
+      expect(days[0].date).toBe(`${month}-01`);
+      expect(days.at(-1).date).toBe(`${month}-${last}`);
+    }
   });
 
   it("a bill marked paid via PATCH joins money-out in its paid month; unpaid bills do not", async () => {
@@ -556,18 +609,33 @@ describe("dashboard reconciliation (Task 13)", () => {
     ]);
   });
 
-  it("best sellers: top 5 by qty in month, voided + out-of-month excluded, qty ties by revenue desc", async () => {
+  it("best sellers: month top 5 by qty; voided + out-of-month excluded", async () => {
     const res = await api
       .get(`/api/dashboard?date=${DATE}&month=${MONTH}`)
       .expect(200);
     // Item Six has 100 voided units (would rank #1 if counted) and only 1
     // real unit; Item One has 100 September units outside the month.
-    expect(res.body.best_sellers).toEqual([
+    expect(res.body.best_sellers_month).toEqual([
       { menu_item_id: ids.i1, name: "Item One", qty: 10, revenue_cents: 10000 },
       { menu_item_id: ids.i2, name: "Item Two", qty: 8, revenue_cents: 16000 },
       { menu_item_id: ids.i3, name: "Item Three", qty: 8, revenue_cents: 800 },
       { menu_item_id: ids.i4, name: "Item Four", qty: 5, revenue_cents: 2500 },
       { menu_item_id: ids.i5, name: "Item Five", qty: 3, revenue_cents: 900 },
+    ]);
+    expect(res.body).not.toHaveProperty("best_sellers");
+  });
+
+  it("best sellers: week uses only Monday-Sunday of the resolved date", async () => {
+    const res = await api
+      .get(`/api/dashboard?date=${DATE}&month=${MONTH}`)
+      .expect(200);
+    // DATE's week (10-12..10-18) contains only s1 + s2, so Item Six's voided
+    // units, s4's 10-05 units, and September are all out.
+    expect(res.body.best_sellers_week).toEqual([
+      { menu_item_id: ids.i3, name: "Item Three", qty: 8, revenue_cents: 800 },
+      { menu_item_id: ids.i1, name: "Item One", qty: 6, revenue_cents: 6000 },
+      { menu_item_id: ids.i2, name: "Item Two", qty: 3, revenue_cents: 6000 },
+      { menu_item_id: ids.i4, name: "Item Four", qty: 2, revenue_cents: 1000 },
     ]);
   });
 

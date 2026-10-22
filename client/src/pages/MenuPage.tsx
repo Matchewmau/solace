@@ -29,29 +29,28 @@ interface ShowcaseProps {
   items: MenuItem[];
 }
 
-type MenuSort = "name-asc" | "name-desc" | "price-asc" | "price-desc";
-
-const MENU_SORT_OPTIONS: { value: MenuSort; label: string }[] = [
-  { value: "name-asc", label: "Name A–Z" },
-  { value: "name-desc", label: "Name Z–A" },
-  { value: "price-asc", label: "Price low to high" },
-  { value: "price-desc", label: "Price high to low" },
-];
-
-/** Sort one category's cards without mutating the query data. */
-function sortMenuItems(items: MenuItem[], sort: MenuSort): MenuItem[] {
-  return [...items].sort((a, b) => {
-    if (sort === "name-asc") {
-      return a.name.localeCompare(b.name) || a.id - b.id;
-    }
-    if (sort === "name-desc") {
-      return b.name.localeCompare(a.name) || a.id - b.id;
-    }
-    if (sort === "price-asc") {
-      return a.price_cents - b.price_cents || a.name.localeCompare(b.name);
-    }
-    return b.price_cents - a.price_cents || a.name.localeCompare(b.name);
+/**
+ * Case-insensitive substring match on the item name, scoped to the active
+ * type. Mirrors the Guide browser so both pages filter the same way.
+ */
+export function filterMenuItems(
+  items: MenuItem[],
+  query: string,
+  category: number | "all" = "all",
+): MenuItem[] {
+  const needle = query.trim().toLowerCase();
+  return items.filter((item) => {
+    if (category !== "all" && item.category_id !== category) return false;
+    if (needle === "") return true;
+    return item.name.toLowerCase().includes(needle);
   });
+}
+
+/** Sort one category's cards alphabetically without mutating the data. */
+function sortMenuItems(items: MenuItem[]): MenuItem[] {
+  return [...items].sort(
+    (a, b) => a.name.localeCompare(b.name) || a.id - b.id,
+  );
 }
 
 function useOptionalQueryClient() {
@@ -74,8 +73,9 @@ export interface MenuItemDialogProps {
 /**
  * Owner Add/Edit form. Type is a select over existing categories only —
  * no on-the-fly creation. Price is entered in pesos and converted to
- * integer price_cents on submit. Variants are comma-separated; POS
- * prompts for a choice only when variants exist.
+ * integer price_cents on submit. Variants are comma-separated and Food-only:
+ * drinks are always iced, so a drink never carries choices and POS prompts
+ * only for Food items that have them.
  */
 export function MenuItemDialog({
   categories,
@@ -95,6 +95,9 @@ export function MenuItemDialog({
         : (initial.price_cents / 100).toFixed(2);
   const variantsDefault = initial?.variants.join(", ") ?? "";
   const defaultCategoryId = initial?.category_id ?? categories[0]?.id ?? 0;
+  const [categoryId, setCategoryId] = useState(defaultCategoryId);
+  const isFood =
+    categories.find((category) => category.id === categoryId)?.name === "Food";
   const title = isEdit ? `Edit ${initial.name}` : "Add menu item";
 
   return (
@@ -130,7 +133,7 @@ export function MenuItemDialog({
             category_id,
             name,
             price_cents: Math.round(priceValue * 100),
-            variants: parseVariants(variantsRaw),
+            variants: isFood ? parseVariants(variantsRaw) : [],
           });
         }}
       >
@@ -151,7 +154,8 @@ export function MenuItemDialog({
           <select
             name="category_id"
             aria-label="Type"
-            defaultValue={defaultCategoryId}
+            value={categoryId}
+            onChange={(event) => setCategoryId(Number(event.target.value))}
             className="field"
           >
             {categories.map((category) => (
@@ -175,21 +179,25 @@ export function MenuItemDialog({
             className="field"
           />
         </label>
-        <label className="flex flex-col gap-1 text-sm">
-          <span>Variants</span>
-          <input
-            name="variants"
-            type="text"
-            defaultValue={variantsDefault}
-            placeholder="Hot, Iced"
-            aria-label="Variants"
-            className="field"
-          />
-        </label>
-        <p className="text-sm text-muted">
-          Separate variants with commas, e.g. Hot, Iced. POS will prompt for a
-          choice when variants exist.
-        </p>
+        {isFood ? (
+          <>
+            <label className="flex flex-col gap-1 text-sm">
+              <span>Variants</span>
+              <input
+                name="variants"
+                type="text"
+                defaultValue={variantsDefault}
+                placeholder="Fried, Steamed"
+                aria-label="Variants"
+                className="field"
+              />
+            </label>
+            <p className="text-sm text-muted">
+              Separate variants with commas, e.g. Fried, Steamed. POS will
+              prompt for a choice when variants exist.
+            </p>
+          </>
+        ) : null}
         <div className="mt-1 flex gap-2">
           <Button type="submit" variant="primary" disabled={pending}>
             Save
@@ -343,7 +351,8 @@ export function MenuShowcase({ categories, items }: ShowcaseProps) {
   const [togglePending, setTogglePending] = useState(false);
   const [toggleError, setToggleError] = useState<string | null>(null);
   const [showInactive, setShowInactive] = useState(false);
-  const [sort, setSort] = useState<MenuSort>("name-asc");
+  const [query, setQuery] = useState("");
+  const [activeCategory, setActiveCategory] = useState<number | "all">("all");
 
   async function invalidateMenuItems() {
     try {
@@ -408,8 +417,16 @@ export function MenuShowcase({ categories, items }: ShowcaseProps) {
     }
   }
 
-  const visible = items.filter((item) => item.active === 1);
-  const inactive = items.filter((item) => item.active !== 1);
+  const visible = filterMenuItems(
+    items.filter((item) => item.active === 1),
+    query,
+    activeCategory,
+  );
+  const inactive = filterMenuItems(
+    items.filter((item) => item.active !== 1),
+    query,
+    activeCategory,
+  );
   const byCategory = new Map<number, MenuItem[]>();
   for (const item of visible) {
     const list = byCategory.get(item.category_id) ?? [];
@@ -422,116 +439,149 @@ export function MenuShowcase({ categories, items }: ShowcaseProps) {
     list.push(item);
     inactiveByCategory.set(item.category_id, list);
   }
+  const groups = sortCategories(categories)
+    .map((category) => ({
+      category,
+      rows: sortMenuItems(byCategory.get(category.id) ?? []),
+    }))
+    .filter((group) => group.rows.length > 0);
   const categoryNameById = new Map(categories.map((c) => [c.id, c.name]));
 
   return (
     <div className="flex flex-col gap-8">
-      <div className="flex flex-wrap items-end justify-between gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <p className="label text-xs text-muted">Solace &middot; Menu</p>
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="label text-xs text-muted">Sort</span>
-            <select
-              value={sort}
-              onChange={(event) => setSort(event.target.value as MenuSort)}
-              aria-label="Sort menu items"
-              className="border border-ink/20 bg-paper px-3 py-2 text-sm text-ink"
-            >
-              {MENU_SORT_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <Button
-            variant="outline"
-            onClick={() => {
-              setSaveError(null);
-              setDialog({ mode: "add" });
-            }}
-          >
-            Add
-          </Button>
-        </div>
+        <Button
+          variant="outline"
+          onClick={() => {
+            setSaveError(null);
+            setDialog({ mode: "add" });
+          }}
+        >
+          Add
+        </Button>
       </div>
       {categories.length === 0 || items.length === 0 ? (
         <p className="py-16 text-center text-muted">No items available</p>
       ) : (
         <>
-          <StaggerGroup className="flex flex-col gap-6">
-            {sortCategories(categories).map((category) => (
-              <StaggerSection key={category.id}>
-                <Box title={category.name}>
-                  <StaggerList className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                    {sortMenuItems(byCategory.get(category.id) ?? [], sort).map(
-                      (item) => (
-                        <StaggerItem key={item.id} className="min-w-0">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setToggleError(null);
-                              setPopupItem(item);
-                            }}
-                            className="card-interactive press flex h-full min-h-24 w-full flex-col items-start justify-between gap-3 rounded-box border border-ink/15 bg-paper px-4 py-3 text-left"
-                          >
-                            <span className="text-lg font-medium leading-snug">
-                              {item.name}
-                            </span>
-                            <span className="text-base font-semibold text-accent">
-                              {formatPeso(item.price_cents)}
-                            </span>
-                          </button>
-                        </StaggerItem>
-                      ),
-                    )}
-                  </StaggerList>
-                </Box>
-              </StaggerSection>
-            ))}
-          </StaggerGroup>
-          {inactive.length > 0 ? (
-            <div className="flex flex-col gap-4">
-              <button
-                type="button"
-                onClick={() => setShowInactive((value) => !value)}
-                aria-expanded={showInactive}
-                className="press min-h-11 self-start border border-ink px-4 py-2 text-sm font-semibold hover:bg-ink/[0.04]"
+          <Box className="flex flex-col gap-4">
+            <div
+              className="flex flex-wrap gap-2"
+              role="group"
+              aria-label="Category filter"
+            >
+              <Button
+                variant={activeCategory === "all" ? "primary" : "outline"}
+                ariaPressed={activeCategory === "all"}
+                onClick={() => setActiveCategory("all")}
               >
-                {showInactive ? "Hide inactive" : "Show inactive"}
-              </button>
-              {showInactive ? (
-                <Box title={`Inactive (${inactive.length})`}>
-                  <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                    {sortCategories(categories).flatMap((category) =>
-                      sortMenuItems(
-                        inactiveByCategory.get(category.id) ?? [],
-                        sort,
-                      ).map((item) => (
-                        <li key={item.id} className="min-w-0">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setToggleError(null);
-                              setPopupItem(item);
-                            }}
-                            className="card-interactive press flex h-full min-h-24 w-full flex-col items-start justify-between gap-3 rounded-box border border-ink/15 bg-paper px-4 py-3 text-left text-muted"
-                          >
-                            <span className="text-lg">
-                              {item.name} <Badge tone="neutral">Inactive</Badge>
-                            </span>
-                            <span className="text-base font-semibold">
-                              {formatPeso(item.price_cents)}
-                            </span>
-                          </button>
-                        </li>
-                      )),
-                    )}
-                  </ul>
-                </Box>
-              ) : null}
+                All
+              </Button>
+              {sortCategories(categories).map((category) => (
+                <Button
+                  key={category.id}
+                  variant={
+                    activeCategory === category.id ? "primary" : "outline"
+                  }
+                  ariaPressed={activeCategory === category.id}
+                  onClick={() => setActiveCategory(category.id)}
+                >
+                  {category.name}
+                </Button>
+              ))}
             </div>
-          ) : null}
+            <label className="flex flex-col gap-2">
+              <span className="label text-xs text-muted">Search drinks</span>
+              <input
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search drinks…"
+                aria-label="Search drinks"
+                className="field"
+              />
+            </label>
+          </Box>
+          {visible.length === 0 && inactive.length === 0 ? (
+            <p className="py-8 text-center text-muted">No items found</p>
+          ) : (
+            <>
+              {groups.length > 0 ? (
+                <StaggerGroup className="flex flex-col gap-6">
+                  {groups.map(({ category, rows }) => (
+                    <StaggerSection key={category.id}>
+                      <Box title={category.name}>
+                        <StaggerList className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                          {rows.map((item) => (
+                            <StaggerItem key={item.id} className="min-w-0">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setToggleError(null);
+                                  setPopupItem(item);
+                                }}
+                                className="card-interactive press flex h-full min-h-24 w-full flex-col items-start justify-between gap-3 rounded-box border border-ink/15 bg-paper px-4 py-3 text-left"
+                              >
+                                <span className="text-lg font-medium leading-snug">
+                                  {item.name}
+                                </span>
+                                <span className="text-base font-semibold text-accent">
+                                  {formatPeso(item.price_cents)}
+                                </span>
+                              </button>
+                            </StaggerItem>
+                          ))}
+                        </StaggerList>
+                      </Box>
+                    </StaggerSection>
+                  ))}
+                </StaggerGroup>
+              ) : null}
+              {inactive.length > 0 ? (
+                <div className="flex flex-col gap-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowInactive((value) => !value)}
+                    aria-expanded={showInactive}
+                    className="press min-h-11 self-start border border-ink px-4 py-2 text-sm font-semibold hover:bg-ink/[0.04]"
+                  >
+                    {showInactive ? "Hide inactive" : "Show inactive"}
+                  </button>
+                  {showInactive ? (
+                    <Box title={`Inactive (${inactive.length})`}>
+                      <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                        {sortCategories(categories).flatMap((category) =>
+                          sortMenuItems(
+                            inactiveByCategory.get(category.id) ?? [],
+                          ).map((item) => (
+                            <li key={item.id} className="min-w-0">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setToggleError(null);
+                                  setPopupItem(item);
+                                }}
+                                className="card-interactive press flex h-full min-h-24 w-full flex-col items-start justify-between gap-3 rounded-box border border-ink/15 bg-paper px-4 py-3 text-left text-muted"
+                              >
+                                <span className="text-lg">
+                                  {item.name}{" "}
+                                  <Badge tone="neutral">Inactive</Badge>
+                                </span>
+                                <span className="text-base font-semibold">
+                                  {formatPeso(item.price_cents)}
+                                </span>
+                              </button>
+                            </li>
+                          )),
+                        )}
+                      </ul>
+                    </Box>
+                  ) : null}
+                </div>
+              ) : null}
+            </>
+          )}
         </>
       )}
       {dialog !== null ? (

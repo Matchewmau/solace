@@ -63,19 +63,10 @@ function stepHint(steps: string): string {
   return `${count} ${count === 1 ? "step" : "steps"}`;
 }
 
-type RecipeSort = "name-asc" | "name-desc";
-
-const RECIPE_SORT_OPTIONS: { value: RecipeSort; label: string }[] = [
-  { value: "name-asc", label: "Name A–Z" },
-  { value: "name-desc", label: "Name Z–A" },
-];
-
-/** Sort one category's recipe cards without mutating the query data. */
-function sortRecipes(recipes: Recipe[], sort: RecipeSort): Recipe[] {
-  return [...recipes].sort((a, b) =>
-    sort === "name-asc"
-      ? a.menu_item_name.localeCompare(b.menu_item_name) || a.id - b.id
-      : b.menu_item_name.localeCompare(a.menu_item_name) || a.id - b.id,
+/** Sort one category's recipe cards alphabetically without mutating the data. */
+function sortRecipes(recipes: Recipe[]): Recipe[] {
+  return [...recipes].sort(
+    (a, b) => a.menu_item_name.localeCompare(b.menu_item_name) || a.id - b.id,
   );
 }
 
@@ -119,7 +110,6 @@ export function GuideBrowser({
   selectedId,
   onSelect,
 }: BrowserProps) {
-  const [sort, setSort] = useState<RecipeSort>("name-asc");
   const filtered = filterRecipes(
     recipes,
     query,
@@ -134,7 +124,6 @@ export function GuideBrowser({
           (recipe) =>
             categoryByMenuItemId.get(recipe.menu_item_id) === category.id,
         ),
-        sort,
       ),
     }))
     .filter((group) => group.rows.length > 0);
@@ -164,34 +153,17 @@ export function GuideBrowser({
             </Button>
           ))}
         </div>
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
-          <label className="flex flex-1 flex-col gap-2">
-            <span className="label text-xs text-muted">Search drinks</span>
-            <input
-              type="search"
-              value={query}
-              onChange={(event) => onQueryChange(event.target.value)}
-              placeholder="Search drinks…"
-              aria-label="Search drinks"
-              className="field"
-            />
-          </label>
-          <label className="flex flex-col gap-2">
-            <span className="label text-xs text-muted">Sort</span>
-            <select
-              value={sort}
-              onChange={(event) => setSort(event.target.value as RecipeSort)}
-              aria-label="Sort drinks"
-              className="border border-ink/20 bg-paper px-3 py-2 text-sm text-ink"
-            >
-              {RECIPE_SORT_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
+        <label className="flex flex-col gap-2">
+          <span className="label text-xs text-muted">Search drinks</span>
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => onQueryChange(event.target.value)}
+            placeholder="Search drinks…"
+            aria-label="Search drinks"
+            className="field"
+          />
+        </label>
       </Box>
       {filtered.length === 0 ? (
         <p className="py-8 text-center text-muted">No drinks found</p>

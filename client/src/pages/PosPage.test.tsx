@@ -209,6 +209,16 @@ describe("POS checkout flow", () => {
       paid: 0,
     });
     expect(payload).not.toHaveProperty("ref");
+
+    // Done opens a fresh empty tab behind the receipt so the next order is
+    // ready immediately; the receipt stays selected for payment/void.
+    expect(screen.getAllByRole("tab")).toHaveLength(2);
+    expect(selected("Order #1 (2) Unpaid · ₱220")).toBe("true");
+    expect(selected("Open · 0 items · ₱0")).toBe("false");
+
+    fireEvent.click(screen.getByRole("tab", { name: "Open · 0 items · ₱0" }));
+    expect(selected("Open · 0 items · ₱0")).toBe("true");
+    expect(screen.queryByText("Sale complete")).toBeNull();
   });
 
   it("shows an error with retry and recovers on the next attempt", async () => {
@@ -571,7 +581,9 @@ describe("POS per-order checkout", () => {
       expect(screen.queryByText("Sale complete")).toBeNull();
     });
     expect(screen.queryByRole("tab", { name: /Order #2 \(1\)/ })).toBeNull();
-    expect(selected("Open · 1 items · ₱70")).toBe("true");
+    // The auto-opened next order is waiting and becomes active.
+    expect(selected("Open · 0 items · ₱0")).toBe("true");
+    expect(selected("Open · 1 items · ₱70")).toBe("false");
     expect(posts).toBe(1);
   });
 
@@ -1516,7 +1528,7 @@ describe("POS order rail status, labels, and day cue", () => {
       expect(screen.getByText("Sale complete")).toBeDefined();
     });
 
-    const tab = screen.getByRole("tab");
+    const tab = screen.getByRole("tab", { name: /Order #1 \(2\)/ });
     expect(tab.textContent).toBe("Order #1 (2) Unpaid · ₱140");
     expect(tab.className).toContain("bg-danger");
     expect(tab.className).toContain("text-paper");

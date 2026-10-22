@@ -119,10 +119,7 @@ function DrillBox({
       <p className="text-2xl font-semibold text-ink">{value}</p>
       <p className="text-sm text-muted">{hint}</p>
       {extra}
-      <Link
-        to={to}
-        className="action-link mt-auto self-start"
-      >
+      <Link to={to} className="action-link mt-auto self-start">
         Open
       </Link>
     </Box>
@@ -144,18 +141,16 @@ export default function FinancePage() {
   const moneyOut = data?.money_out_month_cents ?? 0;
   const byKind = data?.money_out_month_by_kind;
   const days = elapsedDays(month, data?.date ?? "");
-  const dailyAverage = Math.round(moneyOut / days);
-  const kindTotals = [
-    { label: "Bills", cents: byKind?.bills_cents ?? 0 },
-    { label: "Expenses", cents: byKind?.expenses_cents ?? 0 },
-    { label: "Payables", cents: byKind?.payables_cents ?? 0 },
-    { label: "Loans", cents: byKind?.loans_cents ?? 0 },
-    { label: "Salaries", cents: byKind?.salaries_cents ?? 0 },
-  ];
-  const largestKind = kindTotals.reduce(
-    (largest, kind) => (kind.cents > largest.cents ? kind : largest),
-    { label: "None", cents: 0 },
-  );
+  const income = data?.income_month.total_cents ?? 0;
+  const salesCount = data?.income_month.count ?? 0;
+  const net = data?.net_month_cents ?? 0;
+  const netMargin = income > 0 ? Math.round((net / income) * 100) : null;
+  const averageDailySales = income > 0 ? Math.round(income / days) : 0;
+  const averageSale = salesCount > 0 ? Math.round(income / salesCount) : null;
+  const outstandingObligations =
+    (data?.unpaid_bills_cents ?? 0) +
+    (data?.unpaid_payables_cents ?? 0) +
+    (data?.outstanding_loans_cents ?? 0);
   const recentExpenses = [...(expensesQuery.data ?? [])]
     .sort((a, b) => {
       if (a.date !== b.date) return a.date < b.date ? 1 : -1;
@@ -225,47 +220,72 @@ export default function FinancePage() {
                     tone={data.net_month_cents >= 0 ? "ok" : "danger"}
                   />
                 </div>
-                <div className="mt-4 flex flex-wrap gap-x-8 gap-y-2 border-t border-ink/10 pt-3 text-sm">
-                  <p>
-                    <span className="text-muted">Daily average</span>{" "}
-                    <span className="font-semibold">
-                      {formatPeso(dailyAverage)}
-                    </span>{" "}
-                    <span className="text-muted">
-                      {moneyOut > 0
-                        ? `over ${days} days`
-                        : "no money out yet"}
-                    </span>
-                  </p>
-                  <p>
-                    <span className="text-muted">Largest money out</span>{" "}
-                    <span className="font-semibold">
-                      {largestKind.label}
-                    </span>{" "}
-                    <span className="text-muted">
-                      {largestKind.cents > 0
-                        ? `${formatPeso(largestKind.cents)} of ${formatPeso(moneyOut)}`
-                        : "nothing spent yet"}
-                    </span>
-                  </p>
-                </div>
               </Box>
             </StaggerSection>
             <StaggerSection ariaLabel="Money out breakdown">
-              <Box title="Money out by kind">
-                <Donut
-                  segments={segments}
-                  formatValue={formatPeso}
-                  centerLabel={
-                    <div className="flex flex-col items-center">
-                      <span className="label text-xs text-muted">Money out</span>
-                      <span className="text-lg font-semibold text-ink">
-                        {formatPeso(moneyOut)}
-                      </span>
-                    </div>
-                  }
-                />
-              </Box>
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                <Box title="Money out by kind">
+                  <Donut
+                    segments={segments}
+                    formatValue={formatPeso}
+                    centerLabel={
+                      <div className="flex flex-col items-center">
+                        <span className="label text-xs text-muted">
+                          Money out
+                        </span>
+                        <span className="text-lg font-semibold text-ink">
+                          {formatPeso(moneyOut)}
+                        </span>
+                      </div>
+                    }
+                  />
+                </Box>
+                <Box title="Finance insights" className="flex h-full flex-col gap-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <StatChip
+                      label="Net margin"
+                      value={netMargin === null ? "—" : `${netMargin}%`}
+                      tone={
+                        netMargin === null
+                          ? "default"
+                          : netMargin < 0
+                            ? "danger"
+                            : "ok"
+                      }
+                      hint={
+                        income > 0
+                          ? `of ${formatPeso(income)} money in`
+                          : "no money in yet"
+                      }
+                    />
+                    <StatChip
+                      label="Average daily sales"
+                      value={formatPeso(averageDailySales)}
+                      hint={`over ${days} ${days === 1 ? "day" : "days"}`}
+                    />
+                    <StatChip
+                      label="Average sale"
+                      value={averageSale === null ? "—" : formatPeso(averageSale)}
+                      hint={
+                        salesCount === 0
+                          ? "no sales yet"
+                          : `across ${salesCount} ${
+                              salesCount === 1 ? "sale" : "sales"
+                            }`
+                      }
+                    />
+                    <StatChip
+                      label="Outstanding obligations"
+                      value={formatPeso(outstandingObligations)}
+                      hint={
+                        outstandingObligations > 0
+                          ? "bills, payables, loans"
+                          : "nothing outstanding"
+                      }
+                    />
+                  </div>
+                </Box>
+              </div>
             </StaggerSection>
             <StaggerSection>
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">

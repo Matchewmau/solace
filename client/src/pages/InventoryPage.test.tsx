@@ -258,6 +258,21 @@ describe("InventoryPage with mocked data", () => {
     expect(link.getAttribute("href")).toBe("/inventory/history?item=1");
     expect(screen.queryByLabelText("History for Milk")).toBeNull();
   });
+
+  it("styles the row History link with the shared action link", async () => {
+    stubFetch();
+    renderInventory();
+    await screen.findByText("Milk");
+
+    const link = screen.getByRole("link", {
+      name: "Show history for Milk",
+    });
+
+    // The plan moves route actions onto the shared text-action style; it
+    // stays inline-flex through `.action-link` and keeps the icon gap.
+    expect(link.className).toContain("action-link");
+    expect(link.className).toContain("gap-2");
+  });
 });
 
 describe("InventoryPage add-item dialog (review fix wave)", () => {

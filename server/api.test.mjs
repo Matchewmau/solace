@@ -699,10 +699,68 @@ describe("static frontend", () => {
 });
 
 describe("menu item variants (Task 2)", () => {
+  async function categoryId(client, name) {
+    const cats = await client.get("/api/categories").expect(200);
+    const match = cats.body.find((row) => row.name === name);
+    expect(match).toBeDefined();
+    return match.id;
+  }
+
   it("POST menu item with variants round-trips normalized options", async () => {
-    const res = await api.post("/api/menu_items").send({ category_id: 1, name: "Ube Latte", price_cents: 7000, variants: ["Hot", " Iced ", "Hot"] });
+    const foodId = await categoryId(api, "Food");
+    const res = await api.post("/api/menu_items").send({ category_id: foodId, name: "Ube Siomai", price_cents: 7000, variants: ["Fried", " Steamed ", "Fried"] });
     expect(res.status).toBe(201);
-    expect(res.body.variants).toEqual(["Hot", "Iced"]);
+    expect(res.body.variants).toEqual(["Fried", "Steamed"]);
+  });
+
+  it("POST drops variants for a non-Food item (drinks are always iced)", async () => {
+    const coffeeId = await categoryId(api, "Coffee");
+    const res = await api
+      .post("/api/menu_items")
+      .send({
+        category_id: coffeeId,
+        name: "Iced-Only Drink",
+        price_cents: 7000,
+        variants: ["Iced"],
+      })
+      .expect(201);
+    expect(res.body.variants).toEqual([]);
+  });
+
+  it("PATCH moving a Food item to a drink category clears variants, history intact", async () => {
+    const foodId = await categoryId(apiV, "Food");
+    const coffeeId = await categoryId(apiV, "Coffee");
+    const item = (
+      await apiV
+        .post("/api/menu_items")
+        .send({
+          category_id: foodId,
+          name: "Move To Drink",
+          price_cents: 5000,
+          variants: ["Fried", "Steamed"],
+        })
+        .expect(201)
+    ).body;
+    const saleId = appV.locals.db
+      .prepare(
+        "INSERT INTO sales (total_cents, payment, created_at) VALUES (?, ?, ?)",
+      )
+      .run(5000, "cash", "2026-10-15 10:00:00").lastInsertRowid;
+    appV.locals.db
+      .prepare(
+        "INSERT INTO sale_items (sale_id, menu_item_id, qty, unit_price_cents, variant) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run(saleId, item.id, 1, 5000, "Fried");
+
+    const moved = await apiV
+      .patch(`/api/menu_items/${item.id}`)
+      .send({ category_id: coffeeId })
+      .expect(200);
+    expect(moved.body.variants).toEqual([]);
+    const history = appV.locals.db
+      .prepare("SELECT variant FROM sale_items WHERE menu_item_id = ?")
+      .all(item.id);
+    expect(history.map((row) => row.variant)).toEqual(["Fried"]);
   });
 
   // Isolated DB so variant history setup never leaks into other suites.
@@ -715,15 +773,12 @@ describe("menu item variants (Task 2)", () => {
   });
 
   it("POST with empty options saves []", async () => {
-    const cat = await apiV
-      .post("/api/categories")
-      .send({ name: "Variants Empty" })
-      .expect(201);
+    const foodId = await categoryId(apiV, "Food");
     const res = await apiV
       .post("/api/menu_items")
       .send({
-        category_id: cat.body.id,
-        name: "Plain Drink",
+        category_id: foodId,
+        name: "Plain Food",
         price_cents: 5000,
         variants: ", , ",
       })
@@ -732,15 +787,12 @@ describe("menu item variants (Task 2)", () => {
   });
 
   it('POST with comma string "Fried, Steamed" saves ["Fried","Steamed"]', async () => {
-    const cat = await apiV
-      .post("/api/categories")
-      .send({ name: "Variants Comma" })
-      .expect(201);
+    const foodId = await categoryId(apiV, "Food");
     const res = await apiV
       .post("/api/menu_items")
       .send({
-        category_id: cat.body.id,
-        name: "Comma Item",
+        category_id: foodId,
+        name: "Comma Food",
         price_cents: 5000,
         variants: "Fried, Steamed",
       })
@@ -749,15 +801,12 @@ describe("menu item variants (Task 2)", () => {
   });
 
   it("PATCH removing a variant present in sale_items history returns 400 with history unchanged", async () => {
-    const cat = await apiV
-      .post("/api/categories")
-      .send({ name: "Variants History" })
-      .expect(201);
+    const foodId = await categoryId(apiV, "Food");
     const item = (
       await apiV
         .post("/api/menu_items")
         .send({
-          category_id: cat.body.id,
+          category_id: foodId,
           name: "History Siomai",
           price_cents: 5000,
           variants: ["Fried", "Steamed"],
@@ -796,6 +845,40 @@ describe("menu item variants (Task 2)", () => {
       .get(`/api/menu_items/${siomai.id}`)
       .expect(200);
     expect(fetched.body.variants).toEqual(["Fried", "Steamed"]);
+  });
+});
+
+describe("drink variant boot migration", () => {
+  it("clears variants on non-Food items when the app boots", async () => {
+    const dirM = mkdtempSync(join(tmpdir(), "solace-drink-variant-"));
+    const dbPath = join(dirM, "drink-variant.db");
+    const first = createApp(dbPath);
+    first.locals.db
+      .prepare(
+        "UPDATE menu_items SET variants = ? WHERE category_id IN (SELECT id FROM categories WHERE name <> 'Food')",
+      )
+      .run('["Iced"]');
+    first.locals.db.close();
+
+    const second = createApp(dbPath);
+    try {
+      const rows = second.locals.db
+        .prepare(
+          "SELECT m.variants FROM menu_items m JOIN categories c ON c.id = m.category_id WHERE c.name <> 'Food'",
+        )
+        .all();
+      expect(rows.length).toBeGreaterThan(0);
+      expect(rows.every((row) => row.variants === "[]")).toBe(true);
+      const food = second.locals.db
+        .prepare(
+          "SELECT variants FROM menu_items WHERE name = 'Siomai'",
+        )
+        .get();
+      expect(JSON.parse(food.variants)).toEqual(["Fried", "Steamed"]);
+    } finally {
+      second.locals.db.close();
+      rmSync(dirM, { recursive: true, force: true });
+    }
   });
 });
 

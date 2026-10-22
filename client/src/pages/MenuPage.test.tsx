@@ -14,6 +14,7 @@ afterEach(() => {
 const categories: Category[] = [
   { id: 2, name: "Non-Coffee", sort: 2 },
   { id: 1, name: "Espresso", sort: 1 },
+  { id: 3, name: "Food", sort: 3 },
 ];
 
 const items: MenuItem[] = [
@@ -99,7 +100,7 @@ describe("MenuShowcase category boxes and aligned rows (Task 21)", () => {
     expect(within(card).getByText("₱70")).toBeDefined();
   });
 
-  it("sorts items within each category by name or price", () => {
+  it("lists items alphabetically and no longer offers a sort control", () => {
     render(<MenuShowcase categories={categories} items={items} />);
     const espresso = screen.getByLabelText("Espresso");
     const names = () =>
@@ -109,18 +110,7 @@ describe("MenuShowcase category boxes and aligned rows (Task 21)", () => {
 
     expect(names()[0]).toContain("Cortado");
     expect(names()[1]).toContain("Latte");
-
-    fireEvent.change(screen.getByLabelText("Sort menu items"), {
-      target: { value: "price-desc" },
-    });
-    expect(names()[0]).toContain("Latte");
-    expect(names()[1]).toContain("Cortado");
-
-    fireEvent.change(screen.getByLabelText("Sort menu items"), {
-      target: { value: "name-desc" },
-    });
-    expect(names()[0]).toContain("Latte");
-    expect(names()[1]).toContain("Cortado");
+    expect(screen.queryByLabelText("Sort menu items")).toBeNull();
   });
 
   it("shows a neutral Inactive badge and mutes inactive cards", async () => {
@@ -148,20 +138,72 @@ describe("MenuShowcase category boxes and aligned rows (Task 21)", () => {
   });
 });
 
+describe("MenuShowcase toolbar and filtering", () => {
+  it("puts the category chips and search box inside one toolbar box", () => {
+    render(<MenuShowcase categories={categories} items={items} />);
+
+    const filter = screen.getByRole("group", { name: "Category filter" });
+    const labels = within(filter)
+      .getAllByRole("button")
+      .map((button) => button.textContent?.trim());
+    expect(labels).toEqual(["All", "Espresso", "Non-Coffee", "Food"]);
+
+    const toolbar = filter.closest("section");
+    expect(toolbar).not.toBeNull();
+    expect(within(toolbar as HTMLElement).getByLabelText("Search drinks")).toBeDefined();
+
+    const pressed = filter.querySelector('[aria-pressed="true"]');
+    expect(pressed?.textContent?.trim()).toBe("All");
+  });
+
+  it("filters items by category chip and search together", () => {
+    render(<MenuShowcase categories={categories} items={items} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Espresso" }));
+    expect(screen.getByText("Cortado")).toBeDefined();
+    expect(screen.getByText("Latte")).toBeDefined();
+    expect(screen.queryByText("Calamansi Cooler")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Non-Coffee" })).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Search drinks"), {
+      target: { value: "latte" },
+    });
+    expect(screen.queryByText("Cortado")).toBeNull();
+    expect(screen.getByText("Latte")).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: "All" }));
+    fireEvent.change(screen.getByLabelText("Search drinks"), {
+      target: { value: "" },
+    });
+    expect(screen.getByText("Calamansi Cooler")).toBeDefined();
+  });
+
+  it("shows an empty state when the filter matches nothing", () => {
+    render(<MenuShowcase categories={categories} items={items} />);
+    fireEvent.change(screen.getByLabelText("Search drinks"), {
+      target: { value: "zzz" },
+    });
+    expect(screen.getByText("No items found")).toBeDefined();
+  });
+});
+
 describe("MenuShowcase add/edit and popup (Task 7)", () => {
   it("opens the add form from the Add button", async () => {
     render(<MenuShowcase categories={categories} items={items} />);
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
-    expect(await screen.findByLabelText("Variants")).toBeDefined();
+    expect(await screen.findByLabelText("Name")).toBeDefined();
   });
 
-  it("add form has name, type from existing categories, price, variants with hint", async () => {
+  it("add form has name, type from existing categories, price, and Food-only variants", async () => {
     render(<MenuShowcase categories={categories} items={items} />);
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
 
     expect(await screen.findByLabelText("Name")).toBeDefined();
     expect(screen.getByLabelText("Type")).toBeDefined();
     expect(screen.getByLabelText("Price")).toBeDefined();
+    // Drinks are always iced, so variants only apply to Food items.
+    expect(screen.queryByLabelText("Variants")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Type"), { target: { value: "3" } });
     expect(screen.getByLabelText("Variants")).toBeDefined();
     expect(
       screen.getByText(/commas/i),
@@ -174,7 +216,27 @@ describe("MenuShowcase add/edit and popup (Task 7)", () => {
     );
     expect(options).toContain("Espresso");
     expect(options).toContain("Non-Coffee");
-    expect(options).toHaveLength(2);
+    expect(options).toContain("Food");
+    expect(options).toHaveLength(3);
+  });
+
+  it("submits [] for a non-Food item without a variants field", async () => {
+    const postSpy = vi
+      .spyOn(menuApi, "postMenuItem")
+      .mockResolvedValue({ ...items[0], id: 98 });
+    renderShowcase();
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    await screen.findByLabelText("Name");
+
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Iced Latte" } });
+    fireEvent.change(screen.getByLabelText("Price"), { target: { value: "70" } });
+    const form = screen.getByLabelText("Add menu item form").closest("form") as HTMLFormElement;
+    fireEvent.submit(form);
+
+    await vi.waitFor(() => expect(postSpy).toHaveBeenCalledTimes(1));
+    expect(postSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "Iced Latte", variants: [] }),
+    );
   });
 
   it('", , " submits [] with price converted to cents', async () => {
@@ -183,10 +245,11 @@ describe("MenuShowcase add/edit and popup (Task 7)", () => {
       .mockResolvedValue({ ...items[0], id: 99 });
     renderShowcase();
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
-    await screen.findByLabelText("Variants");
+    await screen.findByLabelText("Name");
 
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Flat White" } });
     fireEvent.change(screen.getByLabelText("Price"), { target: { value: "50" } });
+    fireEvent.change(screen.getByLabelText("Type"), { target: { value: "3" } });
     fireEvent.change(screen.getByLabelText("Variants"), { target: { value: ", , " } });
     const form = screen.getByLabelText("Add menu item form").closest("form") as HTMLFormElement;
     fireEvent.submit(form);

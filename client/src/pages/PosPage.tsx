@@ -274,6 +274,11 @@ export default function PosPage() {
         );
         completeOrder(order.key, completed);
       }
+      // Open the next order immediately, but keep the finished receipt in
+      // front for payment/void. addOrder selects the new tab, so restore the
+      // completed tab; closing the receipt lands on the fresh order.
+      addOrder();
+      setActive(order.key);
       // A fresh sale belongs to today's panel — refresh summary + list.
       void queryClient.invalidateQueries({ queryKey: ["sales"] });
     } catch (err) {

@@ -30,6 +30,28 @@ function addDays(date, n) {
   return day.toISOString().slice(0, 10);
 }
 
+// Calendar week is Monday-Sunday. getUTCDay is 0 for Sunday, so shift it to
+// a Monday-based offset before stepping back to the week's first day.
+function startOfWeek(date) {
+  const day = new Date(`${date}T00:00:00Z`);
+  day.setUTCDate(day.getUTCDate() - ((day.getUTCDay() + 6) % 7));
+  return day.toISOString().slice(0, 10);
+}
+
+function lastDayOfMonth(month) {
+  const year = Number(month.slice(0, 4));
+  const monthNumber = Number(month.slice(5, 7));
+  return new Date(Date.UTC(year, monthNumber, 0)).toISOString().slice(0, 10);
+}
+
+function datesBetween(start, end) {
+  const dates = [];
+  for (let day = start; day <= end; day = addDays(day, 1)) {
+    dates.push(day);
+  }
+  return dates;
+}
+
 // Month is 1-based and overflow rolls into following years (13 -> Jan next
 // year). The day clamps to that month's last day (Jan 31 -> Feb 28/29).
 function clampedDate(year, month, day) {
@@ -148,6 +170,13 @@ function openDb(dbPath) {
   if (!menuCols.includes("variants")) {
     db.exec("ALTER TABLE menu_items ADD COLUMN variants TEXT NOT NULL DEFAULT '[]'");
   }
+  // Variants are Food-only: drinks are always iced, so a drink option has
+  // no meaning. Heal rows that still carry one (owner-added or written
+  // before this rule) on every boot so POS never prompts for it. Idempotent;
+  // Food variants are left untouched.
+  db.exec(
+    "UPDATE menu_items SET variants = '[]' WHERE variants <> '[]' AND category_id IN (SELECT id FROM categories WHERE name <> 'Food')",
+  );
   const saleItemCols = db
     .prepare("PRAGMA table_info(sale_items)")
     .all()
@@ -446,6 +475,15 @@ export function createApp(dbPath, opts = {}) {
     return { ...row, variants: parseVariants(row.variants) };
   }
 
+  // Variants exist for Food only. Drinks come iced only, so a drink option
+  // is noise: writes ignore it and the boot migration clears legacy rows.
+  function categoryAllowsVariants(categoryId) {
+    const row = db
+      .prepare("SELECT name FROM categories WHERE id = ?")
+      .get(categoryId);
+    return row?.name === "Food";
+  }
+
   // Accept array or comma string; split commas, trim, drop empties,
   // dedupe case-insensitively keeping first case, max 8 items each
   // 1-30 chars else 400. Parens are literal characters inside an option.
@@ -546,8 +584,9 @@ export function createApp(dbPath, opts = {}) {
     if (active !== 0 && active !== 1) {
       return sendError(res, 400, "active must be 0 or 1");
     }
+    // Food-only: a variant sent for a drink is ignored, never stored.
     let variants = [];
-    if (rawVariants !== undefined) {
+    if (rawVariants !== undefined && categoryAllowsVariants(category_id)) {
       const normalized = normalizeVariants(rawVariants);
       if (normalized.error) return sendError(res, 400, normalized.error);
       variants = normalized.variants;
@@ -642,7 +681,12 @@ export function createApp(dbPath, opts = {}) {
       return sendError(res, 400, "active must be 0 or 1");
     }
     let variants = currentVariants;
-    if (rawVariants !== undefined) {
+    if (!categoryAllowsVariants(category_id)) {
+      // Food-only: a drink keeps no options, even when moved from Food or
+      // when it already carried a legacy one. No history guard applies
+      // because the option is never offered again (drinks are always iced).
+      variants = [];
+    } else if (rawVariants !== undefined) {
       const normalized = normalizeVariants(rawVariants);
       if (normalized.error) return sendError(res, 400, normalized.error);
       variants = normalized.variants;
@@ -2304,19 +2348,20 @@ export function createApp(dbPath, opts = {}) {
   });
 
   // --- dashboard (Task 13: closing-time reconciliation; Task 8 money-out) ---
-  // NET RULES (recurring-dues Task 10, spec §2): net_day =
-  // income_day.total - expenses_day. Day net is today's sales minus today's
-  // expenses ONLY: salaries and paid bills/payables/loans never reduce it.
-  // net_month = income_month.total - money_out_month, where money-out is
-  // PAYMENTS-BASED: expenses (date prefix) + paid bills (paid_at prefix) +
-  // paid payables (paid_at prefix) + loan payments (paid_at prefix) +
-  // salaries (paid_at prefix, counted exactly once and never as an expense).
+  // NET RULES (recurring-dues Task 10, spec §2): net_month =
+  // income_month.total - money_out_month, where money-out is PAYMENTS-BASED:
+  // expenses (date prefix) + paid bills (paid_at prefix) + paid payables
+  // (paid_at prefix) + loan payments (paid_at prefix) + salaries (paid_at
+  // prefix, counted exactly once and never as an expense). There is no
+  // day-net field: the month total is the only net.
   // STOCKS — unpaid_bills_cents, unpaid_payables_cents,
   // outstanding_loans_cents — are separate memo lines and are NEVER
   // subtracted into net. An unpaid bill is not money out yet; legacy paid
   // rows with NULL paid_at never count.
-  // DAY/MONTH RULING (Task 8 binds): sales match on the created_at TEXT
-  // prefix YYYY-MM-DD / YYYY-MM; expenses match on the date TEXT prefix.
+  // PERIOD RULING: "week" is the Monday-Sunday calendar week containing the
+  // resolved ?date= value. "month" is the full calendar month YYYY-MM
+  // (28/29/30/31 days), not a rolling 31-day window. Sales match on the
+  // created_at TEXT prefix; expenses match on the date TEXT prefix.
   // DUES RULING: "today" is the resolved ?date= value (defaults to UTC
   // today). upcoming_dues holds ALL unpaid bills plus unpaid payables and
   // outstanding loans (balance_cents > 0) with due_date <= date+7 days
@@ -2339,22 +2384,26 @@ export function createApp(dbPath, opts = {}) {
       return sendError(res, 400, "month must be YYYY-MM");
     }
 
-    function income(prefix) {
+    function income(where, params) {
       const row = db
         .prepare(
           `SELECT
              COALESCE(SUM(CASE WHEN payment = 'cash' AND voided = 0 THEN total_cents ELSE 0 END), 0) AS cash_cents,
              COALESCE(SUM(CASE WHEN payment = 'gcash' AND voided = 0 THEN total_cents ELSE 0 END), 0) AS gcash_cents,
              COALESCE(SUM(CASE WHEN voided = 0 THEN 1 ELSE 0 END), 0) AS count
-           FROM sales WHERE created_at LIKE ?`,
+           FROM sales WHERE ${where}`,
         )
-        .get(`${prefix}%`);
+        .get(...params);
       return {
         cash_cents: row.cash_cents,
         gcash_cents: row.gcash_cents,
         total_cents: row.cash_cents + row.gcash_cents,
         count: row.count,
       };
+    }
+
+    function incomeBetween(start, end) {
+      return income("substr(created_at, 1, 10) BETWEEN ? AND ?", [start, end]);
     }
 
     function expenses(prefix) {
@@ -2394,9 +2443,13 @@ export function createApp(dbPath, opts = {}) {
         .get(`${prefix}%`).v;
     }
 
-    const incomeDay = income(date);
-    const incomeMonth = income(month);
-    const expensesDay = expenses(date);
+    const weekStart = startOfWeek(date);
+    const weekEnd = addDays(weekStart, 6);
+    const monthEnd = lastDayOfMonth(month);
+
+    const incomeDay = income("created_at LIKE ?", [`${date}%`]);
+    const incomeWeek = incomeBetween(weekStart, weekEnd);
+    const incomeMonth = income("created_at LIKE ?", [`${month}%`]);
     const expensesMonth = expenses(month);
 
     const moneyOutMonthByKind = {
@@ -2512,65 +2565,66 @@ export function createApp(dbPath, opts = {}) {
       0,
     );
 
-    const bestSellers = db
-      .prepare(
-        `SELECT si.menu_item_id AS menu_item_id, m.name AS name,
-           SUM(si.qty) AS qty,
-           SUM(si.qty * si.unit_price_cents) AS revenue_cents
-         FROM sale_items si
-         JOIN sales s ON s.id = si.sale_id
-         JOIN menu_items m ON m.id = si.menu_item_id
-         WHERE s.created_at LIKE ? AND s.voided = 0
-         GROUP BY si.menu_item_id
-         ORDER BY qty DESC, revenue_cents DESC
-         LIMIT 5`,
-      )
-      .all(`${month}%`);
-
-    // 31 day-buckets oldest→newest ending at the resolved date, zero-filled.
-    // The dashboard slices this window into Today / Week / Month views.
-    // One GROUP BY query; substr keeps the created_at TEXT-prefix day rule,
-    // and voided = 0 keeps voided sales out of every bucket.
-    const salesWindowStart = new Date(
-      new Date(`${date}T00:00:00Z`).getTime() - 30 * 86400000,
-    )
-      .toISOString()
-      .slice(0, 10);
-    const salesTotals = new Map(
-      db
+    function bestSellers(where, params) {
+      return db
         .prepare(
-          `SELECT substr(created_at, 1, 10) AS day,
-             COALESCE(SUM(total_cents), 0) AS total_cents
-           FROM sales
-           WHERE voided = 0 AND substr(created_at, 1, 10) BETWEEN ? AND ?
-           GROUP BY day`,
+          `SELECT si.menu_item_id AS menu_item_id, m.name AS name,
+             SUM(si.qty) AS qty,
+             SUM(si.qty * si.unit_price_cents) AS revenue_cents
+           FROM sale_items si
+           JOIN sales s ON s.id = si.sale_id
+           JOIN menu_items m ON m.id = si.menu_item_id
+           WHERE ${where} AND s.voided = 0
+           GROUP BY si.menu_item_id
+           ORDER BY qty DESC, revenue_cents DESC
+           LIMIT 5`,
         )
-        .all(salesWindowStart, date)
-        .map((row) => [row.day, row.total_cents]),
-    );
-    const salesByDay = [];
-    for (let offset = 30; offset >= 0; offset -= 1) {
-      const day = new Date(
-        new Date(`${date}T00:00:00Z`).getTime() - offset * 86400000,
-      )
-        .toISOString()
-        .slice(0, 10);
-      salesByDay.push({ date: day, total_cents: salesTotals.get(day) ?? 0 });
+        .all(...params);
     }
+
+    const bestSellersWeek = bestSellers(
+      "substr(s.created_at, 1, 10) BETWEEN ? AND ?",
+      [weekStart, weekEnd],
+    );
+    const bestSellersMonth = bestSellers("s.created_at LIKE ?", [`${month}%`]);
+
+    // Zero-filled day buckets for an explicit calendar range. One GROUP BY
+    // query; substr keeps the created_at TEXT-prefix day rule, and voided = 0
+    // keeps voided sales out of every bucket.
+    function salesByDay(start, end) {
+      const totals = new Map(
+        db
+          .prepare(
+            `SELECT substr(created_at, 1, 10) AS day,
+               COALESCE(SUM(total_cents), 0) AS total_cents
+             FROM sales
+             WHERE voided = 0 AND substr(created_at, 1, 10) BETWEEN ? AND ?
+             GROUP BY day`,
+          )
+          .all(start, end)
+          .map((row) => [row.day, row.total_cents]),
+      );
+      return datesBetween(start, end).map((day) => ({
+        date: day,
+        total_cents: totals.get(day) ?? 0,
+      }));
+    }
+
+    const salesByDayWeek = salesByDay(weekStart, weekEnd);
+    const salesByDayMonth = salesByDay(`${month}-01`, monthEnd);
 
     res.json({
       date,
       month,
       income_day: incomeDay,
+      income_week: incomeWeek,
       income_month: incomeMonth,
-      expenses_day_cents: expensesDay,
       expenses_month_cents: expensesMonth,
       expenses_month_count: expensesMonthCount,
       salaries_month_cents: moneyOutMonthByKind.salaries_cents,
       salaries_month_count: salariesMonthCount,
       money_out_month_cents: moneyOutMonth,
       money_out_month_by_kind: moneyOutMonthByKind,
-      net_day_cents: incomeDay.total_cents - expensesDay,
       net_month_cents: incomeMonth.total_cents - moneyOutMonth,
       unpaid_bills_cents: unpaidBills,
       unpaid_bills_count: unpaidBillsCount,
@@ -2578,11 +2632,13 @@ export function createApp(dbPath, opts = {}) {
       unpaid_payables_count: unpaidPayablesCount,
       overdue_payables_count: overduePayablesCount,
       upcoming_dues: upcomingDues,
-      sales_by_day: salesByDay,
+      sales_by_day_week: salesByDayWeek,
+      sales_by_day_month: salesByDayMonth,
       outstanding_loans_cents: outstandingLoans,
       outstanding_loans_count: loanRows.length,
       loans: loanRows,
-      best_sellers: bestSellers,
+      best_sellers_week: bestSellersWeek,
+      best_sellers_month: bestSellersMonth,
     });
   });
 

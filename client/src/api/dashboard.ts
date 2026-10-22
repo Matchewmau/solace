@@ -54,14 +54,16 @@ export interface Dashboard {
   date: string;
   month: string;
   income_day: IncomeSlice;
+  /** Monday-Sunday calendar week containing `date`, inclusive. */
+  income_week: IncomeSlice;
   income_month: IncomeSlice;
-  expenses_day_cents: number;
   expenses_month_cents: number;
   money_out_month_cents?: number;
   money_out_month_by_kind?: MoneyOutByKind;
-  /** Exactly 31 entries, oldest → newest, ending at `date`. */
-  sales_by_day?: SalesByDay[];
-  net_day_cents: number;
+  /** Exactly 7 entries: Monday → Sunday of `date`'s calendar week. */
+  sales_by_day_week?: SalesByDay[];
+  /** Every calendar day in `month`, oldest → newest (28-31 entries). */
+  sales_by_day_month?: SalesByDay[];
   net_month_cents: number;
   unpaid_bills_cents: number;
   unpaid_payables_cents: number;
@@ -75,7 +77,10 @@ export interface Dashboard {
   outstanding_loans_count?: number;
   upcoming_dues: UpcomingDue[];
   loans: OutstandingLoan[];
-  best_sellers: BestSeller[];
+  /** Top 5 in `date`'s Monday-Sunday week. */
+  best_sellers_week: BestSeller[];
+  /** Top 5 in the calendar month. */
+  best_sellers_month: BestSeller[];
 }
 
 async function requestJson<T>(url: string): Promise<T> {

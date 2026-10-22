@@ -48,7 +48,7 @@ export function Box({
       className={`rounded-box border border-ink/10 bg-white p-4 shadow-soft ${className}`.trim()}
     >
       {title ? (
-        <header className="mb-3 flex items-center justify-between gap-3">
+        <header className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-semibold">{title}</h2>
           {action}
         </header>

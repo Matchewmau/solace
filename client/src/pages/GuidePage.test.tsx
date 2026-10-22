@@ -399,7 +399,7 @@ describe("GuidePage toolbar and category rows (Task 22, Task 3)", () => {
     expect(card.textContent).toContain("steps");
   });
 
-  it("sorts drinks within each category", async () => {
+  it("lists drinks alphabetically and no longer offers a sort control", async () => {
     stubFetch();
     renderGuide();
     await screen.findByRole("button", { name: "Spanish Latte" });
@@ -411,10 +411,7 @@ describe("GuidePage toolbar and category rows (Task 22, Task 3)", () => {
         .map((button) => button.getAttribute("aria-label"));
 
     expect(names()).toEqual(["Dark Mocha", "Spanish Latte"]);
-    fireEvent.change(screen.getByLabelText("Sort drinks"), {
-      target: { value: "name-desc" },
-    });
-    expect(names()).toEqual(["Spanish Latte", "Dark Mocha"]);
+    expect(screen.queryByLabelText("Sort drinks")).toBeNull();
   });
 
   it("keeps aria-pressed selection on the active row", async () => {

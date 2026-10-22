@@ -96,7 +96,7 @@ const DashboardFallback = (
   <RouteFallback
     eyebrow="Cafe"
     title="Dashboard"
-    tagline="Day and month net, dues, and best sellers."
+    tagline="Month net, average day sale, dues, and best sellers."
   />
 );
 const ShowcaseFallbackRoute = (

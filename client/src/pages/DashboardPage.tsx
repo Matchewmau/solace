@@ -9,14 +9,15 @@ import { Reveal, StaggerGroup, StaggerSection } from "../components/motion";
 
 /**
  * Owner home screen (/dashboard): the day + month money strip, three charts
- * (Today/Week/Month sales from a 31-day history, month payment split, ranked
- * best sellers), and the money nuggets (upcoming dues with a status badge,
- * loans summary).
+ * (Monday-Sunday / calendar-month sales, period payment split, ranked best
+ * sellers), and the money nuggets (upcoming dues with a status badge, loans
+ * summary).
  *
- * Net rules: day net = today's sales − today's expenses only. Month net =
- * money in − money out (payments, including salaries, bills, payables,
- * loans, and expenses). Bills, payables, and loans are stocks the owner
- * still owes — listed separately, never subtracted into the day net.
+ * Net rules: the month total is the only net. Month net = money in − money
+ * out (payments, including salaries, bills, payables, loans, and expenses).
+ * Bills, payables, and loans are stocks the owner still owes — listed
+ * separately, never subtracted into net. Average/day is the mean of the
+ * month's daily sales totals for days that actually had sales.
  *
  * Lazy route chunk, so the motion primitives are allowed here.
  */
@@ -38,25 +39,31 @@ function daysLabel(days: number): string {
   return `Due in ${days} ${days === 1 ? "day" : "days"}`;
 }
 
-type SalesPeriod = "day" | "week" | "month";
+type SalesPeriod = "week" | "month";
+type PaymentPeriod = "day" | "week" | "month";
+type BestSellerPeriod = "week" | "month";
 
 const SALES_PERIODS: { value: SalesPeriod; label: string }[] = [
+  { value: "week", label: "Week" },
+  { value: "month", label: "Month" },
+];
+
+const PAYMENT_PERIODS: { value: PaymentPeriod; label: string }[] = [
   { value: "day", label: "Today" },
   { value: "week", label: "Week" },
   { value: "month", label: "Month" },
 ];
 
-const PERIOD_DAYS: Record<SalesPeriod, number> = {
-  day: 1,
-  week: 7,
-  month: 31,
-};
+const BEST_SELLER_PERIODS: { value: BestSellerPeriod; label: string }[] = [
+  { value: "week", label: "Week" },
+  { value: "month", label: "Month" },
+];
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
 /**
- * Weekday label for a date. Week and day views keep the day-of-month as a
- * second cue; the dense month view uses the weekday alone.
+ * Weekday label for a date. Week views keep the day-of-month as a second
+ * cue; the dense month view uses the weekday alone.
  */
 function dayLabel(date: string, period: SalesPeriod): string {
   const weekday = WEEKDAYS[new Date(`${date}T00:00:00Z`).getUTCDay()];
@@ -65,9 +72,57 @@ function dayLabel(date: string, period: SalesPeriod): string {
 }
 
 function emptySalesMessage(period: SalesPeriod): string {
-  if (period === "day") return "No sales today.";
   if (period === "week") return "No sales this week.";
-  return "No sales in the last 31 days.";
+  return "No sales this month.";
+}
+
+function emptyPaymentsMessage(period: PaymentPeriod): string {
+  if (period === "day") return "No payments today.";
+  if (period === "week") return "No payments this week.";
+  return "No payments this month.";
+}
+
+/**
+ * Segmented button group for a chart's period. Selection is exposed through
+ * aria-pressed so the control reads as a toggle group.
+ */
+function PeriodControl<T extends string>({
+  ariaLabel,
+  periods,
+  selected,
+  onChange,
+}: {
+  ariaLabel: string;
+  periods: readonly { value: T; label: string }[];
+  selected: T;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label={ariaLabel}
+      className="flex shrink-0 rounded-box border border-ink/15 p-0.5"
+    >
+      {periods.map((period) => {
+        const isSelected = selected === period.value;
+        return (
+          <button
+            key={period.value}
+            type="button"
+            aria-pressed={isSelected}
+            onClick={() => onChange(period.value)}
+            className={`press min-h-11 rounded-[7px] px-3 py-1 text-xs font-semibold ${
+              isSelected
+                ? "bg-ink text-paper"
+                : "text-muted hover:bg-ink/[0.04] hover:text-ink"
+            }`}
+          >
+            {period.label}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 function LoadingSkeleton() {
@@ -110,33 +165,62 @@ export default function DashboardPage() {
     queryFn: () => fetchDashboard(),
   });
   const [salesPeriod, setSalesPeriod] = useState<SalesPeriod>("week");
+  const [paymentPeriod, setPaymentPeriod] = useState<PaymentPeriod>("month");
+  const [bestSellerPeriod, setBestSellerPeriod] =
+    useState<BestSellerPeriod>("month");
 
   const data = dashboardQuery.data;
-  const salesDays = PERIOD_DAYS[salesPeriod];
+  // Average the daily totals themselves. Zero-sale days (closed days and
+  // days not yet reached) are not part of the divisor.
+  const sellingDays = (data?.sales_by_day_month ?? []).filter(
+    (day) => day.total_cents > 0,
+  );
+  const averageDaySale =
+    sellingDays.length > 0
+      ? Math.round(
+          sellingDays.reduce((sum, day) => sum + day.total_cents, 0) /
+            sellingDays.length,
+        )
+      : 0;
 
-  // sales_by_day arrives oldest → newest; Bars keeps the caller's order.
-  const salesBars = (data?.sales_by_day ?? [])
-    .slice(-salesDays)
-    .map((day) => ({
-      label: dayLabel(day.date, salesPeriod),
-      value: day.total_cents,
-    }));
+  // Both arrays arrive oldest → newest; Bars keeps the caller's order.
+  const salesByDay =
+    salesPeriod === "week"
+      ? data?.sales_by_day_week
+      : data?.sales_by_day_month;
+  const salesBars = (salesByDay ?? []).map((day) => ({
+    label: dayLabel(day.date, salesPeriod),
+    value: day.total_cents,
+  }));
+
+  const paymentIncome = data
+    ? {
+        day: data.income_day,
+        week: data.income_week,
+        month: data.income_month,
+      }[paymentPeriod]
+    : undefined;
 
   const paymentSegments = [
     {
       label: "Cash",
-      value: data?.income_month.cash_cents ?? 0,
+      value: paymentIncome?.cash_cents ?? 0,
       color: PAYMENT_COLOR.cash,
     },
     {
       label: "GCash",
-      value: data?.income_month.gcash_cents ?? 0,
+      value: paymentIncome?.gcash_cents ?? 0,
       color: PAYMENT_COLOR.gcash,
     },
   ];
 
+  const bestSellerRows =
+    bestSellerPeriod === "week"
+      ? data?.best_sellers_week
+      : data?.best_sellers_month;
+
   // Ranked by quantity — Bars keeps the caller's order, so sort here.
-  const bestSellers = [...(data?.best_sellers ?? [])]
+  const bestSellers = [...(bestSellerRows ?? [])]
     .sort((a, b) => b.qty - a.qty)
     .map((item) => ({
       label: `${item.name} · ${formatPeso(item.revenue_cents)}`,
@@ -150,9 +234,9 @@ export default function DashboardPage() {
           <p className="label text-xs text-muted">Cafe</p>
           <h1 className="page-title">Dashboard</h1>
           <p className="text-sm text-muted">
-            Day net is today's sales minus today's expenses. Month net is money
-            in minus money out, including salaries, bills, payables, loans, and
-            expenses.
+            Month net is money in minus money out, including salaries, bills,
+            payables, loans, and expenses. Average/day is the mean of daily
+            sales totals on days with sales.
           </p>
         </Reveal>
         {dashboardQuery.isLoading ? (
@@ -182,9 +266,11 @@ export default function DashboardPage() {
                 value={formatPeso(data.income_day.total_cents)}
               />
               <StatChip
-                label="Day net"
-                value={formatPeso(data.net_day_cents)}
-                tone={data.net_day_cents >= 0 ? "ok" : "danger"}
+                label="Average/day"
+                value={formatPeso(averageDaySale)}
+                hint={`${sellingDays.length} selling ${
+                  sellingDays.length === 1 ? "day" : "days"
+                }`}
               />
               <StatChip
                 label="Month in"
@@ -205,30 +291,12 @@ export default function DashboardPage() {
               <Box
                 title="Sales"
                 action={
-                  <div
-                    role="group"
-                    aria-label="Sales period"
-                    className="flex shrink-0 rounded-box border border-ink/15 p-0.5"
-                  >
-                    {SALES_PERIODS.map((period) => {
-                      const selected = salesPeriod === period.value;
-                      return (
-                        <button
-                          key={period.value}
-                          type="button"
-                          aria-pressed={selected}
-                          onClick={() => setSalesPeriod(period.value)}
-                          className={`press min-h-11 rounded-[7px] px-3 py-1 text-xs font-semibold ${
-                            selected
-                              ? "bg-ink text-paper"
-                              : "text-muted hover:bg-ink/[0.04] hover:text-ink"
-                          }`}
-                        >
-                          {period.label}
-                        </button>
-                      );
-                    })}
-                  </div>
+                  <PeriodControl
+                    ariaLabel="Sales period"
+                    periods={SALES_PERIODS}
+                    selected={salesPeriod}
+                    onChange={setSalesPeriod}
+                  />
                 }
               >
                 <div
@@ -256,27 +324,47 @@ export default function DashboardPage() {
               ariaLabel="Charts"
               className="grid grid-cols-1 gap-4 lg:grid-cols-2"
             >
-              <Box title="Payment split">
+              <Box
+                title="Payment split"
+                action={
+                  <PeriodControl
+                    ariaLabel="Payment split period"
+                    periods={PAYMENT_PERIODS}
+                    selected={paymentPeriod}
+                    onChange={setPaymentPeriod}
+                  />
+                }
+              >
                 <Donut
                   segments={paymentSegments}
                   formatValue={formatPeso}
-                  emptyMessage="No payments this month."
+                  emptyMessage={emptyPaymentsMessage(paymentPeriod)}
                   centerLabel={
                     <div className="flex flex-col items-center">
                       <span className="label text-xs text-muted">Money in</span>
                       <span className="text-lg font-semibold text-ink">
-                        {formatPeso(data.income_month.total_cents)}
+                        {formatPeso(paymentIncome?.total_cents ?? 0)}
                       </span>
                     </div>
                   }
                 />
               </Box>
-              <Box title="Best sellers">
+              <Box
+                title="Best sellers"
+                action={
+                  <PeriodControl
+                    ariaLabel="Best sellers period"
+                    periods={BEST_SELLER_PERIODS}
+                    selected={bestSellerPeriod}
+                    onChange={setBestSellerPeriod}
+                  />
+                }
+              >
                 <Bars
                   items={bestSellers}
                   orientation="horizontal"
                   formatValue={(qty) => `${qty} sold`}
-                  emptyMessage="No sales this month."
+                  emptyMessage={emptySalesMessage(bestSellerPeriod)}
                 />
               </Box>
             </StaggerSection>
@@ -302,10 +390,7 @@ export default function DashboardPage() {
               <Box
                 title="Loans"
                 action={
-                  <Link
-                    to="/finance/loans"
-                    className="action-link"
-                  >
+                  <Link to="/finance/loans" className="action-link">
                     Open
                   </Link>
                 }
