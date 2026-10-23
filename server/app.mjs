@@ -4,12 +4,15 @@
 // errors {error} with 400/404/500; money *_cents ints; timestamps YYYY-MM-DD HH:MM:SS.
 import Database from "better-sqlite3";
 import express from "express";
+import QRCode from "qrcode";
 import { timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { seedFoodDb, seedMenuDb } from "./db/seed-menu.mjs";
 import { seedRecipesDb } from "./db/seed-recipes.mjs";
+import { findLanIp } from "./lan-ip.mjs";
+import { renderTabletPage } from "./tablet-page.mjs";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = resolve(SERVER_DIR, "..", "client", "dist");
@@ -2644,6 +2647,37 @@ export function createApp(dbPath, opts = {}) {
 
   // Unknown /api routes are JSON 404s, never the SPA fallback.
   app.use("/api", (req, res) => sendError(res, 404, "not found"));
+
+  app.get("/tablet", async (req, res, next) => {
+    try {
+      const configured =
+        typeof opts.lanIp === "function" ? opts.lanIp() : opts.lanIp;
+      const lanIp = configured === undefined ? findLanIp() : configured;
+      const port = opts.port ?? (Number(process.env.SOLACE_PORT) || 3000);
+      const url = lanIp ? `http://${lanIp}:${port}` : null;
+
+      let qrSvg = null;
+      if (url) {
+        try {
+          qrSvg = await QRCode.toString(url, {
+            type: "svg",
+            width: 320,
+            margin: 1,
+            errorCorrectionLevel: "M",
+          });
+        } catch {
+          qrSvg = null;
+        }
+      }
+
+      res
+        .set("Cache-Control", "no-store")
+        .type("html")
+        .send(renderTabletPage({ url, qrSvg }));
+    } catch (err) {
+      next(err);
+    }
+  });
 
   // --- static frontend ---
   if (existsSync(DIST_DIR)) {
