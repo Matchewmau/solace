@@ -2,8 +2,9 @@
 # Installs the Solace LAN server as an autostart scheduled task, ensures the
 # inbound firewall rule, creates desktop links to the tablet page and the LAN
 # URL tool, and applies AC-only power settings.
-# Re-running is safe: the previous server tree is stopped before the task,
-# shortcuts, firewall rule, and power settings are replaced.
+# Re-running is safe: the firewall rule is ensured first, then the previous
+# server tree is stopped before the task, shortcuts, and power settings are
+# replaced.
 $ErrorActionPreference = "Stop"
 
 $taskName = "Solace Server"
@@ -15,16 +16,10 @@ if (-not (Test-Path (Join-Path $root "client\dist\index.html"))) {
   throw "client/dist/index.html is missing; run the safe client build first"
 }
 
-# Only touch the running server when this task was already installed. On first
-# install the manual server on port 3000 must be left alone.
-if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
-  Write-Host "stopping the existing '$taskName' task and its process tree"
-  & (Join-Path $PSScriptRoot "stop-lan.ps1")
-  if ($LASTEXITCODE -ne 0) { throw "port 3000 is still in use" }
-}
-
 # Inbound firewall rule so the tablet can reach the laptop. Recreate it so the
-# settings always match this install; removing and adding is idempotent.
+# settings always match this install; removing and adding is idempotent. This
+# runs before the existing server is stopped so a failure here leaves the
+# server running.
 if (Get-NetFirewallRule -DisplayName "Solace LAN" -ErrorAction SilentlyContinue) {
   Remove-NetFirewallRule -DisplayName "Solace LAN"
 }
@@ -32,6 +27,14 @@ New-NetFirewallRule -DisplayName "Solace LAN" -Direction Inbound -Action Allow `
   -Protocol TCP -LocalPort $lanPort -RemoteAddress LocalSubnet -Profile Any `
   -Enabled True | Out-Null
 Write-Host "ensured firewall rule 'Solace LAN' (TCP $lanPort inbound, LocalSubnet, all profiles)"
+
+# Only touch the running server when this task was already installed. On first
+# install the manual server on port 3000 must be left alone.
+if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
+  Write-Host "stopping the existing '$taskName' task and its process tree"
+  & (Join-Path $PSScriptRoot "stop-lan.ps1")
+  if ($LASTEXITCODE -ne 0) { throw "port 3000 is still in use" }
+}
 
 # Register or replace the task. This does not start the server.
 $action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument "//B //Nologo `"$vbs`""
