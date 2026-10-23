@@ -1,11 +1,13 @@
 #Requires -RunAsAdministrator
-# Installs the Solace LAN server as an autostart scheduled task, creates a
-# desktop link to the tablet page, and applies AC-only power settings.
+# Installs the Solace LAN server as an autostart scheduled task, ensures the
+# inbound firewall rule, creates desktop links to the tablet page and the LAN
+# URL tool, and applies AC-only power settings.
 # Re-running is safe: the previous server tree is stopped before the task,
-# shortcut, and power settings are replaced.
+# shortcuts, firewall rule, and power settings are replaced.
 $ErrorActionPreference = "Stop"
 
 $taskName = "Solace Server"
+$lanPort = 3000
 
 $root = Split-Path -Parent $PSScriptRoot
 $vbs = Join-Path $PSScriptRoot "solace-serve.vbs"
@@ -21,6 +23,16 @@ if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
   if ($LASTEXITCODE -ne 0) { throw "port 3000 is still in use" }
 }
 
+# Inbound firewall rule so the tablet can reach the laptop. Recreate it so the
+# settings always match this install; removing and adding is idempotent.
+if (Get-NetFirewallRule -DisplayName "Solace LAN" -ErrorAction SilentlyContinue) {
+  Remove-NetFirewallRule -DisplayName "Solace LAN"
+}
+New-NetFirewallRule -DisplayName "Solace LAN" -Direction Inbound -Action Allow `
+  -Protocol TCP -LocalPort $lanPort -RemoteAddress LocalSubnet -Profile Any `
+  -Enabled True | Out-Null
+Write-Host "ensured firewall rule 'Solace LAN' (TCP $lanPort inbound, LocalSubnet, all profiles)"
+
 # Register or replace the task. This does not start the server.
 $action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument "//B //Nologo `"$vbs`""
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
@@ -34,6 +46,21 @@ $desktop = [Environment]::GetFolderPath("Desktop")
 $shortcut = Join-Path $desktop "Solace tablet link.url"
 "[InternetShortcut]`r`nURL=http://localhost:3000/tablet`r`n" | Set-Content -Path $shortcut -Encoding ASCII
 Write-Host "created shortcut '$shortcut'"
+
+# Desktop shortcut that prints the current LAN URL, compares it with the last
+# server start, copies it, and opens the app in a terminal that stays open.
+$urlShortcut = Join-Path $desktop "Solace URL.lnk"
+$showUrlScript = Join-Path $PSScriptRoot "show-lan-url.ps1"
+$shell = New-Object -ComObject WScript.Shell
+$link = $shell.CreateShortcut($urlShortcut)
+$link.TargetPath = "powershell.exe"
+$link.Arguments = "-NoExit -NoProfile -ExecutionPolicy Bypass -File `"$showUrlScript`""
+$link.WorkingDirectory = $root
+$link.Description = "Show the current Solace LAN URL"
+$link.Save()
+[void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($link)
+[void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($shell)
+Write-Host "created shortcut '$urlShortcut'"
 
 # AC-only power settings. Failures are warnings, never install failures.
 powercfg /change standby-timeout-ac 0
@@ -58,6 +85,8 @@ Write-Host ""
 Write-Host "Solace LAN autostart installed."
 Write-Host "  Task:     $taskName (AtLogOn, interactive, hidden)"
 Write-Host "  Shortcut: $shortcut"
-Write-Host "  URL:      http://localhost:3000/tablet"
+Write-Host "  URL link: $urlShortcut"
+Write-Host "  Firewall: Solace LAN (TCP $lanPort inbound, LocalSubnet, all profiles)"
+Write-Host "  URL:      http://localhost:$lanPort/tablet"
 Write-Host "  Logs:     $logDir"
 Write-Host "The server starts at your next logon; this installer did not start it."

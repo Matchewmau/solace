@@ -14,6 +14,16 @@ The tablet connects to `http://<laptop-LAN-IP>:3000` (currently
 for the connection page and QR code; the `Solace tablet link` desktop shortcut
 opens the same page.
 
+The `Solace URL` desktop shortcut is the no-QR way to reach the app. It opens a
+terminal, prints the current LAN URL and whether it changed since the last
+server start, copies the URL to the clipboard, and opens the app. The `/tablet`
+page remains the authoritative source for the address.
+
+The `Solace LAN` inbound firewall rule allows TCP local port 3000 from the
+local subnet (remote address `LocalSubnet`, all profiles, enabled). The
+installer ensures the rule on every run, recreating it so its settings always
+match. Without it the tablet cannot reach the laptop.
+
 The `Solace Server` scheduled task starts the server at Mathew's logon. It runs
 hidden as a single instance through `wscript.exe`, and restarts the server on
 failure. Install or update it from an elevated PowerShell:
@@ -39,6 +49,7 @@ PowerShell:
 ```powershell
 Unregister-ScheduledTask -TaskName "Solace Server" -Confirm:$false
 Remove-Item "$env:USERPROFILE\Desktop\Solace tablet link.url"
+Remove-Item "$env:USERPROFILE\Desktop\Solace URL.lnk"
 ```
 
 Then run `npm start` from the repo root for a manual server.
@@ -46,8 +57,9 @@ Then run `npm start` from the repo root for a manual server.
 After UI changes, run `npm run build` when the tablet is idle; the running
 server serves the new files.
 
-This LAN setup replaces the Cloudflare quick tunnel. Once the tunnel is
-removed, the old public URL no longer works.
+This LAN setup replaces the Cloudflare quick tunnel. Cloudflare and its service
+and scheduled task were removed, so LAN is the only access path and the old
+public URL no longer works.
 
 The laptop must be signed in, awake, and on the same Wi-Fi as the tablet.
 
