@@ -7,6 +7,50 @@ REST: JSON everywhere, `/api` plural nouns, POST 201 / PATCH 200 / DELETE 204,
 errors `{error}` (400/404/500), money `*_cents`, timestamps `YYYY-MM-DD HH:MM:SS`.
 Tests: `server/api.test.mjs` spins `createApp(tempDb)` (see `server/app.mjs`).
 
+## Windows LAN auto-start
+
+The tablet connects to `http://<laptop-LAN-IP>:3000` (currently
+`http://192.168.1.8:3000`). Open `http://localhost:3000/tablet` on the laptop
+for the connection page and QR code; the `Solace tablet link` desktop shortcut
+opens the same page.
+
+The `Solace Server` scheduled task starts the server at Mathew's logon. It runs
+hidden as a single instance through `wscript.exe`, and restarts the server on
+failure. Install or update it from an elevated PowerShell:
+
+```powershell
+Start-Process powershell.exe -Verb RunAs -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','C:\CODE\Solace\scripts\install-lan.ps1' -Wait
+```
+
+Logs: `%LOCALAPPDATA%\Solace\logs`.
+
+From the repo root, stop and start the server:
+
+```powershell
+# Elevated stop of the task and its wscript/powershell/node tree
+powershell -ExecutionPolicy Bypass -File C:\CODE\Solace\scripts\stop-lan.ps1
+
+Start-ScheduledTask -TaskName "Solace Server"
+```
+
+To remove the auto-start, run the stop helper elevated, then in an elevated
+PowerShell:
+
+```powershell
+Unregister-ScheduledTask -TaskName "Solace Server" -Confirm:$false
+Remove-Item "$env:USERPROFILE\Desktop\Solace tablet link.url"
+```
+
+Then run `npm start` from the repo root for a manual server.
+
+After UI changes, run `npm run build` when the tablet is idle; the running
+server serves the new files.
+
+This LAN setup replaces the Cloudflare quick tunnel. Once the tunnel is
+removed, the old public URL no longer works.
+
+The laptop must be signed in, awake, and on the same Wi-Fi as the tablet.
+
 ## Backups (daily, manual, OS-scheduled, or server boot check)
 
 Backup: `node server/db/backup.mjs [db-path] [backup-dir] [--keep N]`
