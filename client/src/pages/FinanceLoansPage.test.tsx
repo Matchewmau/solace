@@ -31,6 +31,7 @@ const loans: Loan[] = [
     frequency: "monthly",
     end_date: "2027-11-15",
     alert_days: 3,
+    payment_count: 0,
   },
   {
     id: 2,
@@ -43,6 +44,7 @@ const loans: Loan[] = [
     frequency: "monthly",
     end_date: null,
     alert_days: 5,
+    payment_count: 0,
   },
 ];
 

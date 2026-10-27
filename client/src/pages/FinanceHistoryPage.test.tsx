@@ -26,6 +26,7 @@ const loans: Loan[] = [
     frequency: "monthly",
     end_date: null,
     alert_days: 3,
+    payment_count: 0,
   },
 ];
 
