@@ -52,6 +52,8 @@ const payables: Payable[] = [
 ];
 
 const patched: Array<{ url: string; body: unknown }> = [];
+const edited: Array<{ url: string; body: unknown }> = [];
+const deleted: string[] = [];
 const created: Array<{ url: string; body: unknown }> = [];
 
 function ok(data: unknown, status = 200): Response {
@@ -64,6 +66,8 @@ function ok(data: unknown, status = 200): Response {
 
 function stubFetch() {
   patched.length = 0;
+  edited.length = 0;
+  deleted.length = 0;
   created.length = 0;
   setStoredAuth("solace123");
   globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
@@ -73,10 +77,18 @@ function stubFetch() {
     }
     const payableMatch = u.match(/^\/api\/payables\/(\d+)$/);
     if (payableMatch && init?.method === "PATCH") {
-      const body = JSON.parse(String(init.body)) as { paid: 0 | 1 };
-      patched.push({ url: u, body });
+      const body = JSON.parse(String(init.body)) as Record<string, unknown>;
       const payable = payables.find((p) => p.id === Number(payableMatch[1]));
+      if (Object.keys(body).length === 1 && "paid" in body) {
+        patched.push({ url: u, body });
+      } else {
+        edited.push({ url: u, body });
+      }
       return ok({ ...payable, ...body });
+    }
+    if (payableMatch && init?.method === "DELETE") {
+      deleted.push(u);
+      return ok(null, 204);
     }
     if (u === "/api/payables" && init?.method === "POST") {
       const body = JSON.parse(String(init.body)) as Record<string, unknown>;
@@ -135,13 +147,102 @@ describe("FinancePayablesPage", () => {
     await screen.findByText("Overdue Supplier");
 
     fireEvent.click(
-      screen.getByRole("button", { name: "Toggle paid for Future Supplier" }),
+      screen.getByRole("button", { name: "Mark paid for Future Supplier" }),
     );
 
     await vi.waitFor(() => {
       expect(patched).toHaveLength(1);
     });
     expect(patched[0]).toEqual({ url: "/api/payables/2", body: { paid: 1 } });
+  });
+
+  it("shows edit/delete only while unpaid and mark unpaid when settled", async () => {
+    stubFetch();
+    renderPage();
+    await screen.findByText("Future Supplier");
+
+    const open = screen
+      .getByText("Future Supplier")
+      .closest("tr") as HTMLElement;
+    expect(
+      within(open).getByRole("button", {
+        name: "Mark paid for Future Supplier",
+      }),
+    ).toBeDefined();
+    expect(
+      within(open).getByRole("button", { name: "Edit Future Supplier" }),
+    ).toBeDefined();
+    expect(
+      within(open).getByRole("button", { name: "Delete Future Supplier" }),
+    ).toBeDefined();
+
+    const settled = screen
+      .getByText("Settled Supplier")
+      .closest("tr") as HTMLElement;
+    expect(
+      within(settled).getByRole("button", {
+        name: "Mark unpaid for Settled Supplier",
+      }),
+    ).toBeDefined();
+    expect(
+      within(settled).queryByRole("button", { name: "Edit Settled Supplier" }),
+    ).toBeNull();
+    expect(
+      within(settled).queryByRole("button", { name: "Delete Settled Supplier" }),
+    ).toBeNull();
+  });
+
+  it("edits a payable and deletes one after confirmation", async () => {
+    stubFetch();
+    renderPage();
+    await screen.findByText("Future Supplier");
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit Future Supplier" }));
+    const editDialog = screen.getByRole("dialog", { name: "Edit Future Supplier" });
+    expect(
+      (within(editDialog).getByLabelText("Payable label") as HTMLInputElement)
+        .value,
+    ).toBe("Future Supplier");
+    expect(
+      (
+        within(editDialog).getByLabelText(
+          "Payable amount in pesos",
+        ) as HTMLInputElement
+      ).value,
+    ).toBe("500");
+    expect(
+      (within(editDialog).getByLabelText("Due date") as HTMLInputElement).value,
+    ).toBe(payables[1].due_date);
+    fireEvent.change(within(editDialog).getByLabelText("Payable amount in pesos"), {
+      target: { value: "550" },
+    });
+    fireEvent.submit(within(editDialog).getByLabelText("Edit payable form"));
+    await vi.waitFor(() =>
+      expect(edited[0]).toEqual({
+        url: "/api/payables/2",
+        body: {
+          label: "Future Supplier",
+          amount_cents: 55000,
+          due_date: payables[1].due_date,
+        },
+      }),
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Delete Future Supplier" }),
+    );
+    const deleteDialog = screen.getByRole("dialog", {
+      name: "Delete Future Supplier",
+    });
+    expect(
+      within(deleteDialog).getByText(
+        "Delete the Future Supplier payable of ₱500?",
+      ),
+    ).toBeDefined();
+    fireEvent.click(
+      within(deleteDialog).getByRole("button", { name: "Delete payable" }),
+    );
+    await vi.waitFor(() => expect(deleted).toEqual(["/api/payables/2"]));
   });
 
   it("+ Add payable opens the dialog and submits postPayable", async () => {
