@@ -46,10 +46,25 @@ const loans: Loan[] = [
     alert_days: 5,
     payment_count: 0,
   },
+  {
+    id: 3,
+    lender: "Partial Lender",
+    principal_cents: 80000,
+    balance_cents: 50000,
+    installment_cents: 10000,
+    due_date: "2026-11-20",
+    due_day: 20,
+    frequency: "monthly",
+    end_date: null,
+    alert_days: 3,
+    payment_count: 1,
+  },
 ];
 
 const paymentsPosted: Array<{ url: string; body: unknown }> = [];
 const created: Array<{ url: string; body: unknown }> = [];
+const edited: Array<{ url: string; body: unknown }> = [];
+const deleted: Array<{ url: string; method: string }> = [];
 let currentLoans: Loan[] = [];
 let loansFetches = 0;
 
@@ -64,6 +79,8 @@ function ok(data: unknown, status = 200): Response {
 function stubFetch() {
   paymentsPosted.length = 0;
   created.length = 0;
+  edited.length = 0;
+  deleted.length = 0;
   loansFetches = 0;
   currentLoans = loans.map((loan) => ({ ...loan }));
   setStoredAuth("solace123");
@@ -101,6 +118,20 @@ function stubFetch() {
       const body = JSON.parse(String(init.body)) as Record<string, unknown>;
       created.push({ url: u, body });
       return ok({ id: 99, ...body }, 201);
+    }
+    const loanMatch = u.match(/^\/api\/loans\/(\d+)$/);
+    if (loanMatch && init?.method === "PATCH") {
+      const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+      const id = Number(loanMatch[1]);
+      edited.push({ url: u, body });
+      const existing = currentLoans.find((loan) => loan.id === id);
+      return ok({ ...(existing ?? { id }), ...body });
+    }
+    if (loanMatch && init?.method === "DELETE") {
+      const id = Number(loanMatch[1]);
+      deleted.push({ url: u, method: init.method });
+      currentLoans = currentLoans.filter((loan) => loan.id !== id);
+      return ok({}, 204);
     }
     throw new Error(`unexpected fetch ${u} ${init?.method ?? "GET"}`);
   }) as typeof fetch;
@@ -264,6 +295,7 @@ describe("FinanceLoansPage", () => {
       body: {
         lender: "BPI",
         principal_cents: 100000,
+        balance_cents: 100000,
         installment_cents: 10000,
         due_date: "2026-11-20",
         frequency: "weekly",
@@ -308,5 +340,163 @@ describe("FinanceLoansPage", () => {
       await screen.findByText("End date must be on or after the due date."),
     ).toBeDefined();
     expect(created).toHaveLength(0);
+  });
+
+  it("offers actions by balance and payment history", async () => {
+    stubFetch();
+    renderPage();
+    await screen.findByText("Partial Lender");
+
+    const untouched = screen.getByText("BDO").closest("tr") as HTMLElement;
+    expect(
+      within(untouched).getByRole("button", { name: "Pay BDO" }),
+    ).toBeDefined();
+    expect(
+      within(untouched).getByRole("button", { name: "Edit BDO" }),
+    ).toBeDefined();
+    expect(
+      within(untouched).getByRole("button", { name: "Delete BDO" }),
+    ).toBeDefined();
+
+    const partial = screen.getByText("Partial Lender").closest(
+      "tr",
+    ) as HTMLElement;
+    expect(
+      within(partial).getByRole("button", { name: "Pay Partial Lender" }),
+    ).toBeDefined();
+    expect(
+      within(partial).getByRole("button", { name: "Edit Partial Lender" }),
+    ).toBeDefined();
+    expect(
+      within(partial).queryByRole("button", { name: "Delete Partial Lender" }),
+    ).toBeNull();
+
+    const settled = screen.getByText("Settled Lender").closest(
+      "tr",
+    ) as HTMLElement;
+    expect(
+      within(settled).queryByRole("button", { name: "Pay Settled Lender" }),
+    ).toBeNull();
+    expect(
+      within(settled).queryByRole("button", { name: "Edit Settled Lender" }),
+    ).toBeNull();
+    expect(
+      within(settled).queryByRole("button", { name: "Delete Settled Lender" }),
+    ).toBeNull();
+    expect(
+      within(settled).getByRole("link", {
+        name: "View history for Settled Lender",
+      }),
+    ).toBeDefined();
+  });
+
+  it("keeps principal and balance read-only on a loan with payments", async () => {
+    stubFetch();
+    renderPage();
+    await screen.findByText("Partial Lender");
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit Partial Lender" }));
+    const dialog = screen.getByRole("dialog", { name: "Edit Partial Lender" });
+    expect(
+      (
+        within(dialog).getByLabelText(
+          "Loan principal in pesos",
+        ) as HTMLInputElement
+      ).readOnly,
+    ).toBe(true);
+    expect(
+      (
+        within(dialog).getByLabelText(
+          "Current balance in pesos",
+        ) as HTMLInputElement
+      ).readOnly,
+    ).toBe(true);
+
+    fireEvent.change(
+      within(dialog).getByLabelText("Loan installment in pesos"),
+      { target: { value: "120" } },
+    );
+    fireEvent.change(within(dialog).getByLabelText("Ends on (optional)"), {
+      target: { value: "" },
+    });
+    fireEvent.submit(within(dialog).getByLabelText("Edit loan form"));
+
+    await vi.waitFor(() => expect(edited).toHaveLength(1));
+    expect(edited[0].url).toBe("/api/loans/3");
+    expect(edited[0].body).toEqual({
+      lender: "Partial Lender",
+      installment_cents: 12000,
+      due_date: "2026-11-20",
+      frequency: "monthly",
+      end_date: null,
+      alert_days: 3,
+    });
+    expect(
+      "principal_cents" in (edited[0].body as Record<string, unknown>),
+    ).toBe(false);
+    expect(
+      "balance_cents" in (edited[0].body as Record<string, unknown>),
+    ).toBe(false);
+  });
+
+  it("defaults the add-form balance to the principal and includes it", async () => {
+    stubFetch();
+    renderPage();
+    await screen.findByText("BDO");
+
+    fireEvent.click(screen.getByRole("button", { name: "+ Add loan" }));
+    const dialog = screen.getByRole("dialog", { name: "Add loan" });
+    const form = within(dialog).getByLabelText(
+      "Add loan form",
+    ) as HTMLFormElement;
+    fireEvent.change(
+      form.querySelector('input[name="lender"]') as HTMLInputElement,
+      { target: { value: "BPI" } },
+    );
+    fireEvent.change(
+      form.querySelector('input[name="principal"]') as HTMLInputElement,
+      { target: { value: "1000" } },
+    );
+    expect(
+      (
+        within(dialog).getByLabelText(
+          "Current balance in pesos",
+        ) as HTMLInputElement
+      ).value,
+    ).toBe("1000");
+    fireEvent.change(
+      form.querySelector('input[name="installment"]') as HTMLInputElement,
+      { target: { value: "100" } },
+    );
+    fireEvent.submit(form);
+
+    await vi.waitFor(() => expect(created).toHaveLength(1));
+    expect(created[0].body).toMatchObject({
+      lender: "BPI",
+      principal_cents: 100000,
+      balance_cents: 100000,
+      installment_cents: 10000,
+    });
+  });
+
+  it("deletes an untouched loan after confirmation", async () => {
+    stubFetch();
+    renderPage();
+    await screen.findByText("BDO");
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete BDO" }));
+    const dialog = screen.getByRole("dialog", { name: "Delete BDO" });
+    expect(
+      within(dialog).getByText(
+        "Delete the BDO loan? It has no payment history.",
+      ),
+    ).toBeDefined();
+
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Delete loan" }),
+    );
+
+    await vi.waitFor(() => expect(deleted).toHaveLength(1));
+    expect(deleted).toEqual([{ url: "/api/loans/1", method: "DELETE" }]);
   });
 });

@@ -2,16 +2,21 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  deleteLoan,
   fetchLoans,
+  patchLoan,
   postLoan,
   postLoanPayment,
   utcToday,
   type Loan,
+  type LoanInput,
 } from "../api/finance";
 import { formatPeso } from "../lib/formatPeso";
 import { Reveal } from "../components/motion";
 import DataTable, { type Column } from "../components/DataTable";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Dialog } from "../components/Dialog";
+import { Field } from "../components/Field";
 import { Badge, Button, PageFrame } from "../components/ui";
 
 function LoadingSkeleton() {
@@ -29,19 +34,252 @@ function LoadingSkeleton() {
 }
 
 /**
+ * One dialog for both add and edit. Fields prefill from `loan` when editing;
+ * `null` means a new loan with the usual defaults. While a loan has payment
+ * history its principal and balance are read-only and omitted from the PATCH.
+ */
+function LoanDialog({
+  loan,
+  pending,
+  error,
+  onClose,
+  onSubmit,
+}: {
+  loan: Loan | null;
+  pending: boolean;
+  error: string | null;
+  onClose: () => void;
+  onSubmit: (input: Partial<LoanInput>) => void;
+}) {
+  const [lender, setLender] = useState(loan?.lender ?? "");
+  const [principal, setPrincipal] = useState(
+    loan === null ? "" : String(loan.principal_cents / 100),
+  );
+  const [balance, setBalance] = useState(
+    loan === null ? "" : String(loan.balance_cents / 100),
+  );
+  const [balanceEdited, setBalanceEdited] = useState(false);
+  const [installment, setInstallment] = useState(
+    loan === null ? "" : String(loan.installment_cents / 100),
+  );
+  const [dueDate, setDueDate] = useState(loan?.due_date ?? utcToday());
+  const [frequency, setFrequency] = useState<"weekly" | "monthly">(
+    loan?.frequency ?? "monthly",
+  );
+  const [endDate, setEndDate] = useState(loan?.end_date ?? "");
+  const [alertDays, setAlertDays] = useState(
+    loan === null ? "3" : String(loan.alert_days),
+  );
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  const locked = loan !== null && loan.payment_count > 0;
+  const message = localError ?? error;
+
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title={loan === null ? "Add loan" : `Edit ${loan.lender}`}
+    >
+      <form
+        aria-label={loan === null ? "Add loan form" : "Edit loan form"}
+        className="flex flex-col gap-3"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const trimmedLender = lender.trim();
+          const principal_cents = Math.round(Number(principal) * 100);
+          const installment_cents = Math.round(Number(installment) * 100);
+          const alert_days = Number(alertDays);
+          const balanceSource = balance.trim() === "" ? principal : balance;
+          const balance_cents = Math.round(Number(balanceSource) * 100);
+          if (trimmedLender === "" || dueDate === "") return;
+          if (!Number.isInteger(principal_cents) || principal_cents < 0) return;
+          if (!Number.isInteger(balance_cents) || balance_cents < 0) return;
+          if (!Number.isInteger(installment_cents) || installment_cents <= 0)
+            return;
+          if (frequency !== "weekly" && frequency !== "monthly") return;
+          if (
+            !Number.isInteger(alert_days) ||
+            alert_days < 1 ||
+            alert_days > 30
+          ) {
+            return;
+          }
+          if (endDate !== "" && endDate < dueDate) {
+            setLocalError("End date must be on or after the due date.");
+            return;
+          }
+          setLocalError(null);
+          const common: Partial<LoanInput> = {
+            lender: trimmedLender,
+            installment_cents,
+            due_date: dueDate,
+            frequency,
+            end_date: endDate === "" ? null : endDate,
+            alert_days,
+          };
+          onSubmit(
+            locked
+              ? common
+              : { ...common, principal_cents, balance_cents },
+          );
+        }}
+      >
+        <Field label="Lender">
+          <input
+            name="lender"
+            type="text"
+            required
+            placeholder="Lender"
+            aria-label="Loan lender"
+            value={lender}
+            onChange={(event) => setLender(event.target.value)}
+            className="field"
+          />
+        </Field>
+        <Field
+          label="Principal (₱)"
+          hint={locked ? "Payments lock the principal and balance." : undefined}
+        >
+          <input
+            name="principal"
+            type="number"
+            min="0"
+            step="0.01"
+            required
+            placeholder="₱ principal"
+            aria-label="Loan principal in pesos"
+            readOnly={locked}
+            value={principal}
+            onChange={(event) => {
+              setPrincipal(event.target.value);
+              if (loan === null && !balanceEdited) {
+                setBalance(event.target.value);
+              }
+            }}
+            className="field"
+          />
+        </Field>
+        <Field label="Current balance (₱)">
+          <input
+            name="balance"
+            type="number"
+            min="0"
+            step="0.01"
+            placeholder="₱ balance"
+            aria-label="Current balance in pesos"
+            readOnly={locked}
+            value={balance}
+            onChange={(event) => {
+              setBalanceEdited(true);
+              setBalance(event.target.value);
+            }}
+            className="field"
+          />
+        </Field>
+        <Field label="Installment (₱)">
+          <input
+            name="installment"
+            type="number"
+            min="0"
+            step="0.01"
+            required
+            placeholder="₱ installment"
+            aria-label="Loan installment in pesos"
+            value={installment}
+            onChange={(event) => setInstallment(event.target.value)}
+            className="field"
+          />
+        </Field>
+        <Field label="Due date">
+          <input
+            name="due_date"
+            type="date"
+            required
+            value={dueDate}
+            onChange={(event) => setDueDate(event.target.value)}
+            className="field"
+          />
+        </Field>
+        <Field label="Repeats">
+          <select
+            name="frequency"
+            value={frequency}
+            onChange={(event) =>
+              setFrequency(event.target.value as "weekly" | "monthly")
+            }
+            className="field"
+          >
+            <option value="monthly">Monthly</option>
+            <option value="weekly">Weekly</option>
+          </select>
+        </Field>
+        <Field label="Ends on (optional)">
+          <input
+            name="end_date"
+            type="date"
+            value={endDate}
+            onChange={(event) => setEndDate(event.target.value)}
+            className="field"
+          />
+        </Field>
+        <Field label="Alert days">
+          <input
+            name="alert_days"
+            type="number"
+            min="1"
+            max="30"
+            step="1"
+            required
+            value={alertDays}
+            onChange={(event) => setAlertDays(event.target.value)}
+            className="field"
+          />
+        </Field>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setAlertDays("3")}>
+            3 days
+          </Button>
+          <Button variant="outline" onClick={() => setAlertDays("5")}>
+            5 days
+          </Button>
+        </div>
+        <div className="flex gap-2">
+          <Button type="submit" variant="primary" disabled={pending}>
+            {loan === null ? "Add loan" : "Save changes"}
+          </Button>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+        </div>
+      </form>
+      {message ? (
+        <p role="alert" className="mt-2 text-sm text-accent">
+          {message}
+        </p>
+      ) : null}
+    </Dialog>
+  );
+}
+
+/**
  * Focused loans route (/finance/loans). Loans move out of the long
  * FinancePage into a drill-in page: a DataTable of balances, a per-row Pay
  * dialog (amount defaults to the installment) and a History link to the
- * dedicated /finance/history route, plus a dialog add form. Lazy route
- * chunk — motion allowed.
+ * dedicated /finance/history route, plus a shared add/edit dialog. Row
+ * actions follow the loan's state: settled loans only link to history, and
+ * loans with payment history cannot be deleted.
  */
 export default function FinanceLoansPage() {
   const queryClient = useQueryClient();
   const [addOpen, setAddOpen] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
+  const [editingLoan, setEditingLoan] = useState<Loan | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [deletingLoan, setDeletingLoan] = useState<Loan | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [payingLoan, setPayingLoan] = useState<Loan | null>(null);
   const [payError, setPayError] = useState<string | null>(null);
-  const [alertDays, setAlertDays] = useState("3");
 
   const loansQuery = useQuery({
     queryKey: ["loans"],
@@ -55,15 +293,7 @@ export default function FinanceLoansPage() {
   }
 
   const addMutation = useMutation({
-    mutationFn: (input: {
-      lender: string;
-      principal_cents: number;
-      installment_cents: number;
-      due_date: string;
-      frequency: "weekly" | "monthly";
-      end_date?: string;
-      alert_days: number;
-    }) => postLoan(input),
+    mutationFn: (input: LoanInput) => postLoan(input),
     onSuccess: () => {
       setAddError(null);
       setAddOpen(false);
@@ -72,6 +302,41 @@ export default function FinanceLoansPage() {
     onError: (error) => {
       setAddError(
         error instanceof Error ? error.message : "Could not add that loan.",
+      );
+    },
+  });
+
+  const editMutation = useMutation({
+    mutationFn: ({ id, input }: { id: number; input: Partial<LoanInput> }) =>
+      patchLoan(id, input),
+    onSuccess: (_data, variables) => {
+      setEditError(null);
+      setEditingLoan(null);
+      invalidateFinanceQueries();
+      void queryClient.invalidateQueries({
+        queryKey: ["loan-payments", variables.id],
+      });
+    },
+    onError: (error) => {
+      setEditError(
+        error instanceof Error ? error.message : "Could not update that loan.",
+      );
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => deleteLoan(id),
+    onSuccess: (_data, id) => {
+      setDeleteError(null);
+      setDeletingLoan(null);
+      invalidateFinanceQueries();
+      void queryClient.invalidateQueries({
+        queryKey: ["loan-payments", id],
+      });
+    },
+    onError: (error) => {
+      setDeleteError(
+        error instanceof Error ? error.message : "Could not delete that loan.",
       );
     },
   });
@@ -168,7 +433,6 @@ export default function FinanceLoansPage() {
               variant="primary"
               onClick={() => {
                 setAddError(null);
-                setAlertDays("3");
                 setAddOpen(true);
               }}
             >
@@ -199,17 +463,19 @@ export default function FinanceLoansPage() {
             emptyMessage="No loans recorded."
             renderActions={(loan) => (
               <>
-                <Button
-                  variant="outline"
-                  ariaLabel={`Pay ${loan.lender}`}
-                  ariaPressed={payingLoan?.id === loan.id}
-                  onClick={() => {
-                    setPayError(null);
-                    setPayingLoan(loan);
-                  }}
-                >
-                  Pay
-                </Button>
+                {loan.balance_cents > 0 ? (
+                  <Button
+                    variant="outline"
+                    ariaLabel={`Pay ${loan.lender}`}
+                    ariaPressed={payingLoan?.id === loan.id}
+                    onClick={() => {
+                      setPayError(null);
+                      setPayingLoan(loan);
+                    }}
+                  >
+                    Pay
+                  </Button>
+                ) : null}
                 <Link
                   to={`/finance/history?loan=${loan.id}`}
                   aria-label={`View history for ${loan.lender}`}
@@ -217,6 +483,30 @@ export default function FinanceLoansPage() {
                 >
                   History
                 </Link>
+                {loan.balance_cents > 0 ? (
+                  <Button
+                    variant="outline"
+                    ariaLabel={`Edit ${loan.lender}`}
+                    onClick={() => {
+                      setEditError(null);
+                      setEditingLoan(loan);
+                    }}
+                  >
+                    Edit
+                  </Button>
+                ) : null}
+                {loan.balance_cents > 0 && loan.payment_count === 0 ? (
+                  <Button
+                    variant="outline"
+                    ariaLabel={`Delete ${loan.lender}`}
+                    onClick={() => {
+                      setDeleteError(null);
+                      setDeletingLoan(loan);
+                    }}
+                  >
+                    Delete
+                  </Button>
+                ) : null}
               </>
             )}
           />
@@ -275,151 +565,40 @@ export default function FinanceLoansPage() {
           </form>
         ) : null}
       </Dialog>
-      <Dialog open={addOpen} onClose={() => setAddOpen(false)} title="Add loan">
-        <form
-          aria-label="Add loan form"
-          className="flex flex-col gap-3"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const data = new FormData(event.currentTarget);
-            const lender = String(data.get("lender") ?? "").trim();
-            const principal_cents = Math.round(
-              Number(String(data.get("principal") ?? "")) * 100,
-            );
-            const installment_cents = Math.round(
-              Number(String(data.get("installment") ?? "")) * 100,
-            );
-            const due_date = String(data.get("due_date") ?? "");
-            const frequency = String(data.get("frequency") ?? "monthly");
-            const end_date = String(data.get("end_date") ?? "");
-            const alert_days = Number(String(data.get("alert_days") ?? ""));
-            if (lender === "" || due_date === "") return;
-            if (!Number.isInteger(principal_cents) || principal_cents < 0)
-              return;
-            if (!Number.isInteger(installment_cents) || installment_cents <= 0)
-              return;
-            if (frequency !== "weekly" && frequency !== "monthly") return;
-            if (
-              !Number.isInteger(alert_days) ||
-              alert_days < 1 ||
-              alert_days > 30
-            ) {
-              return;
-            }
-            if (end_date !== "" && end_date < due_date) {
-              setAddError("End date must be on or after the due date.");
-              return;
-            }
-            setAddError(null);
-            addMutation.mutate({
-              lender,
-              principal_cents,
-              installment_cents,
-              due_date,
-              frequency,
-              ...(end_date !== "" ? { end_date } : {}),
-              alert_days,
-            });
+      {addOpen || editingLoan !== null ? (
+        <LoanDialog
+          key={editingLoan === null ? "add" : `edit-${editingLoan.id}`}
+          loan={editingLoan}
+          pending={
+            editingLoan === null
+              ? addMutation.isPending
+              : editMutation.isPending
+          }
+          error={editingLoan === null ? addError : editError}
+          onClose={() => {
+            if (editingLoan === null) setAddOpen(false);
+            else setEditingLoan(null);
           }}
-        >
-          <input
-            name="lender"
-            type="text"
-            required
-            placeholder="Lender"
-            aria-label="Loan lender"
-            className="field"
-          />
-          <input
-            name="principal"
-            type="number"
-            min="0"
-            step="0.01"
-            required
-            placeholder="₱ principal"
-            aria-label="Loan principal in pesos"
-            className="field"
-          />
-          <input
-            name="installment"
-            type="number"
-            min="0"
-            step="0.01"
-            required
-            placeholder="₱ installment"
-            aria-label="Loan installment in pesos"
-            className="field"
-          />
-          <label className="flex flex-col gap-1 text-sm">
-            Due date
-            <input
-              name="due_date"
-              type="date"
-              required
-              defaultValue={utcToday()}
-              className="field"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            Repeats
-            <select
-              name="frequency"
-              defaultValue="monthly"
-              className="field"
-            >
-              <option value="monthly">Monthly</option>
-              <option value="weekly">Weekly</option>
-            </select>
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            Ends on (optional)
-            <input
-              name="end_date"
-              type="date"
-              className="field"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            Alert days
-            <input
-              name="alert_days"
-              type="number"
-              min="1"
-              max="30"
-              step="1"
-              required
-              value={alertDays}
-              onChange={(event) => setAlertDays(event.target.value)}
-              className="field"
-            />
-          </label>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => setAlertDays("3")}>
-              3 days
-            </Button>
-            <Button variant="outline" onClick={() => setAlertDays("5")}>
-              5 days
-            </Button>
-          </div>
-          <div className="flex gap-2">
-            <Button
-              type="submit"
-              variant="primary"
-              disabled={addMutation.isPending}
-            >
-              Add loan
-            </Button>
-            <Button variant="outline" onClick={() => setAddOpen(false)}>
-              Cancel
-            </Button>
-          </div>
-        </form>
-        {addError ? (
-          <p role="alert" className="mt-2 text-sm text-accent">
-            {addError}
-          </p>
-        ) : null}
-      </Dialog>
+          onSubmit={(input) => {
+            if (editingLoan === null) addMutation.mutate(input as LoanInput);
+            else editMutation.mutate({ id: editingLoan.id, input });
+          }}
+        />
+      ) : null}
+      {deletingLoan !== null ? (
+        <ConfirmDialog
+          open
+          title={`Delete ${deletingLoan.lender}`}
+          message={`Delete the ${deletingLoan.lender} loan? It has no payment history.`}
+          confirmLabel="Delete loan"
+          pending={deleteMutation.isPending}
+          error={deleteError}
+          onCancel={() => {
+            if (!deleteMutation.isPending) setDeletingLoan(null);
+          }}
+          onConfirm={() => deleteMutation.mutate(deletingLoan.id)}
+        />
+      ) : null}
     </main>
   );
 }
