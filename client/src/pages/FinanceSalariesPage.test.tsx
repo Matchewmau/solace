@@ -144,6 +144,36 @@ describe("FinanceSalariesPage", () => {
     });
   });
 
+  it("keeps salary payouts locked and explains why", async () => {
+    stubFetch();
+    renderPage();
+    await screen.findByText("Ana");
+
+    expect(screen.queryByRole("columnheader", { name: "Actions" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Edit Ana/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Delete Ana/ })).toBeNull();
+    expect(
+      screen.getByText(
+        "Salary entries are permanent payout records and cannot be edited or deleted.",
+      ),
+    ).toBeDefined();
+  });
+
+  it("labels every add-salary field", async () => {
+    stubFetch();
+    renderPage();
+    await screen.findByText("Ana");
+
+    fireEvent.click(screen.getByRole("button", { name: "+ Add salary" }));
+    const dialog = screen.getByRole("dialog", { name: "Add salary" });
+    for (const label of ["Name", "Amount (₱)", "Note (optional)"]) {
+      expect(within(dialog).getByText(label)).toBeDefined();
+    }
+    expect(within(dialog).getByLabelText("Salary name")).toBeDefined();
+    expect(within(dialog).getByLabelText("Salary amount in pesos")).toBeDefined();
+    expect(within(dialog).getByLabelText("Salary note")).toBeDefined();
+  });
+
   it("shows the empty state when there are no salaries", async () => {
     stubFetch([]);
     renderPage();

@@ -6,6 +6,7 @@ import { formatPeso } from "../lib/formatPeso";
 import { Reveal } from "../components/motion";
 import DataTable, { type Column } from "../components/DataTable";
 import { Dialog } from "../components/Dialog";
+import { Field } from "../components/Field";
 import { Button, PageFrame } from "../components/ui";
 
 function LoadingSkeleton() {
@@ -104,6 +105,10 @@ export default function FinanceSalariesPage() {
           <p className="text-sm text-muted">
             Ledger of salaries paid, newest first.
           </p>
+          <p className="text-sm text-muted">
+            Salary entries are permanent payout records and cannot be edited or
+            deleted.
+          </p>
         </Reveal>
         {salariesQuery.isLoading ? (
           <LoadingSkeleton />
@@ -147,31 +152,34 @@ export default function FinanceSalariesPage() {
             addMutation.mutate({ name, amount_cents, note });
           }}
         >
-          <input
-            name="name"
-            type="text"
-            required
-            placeholder="Name"
-            aria-label="Salary name"
-            className="field"
-          />
-          <input
-            name="amount"
-            type="number"
-            min="0"
-            step="0.01"
-            required
-            placeholder="₱ amount"
-            aria-label="Salary amount in pesos"
-            className="field"
-          />
-          <input
-            name="note"
-            type="text"
-            placeholder="Note (optional)"
-            aria-label="Salary note"
-            className="field"
-          />
+          <Field label="Name">
+            <input
+              name="name"
+              type="text"
+              required
+              aria-label="Salary name"
+              className="field"
+            />
+          </Field>
+          <Field label="Amount (₱)">
+            <input
+              name="amount"
+              type="number"
+              min="0"
+              step="0.01"
+              required
+              aria-label="Salary amount in pesos"
+              className="field"
+            />
+          </Field>
+          <Field label="Note (optional)">
+            <input
+              name="note"
+              type="text"
+              aria-label="Salary note"
+              className="field"
+            />
+          </Field>
           <div className="flex gap-2">
             <Button
               type="submit"
