@@ -49,6 +49,8 @@ const bills: Bill[] = [
 ];
 
 const patched: Array<{ url: string; body: unknown }> = [];
+const edited: Array<{ url: string; body: unknown }> = [];
+const deleted: string[] = [];
 const created: Array<{ url: string; body: unknown; headers: unknown }> = [];
 let patchFailure: { status: number; error: string } | null = null;
 
@@ -62,6 +64,8 @@ function ok(data: unknown, status = 200): Response {
 
 function stubFetch() {
   patched.length = 0;
+  edited.length = 0;
+  deleted.length = 0;
   created.length = 0;
   patchFailure = null;
   setStoredAuth("solace123");
@@ -75,10 +79,18 @@ function stubFetch() {
       if (patchFailure !== null) {
         return ok({ error: patchFailure.error }, patchFailure.status);
       }
-      const body = JSON.parse(String(init.body)) as { paid: 0 | 1 };
-      patched.push({ url: u, body });
+      const body = JSON.parse(String(init.body)) as Record<string, unknown>;
       const bill = bills.find((b) => b.id === Number(billMatch[1]));
+      if (Object.keys(body).length === 1 && "paid" in body) {
+        patched.push({ url: u, body });
+      } else {
+        edited.push({ url: u, body });
+      }
       return ok({ ...bill, ...body });
+    }
+    if (billMatch && init?.method === "DELETE") {
+      deleted.push(u);
+      return ok(null, 204);
     }
     if (u === "/api/bills" && init?.method === "POST") {
       const body = JSON.parse(String(init.body)) as Record<string, unknown>;
@@ -128,13 +140,91 @@ describe("FinanceBillsPage", () => {
     await screen.findByText("Meralco");
 
     fireEvent.click(
-      screen.getByRole("button", { name: "Toggle paid for Meralco" }),
+      screen.getByRole("button", { name: "Mark paid for Meralco" }),
     );
 
     await vi.waitFor(() => {
       expect(patched).toHaveLength(1);
     });
     expect(patched[0]).toEqual({ url: "/api/bills/1", body: { paid: 1 } });
+  });
+
+  it("shows edit and delete only on unpaid bills, and mark unpaid on paid bills", async () => {
+    stubFetch();
+    renderPage();
+    await screen.findByText("Meralco");
+
+    const open = screen.getByText("Meralco").closest("tr") as HTMLElement;
+    expect(
+      within(open).getByRole("button", { name: "Edit Meralco" }),
+    ).toBeDefined();
+    expect(
+      within(open).getByRole("button", { name: "Delete Meralco" }),
+    ).toBeDefined();
+    expect(
+      within(open).getByRole("button", { name: "Mark paid for Meralco" }),
+    ).toBeDefined();
+
+    const settled = screen.getByText("Rent").closest("tr") as HTMLElement;
+    expect(
+      within(settled).getByRole("button", { name: "Mark unpaid for Rent" }),
+    ).toBeDefined();
+    expect(
+      within(settled).queryByRole("button", { name: "Edit Rent" }),
+    ).toBeNull();
+    expect(
+      within(settled).queryByRole("button", { name: "Delete Rent" }),
+    ).toBeNull();
+  });
+
+  it("edits a bill and sends a cleared end date as null", async () => {
+    stubFetch();
+    renderPage();
+    await screen.findByText("Meralco");
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit Meralco" }));
+    const dialog = screen.getByRole("dialog", { name: "Edit Meralco" });
+    expect(
+      (
+        within(dialog).getByLabelText(
+          "Bill amount in pesos",
+        ) as HTMLInputElement
+      ).value,
+    ).toBe("2500");
+    fireEvent.change(within(dialog).getByLabelText("Bill amount in pesos"), {
+      target: { value: "275" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Ends on (optional)"), {
+      target: { value: "" },
+    });
+    fireEvent.submit(within(dialog).getByLabelText("Edit bill form"));
+
+    await vi.waitFor(() => expect(edited).toHaveLength(1));
+    expect(edited[0]).toEqual({
+      url: "/api/bills/1",
+      body: {
+        name: "Meralco",
+        amount_cents: 27500,
+        due_date: "2026-10-21",
+        frequency: "weekly",
+        end_date: null,
+        alert_days: 5,
+      },
+    });
+  });
+
+  it("deletes an unpaid bill after confirmation", async () => {
+    stubFetch();
+    renderPage();
+    await screen.findByText("Meralco");
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete Meralco" }));
+    const dialog = screen.getByRole("dialog", { name: "Delete Meralco" });
+    expect(
+      within(dialog).getByText(/will not create its next occurrence/),
+    ).toBeDefined();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete bill" }));
+    await vi.waitFor(() => expect(deleted).toEqual(["/api/bills/1"]));
   });
 
   it("renders the schedule and alert lead time in the table", async () => {
@@ -160,6 +250,17 @@ describe("FinanceBillsPage", () => {
     const form = within(dialog).getByLabelText(
       "Add bill form",
     ) as HTMLFormElement;
+
+    for (const label of [
+      "Bill name",
+      "Amount (₱)",
+      "Due date",
+      "Repeats",
+      "Ends on (optional)",
+      "Alert days",
+    ]) {
+      expect(within(form).getByText(label)).toBeDefined();
+    }
 
     fireEvent.change(form.querySelector('input[name="name"]') as HTMLInputElement, {
       target: { value: "Water" },
@@ -241,7 +342,7 @@ describe("FinanceBillsPage", () => {
     renderPage();
     await screen.findByText("Rent");
 
-    fireEvent.click(screen.getByRole("button", { name: "Toggle paid for Rent" }));
+    fireEvent.click(screen.getByRole("button", { name: "Mark unpaid for Rent" }));
 
     expect(
       await screen.findByText("cannot unpay after the next cycle is paid"),

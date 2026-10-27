@@ -2,16 +2,21 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  deleteBill,
   fetchBills,
+  patchBill,
   patchBillPaid,
   postBill,
   utcToday,
   type Bill,
+  type BillInput,
 } from "../api/finance";
 import { formatPeso } from "../lib/formatPeso";
 import { Reveal } from "../components/motion";
 import DataTable, { type Column } from "../components/DataTable";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Dialog } from "../components/Dialog";
+import { Field } from "../components/Field";
 import { Badge, Button, PageFrame } from "../components/ui";
 
 function LoadingSkeleton() {
@@ -25,17 +30,187 @@ function LoadingSkeleton() {
 }
 
 /**
+ * One dialog for both add and edit. Fields prefill from `bill` when editing;
+ * `null` means a new bill with the usual defaults. Local validation errors
+ * stay in the dialog alongside server errors reported by the page.
+ */
+function BillDialog({
+  bill,
+  pending,
+  error,
+  onClose,
+  onSubmit,
+}: {
+  bill: Bill | null;
+  pending: boolean;
+  error: string | null;
+  onClose: () => void;
+  onSubmit: (input: BillInput) => void;
+}) {
+  const [name, setName] = useState(bill?.name ?? "");
+  const [amount, setAmount] = useState(
+    bill === null ? "" : String(bill.amount_cents / 100),
+  );
+  const [dueDate, setDueDate] = useState(bill?.due_date ?? utcToday());
+  const [frequency, setFrequency] = useState<"weekly" | "monthly">(
+    bill?.frequency ?? "monthly",
+  );
+  const [endDate, setEndDate] = useState(bill?.end_date ?? "");
+  const [alertDays, setAlertDays] = useState(
+    bill === null ? "3" : String(bill.alert_days),
+  );
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  const message = localError ?? error;
+
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title={bill === null ? "Add bill" : `Edit ${bill.name}`}
+    >
+      <form
+        aria-label={bill === null ? "Add bill form" : "Edit bill form"}
+        className="flex flex-col gap-3"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const trimmedName = name.trim();
+          const amount_cents = Math.round(Number(amount) * 100);
+          const alert_days = Number(alertDays);
+          if (trimmedName === "" || dueDate === "") return;
+          if (!Number.isInteger(amount_cents) || amount_cents < 0) return;
+          if (
+            !Number.isInteger(alert_days) ||
+            alert_days < 1 ||
+            alert_days > 30
+          ) {
+            return;
+          }
+          if (endDate !== "" && endDate < dueDate) {
+            setLocalError("End date must be on or after the due date.");
+            return;
+          }
+          setLocalError(null);
+          onSubmit({
+            name: trimmedName,
+            amount_cents,
+            due_date: dueDate,
+            frequency,
+            end_date: endDate === "" ? null : endDate,
+            alert_days,
+          });
+        }}
+      >
+        <Field label="Bill name">
+          <input
+            name="name"
+            type="text"
+            required
+            aria-label="Bill name"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            className="field"
+          />
+        </Field>
+        <Field label="Amount (₱)">
+          <input
+            name="amount"
+            type="number"
+            min="0"
+            step="0.01"
+            required
+            aria-label="Bill amount in pesos"
+            value={amount}
+            onChange={(event) => setAmount(event.target.value)}
+            className="field"
+          />
+        </Field>
+        <Field label="Due date">
+          <input
+            name="due_date"
+            type="date"
+            required
+            value={dueDate}
+            onChange={(event) => setDueDate(event.target.value)}
+            className="field"
+          />
+        </Field>
+        <Field label="Repeats">
+          <select
+            name="frequency"
+            value={frequency}
+            onChange={(event) =>
+              setFrequency(event.target.value as "weekly" | "monthly")
+            }
+            className="field"
+          >
+            <option value="monthly">Monthly</option>
+            <option value="weekly">Weekly</option>
+          </select>
+        </Field>
+        <Field label="Ends on (optional)">
+          <input
+            name="end_date"
+            type="date"
+            value={endDate}
+            onChange={(event) => setEndDate(event.target.value)}
+            className="field"
+          />
+        </Field>
+        <Field label="Alert days">
+          <input
+            name="alert_days"
+            type="number"
+            min="1"
+            max="30"
+            step="1"
+            required
+            value={alertDays}
+            onChange={(event) => setAlertDays(event.target.value)}
+            className="field"
+          />
+        </Field>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setAlertDays("3")}>
+            3 days
+          </Button>
+          <Button variant="outline" onClick={() => setAlertDays("5")}>
+            5 days
+          </Button>
+        </div>
+        <div className="flex gap-2">
+          <Button type="submit" variant="primary" disabled={pending}>
+            {bill === null ? "Add bill" : "Save changes"}
+          </Button>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+        </div>
+      </form>
+      {message ? (
+        <p role="alert" className="mt-2 text-sm text-accent">
+          {message}
+        </p>
+      ) : null}
+    </Dialog>
+  );
+}
+
+/**
  * Focused bills route (/finance/bills). Bills, their recurring schedule, and
  * paid status move out of the long FinancePage into a drill-in page with a
- * sortable-free DataTable, a row paid toggle, and a dialog add form.
+ * sortable-free DataTable, row actions, and a shared add/edit dialog.
  * Lazy route chunk — motion import is allowed here.
  */
 export default function FinanceBillsPage() {
   const queryClient = useQueryClient();
   const [addOpen, setAddOpen] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
+  const [editingBill, setEditingBill] = useState<Bill | null>(null);
+  const [deletingBill, setDeletingBill] = useState<Bill | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [alertDays, setAlertDays] = useState("3");
 
   const billsQuery = useQuery({ queryKey: ["bills"], queryFn: fetchBills });
 
@@ -62,14 +237,7 @@ export default function FinanceBillsPage() {
   });
 
   const addMutation = useMutation({
-    mutationFn: (input: {
-      name: string;
-      amount_cents: number;
-      due_date: string;
-      frequency: "weekly" | "monthly";
-      end_date?: string;
-      alert_days: number;
-    }) => postBill(input),
+    mutationFn: (input: BillInput) => postBill(input),
     onSuccess: () => {
       setActionError(null);
       setAddError(null);
@@ -79,6 +247,35 @@ export default function FinanceBillsPage() {
     onError: (error) => {
       setAddError(
         error instanceof Error ? error.message : "Could not add that bill.",
+      );
+    },
+  });
+
+  const editMutation = useMutation({
+    mutationFn: ({ id, input }: { id: number; input: BillInput }) =>
+      patchBill(id, input),
+    onSuccess: () => {
+      setEditError(null);
+      setEditingBill(null);
+      invalidateFinanceQueries();
+    },
+    onError: (error) => {
+      setEditError(
+        error instanceof Error ? error.message : "Could not update that bill.",
+      );
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => deleteBill(id),
+    onSuccess: () => {
+      setDeleteError(null);
+      setDeletingBill(null);
+      invalidateFinanceQueries();
+    },
+    onError: (error) => {
+      setDeleteError(
+        error instanceof Error ? error.message : "Could not delete that bill.",
       );
     },
   });
@@ -127,6 +324,7 @@ export default function FinanceBillsPage() {
   ];
 
   const bills = billsQuery.data ?? [];
+  const billDialogOpen = addOpen || editingBill !== null;
 
   return (
     <main className="min-h-screen bg-paper text-ink">
@@ -146,7 +344,6 @@ export default function FinanceBillsPage() {
               variant="primary"
               onClick={() => {
                 setAddError(null);
-                setAlertDays("3");
                 setAddOpen(true);
               }}
             >
@@ -180,153 +377,90 @@ export default function FinanceBillsPage() {
             rows={bills}
             rowKey={(bill) => bill.id}
             emptyMessage="No bills recorded."
-            renderActions={(bill) => (
-              <Button
-                variant="outline"
-                disabled={toggleMutation.isPending}
-                ariaLabel={`Toggle paid for ${bill.name}`}
-                ariaPressed={bill.paid === 1}
-                onClick={() =>
-                  toggleMutation.mutate({
-                    id: bill.id,
-                    next: bill.paid === 1 ? 0 : 1,
-                  })
-                }
-              >
-                {bill.paid === 1 ? "Paid" : "Mark paid"}
-              </Button>
-            )}
+            renderActions={(bill) =>
+              bill.paid === 0 ? (
+                <>
+                  <Button
+                    variant="outline"
+                    disabled={toggleMutation.isPending}
+                    ariaLabel={`Mark paid for ${bill.name}`}
+                    ariaPressed={false}
+                    onClick={() =>
+                      toggleMutation.mutate({ id: bill.id, next: 1 })
+                    }
+                  >
+                    Mark paid
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setEditError(null);
+                      setEditingBill(bill);
+                    }}
+                    ariaLabel={`Edit ${bill.name}`}
+                  >
+                    Edit
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setDeleteError(null);
+                      setDeletingBill(bill);
+                    }}
+                    ariaLabel={`Delete ${bill.name}`}
+                  >
+                    Delete
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  variant="outline"
+                  disabled={toggleMutation.isPending}
+                  ariaLabel={`Mark unpaid for ${bill.name}`}
+                  ariaPressed
+                  onClick={() => toggleMutation.mutate({ id: bill.id, next: 0 })}
+                >
+                  Mark unpaid
+                </Button>
+              )
+            }
           />
         )}
       </PageFrame>
-      <Dialog
-        open={addOpen}
-        onClose={() => setAddOpen(false)}
-        title="Add bill"
-      >
-        <form
-          aria-label="Add bill form"
-          className="flex flex-col gap-3"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const data = new FormData(event.currentTarget);
-            const name = String(data.get("name") ?? "").trim();
-            const amount_cents = Math.round(
-              Number(String(data.get("amount") ?? "")) * 100,
-            );
-            const due_date = String(data.get("due_date") ?? "");
-            const frequency = String(data.get("frequency") ?? "monthly");
-            const end_date = String(data.get("end_date") ?? "");
-            const alert_days = Number(String(data.get("alert_days") ?? ""));
-            if (name === "" || due_date === "") return;
-            if (!Number.isInteger(amount_cents) || amount_cents < 0) return;
-            if (frequency !== "weekly" && frequency !== "monthly") return;
-            if (
-              !Number.isInteger(alert_days) ||
-              alert_days < 1 ||
-              alert_days > 30
-            ) {
-              return;
-            }
-            if (end_date !== "" && end_date < due_date) {
-              setAddError("End date must be on or after the due date.");
-              return;
-            }
-            setAddError(null);
-            addMutation.mutate({
-              name,
-              amount_cents,
-              due_date,
-              frequency,
-              ...(end_date !== "" ? { end_date } : {}),
-              alert_days,
-            });
+      {billDialogOpen ? (
+        <BillDialog
+          key={editingBill === null ? "add" : `edit-${editingBill.id}`}
+          bill={editingBill}
+          pending={
+            editingBill === null
+              ? addMutation.isPending
+              : editMutation.isPending
+          }
+          error={editingBill === null ? addError : editError}
+          onClose={() => {
+            if (editingBill === null) setAddOpen(false);
+            else setEditingBill(null);
           }}
-        >
-          <input
-            name="name"
-            type="text"
-            required
-            placeholder="Bill name"
-            aria-label="Bill name"
-            className="field"
-          />
-          <input
-            name="amount"
-            type="number"
-            min="0"
-            step="0.01"
-            required
-            placeholder="₱ amount"
-            aria-label="Bill amount in pesos"
-            className="field"
-          />
-          <label className="flex flex-col gap-1 text-sm">
-            Due date
-            <input
-              name="due_date"
-              type="date"
-              required
-              defaultValue={utcToday()}
-              className="field"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            Repeats
-            <select
-              name="frequency"
-              defaultValue="monthly"
-              className="field"
-            >
-              <option value="monthly">Monthly</option>
-              <option value="weekly">Weekly</option>
-            </select>
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            Ends on (optional)
-            <input
-              name="end_date"
-              type="date"
-              className="field"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            Alert days
-            <input
-              name="alert_days"
-              type="number"
-              min="1"
-              max="30"
-              step="1"
-              required
-              value={alertDays}
-              onChange={(event) => setAlertDays(event.target.value)}
-              className="field"
-            />
-          </label>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => setAlertDays("3")}>
-              3 days
-            </Button>
-            <Button variant="outline" onClick={() => setAlertDays("5")}>
-              5 days
-            </Button>
-          </div>
-          <div className="flex gap-2">
-            <Button type="submit" variant="primary" disabled={addMutation.isPending}>
-              Add bill
-            </Button>
-            <Button variant="outline" onClick={() => setAddOpen(false)}>
-              Cancel
-            </Button>
-          </div>
-        </form>
-        {addError ? (
-          <p role="alert" className="mt-2 text-sm text-accent">
-            {addError}
-          </p>
-        ) : null}
-      </Dialog>
+          onSubmit={(input) => {
+            if (editingBill === null) addMutation.mutate(input);
+            else editMutation.mutate({ id: editingBill.id, input });
+          }}
+        />
+      ) : null}
+      {deletingBill !== null ? (
+        <ConfirmDialog
+          open
+          title={`Delete ${deletingBill.name}`}
+          message="This unpaid occurrence will be removed. A recurring bill will not create its next occurrence."
+          confirmLabel="Delete bill"
+          pending={deleteMutation.isPending}
+          error={deleteError}
+          onCancel={() => {
+            if (!deleteMutation.isPending) setDeletingBill(null);
+          }}
+          onConfirm={() => deleteMutation.mutate(deletingBill.id)}
+        />
+      ) : null}
     </main>
   );
 }
