@@ -31,6 +31,8 @@ const expenses: Expense[] = [
 ];
 
 const posted: Array<{ url: string; body: unknown }> = [];
+const edited: Array<{ url: string; body: unknown }> = [];
+const deleted: string[] = [];
 
 function ok(data: unknown, status = 200): Response {
   return {
@@ -42,6 +44,8 @@ function ok(data: unknown, status = 200): Response {
 
 function stubFetch() {
   posted.length = 0;
+  edited.length = 0;
+  deleted.length = 0;
   setStoredAuth("solace123");
   globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
     const u = String(url);
@@ -52,6 +56,15 @@ function stubFetch() {
       const body = JSON.parse(String(init.body)) as Record<string, unknown>;
       posted.push({ url: u, body });
       return ok({ id: 99, ...body }, 201);
+    }
+    if (u.startsWith("/api/expenses/") && init?.method === "PATCH") {
+      const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+      edited.push({ url: u, body });
+      return ok({ id: 1, ...body });
+    }
+    if (u.startsWith("/api/expenses/") && init?.method === "DELETE") {
+      deleted.push(u);
+      return ok({ ok: true });
     }
     throw new Error(`unexpected fetch ${u} ${init?.method ?? "GET"}`);
   }) as typeof fetch;
@@ -116,6 +129,11 @@ describe("FinanceExpensesPage", () => {
       "Add expense form",
     ) as HTMLFormElement;
 
+    expect(within(dialog).getByText("Date")).toBeDefined();
+    expect(within(dialog).getByText("Category")).toBeDefined();
+    expect(within(dialog).getByText("Amount (₱)")).toBeDefined();
+    expect(within(dialog).getByText("Note (optional)")).toBeDefined();
+
     fireEvent.change(form.querySelector('input[name="date"]') as HTMLInputElement, {
       target: { value: "2026-10-13" },
     });
@@ -144,6 +162,51 @@ describe("FinanceExpensesPage", () => {
         note: "Arla 6L",
       },
     });
+  });
+
+  it("edits an expense and PATCHes every field", async () => {
+    stubFetch();
+    renderPage();
+    await screen.findByText("Beans");
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit Beans" }));
+    const dialog = screen.getByRole("dialog", { name: "Edit Beans" });
+    expect(
+      (within(dialog).getByLabelText("Expense category") as HTMLInputElement)
+        .value,
+    ).toBe("Beans");
+    fireEvent.change(within(dialog).getByLabelText("Expense amount in pesos"), {
+      target: { value: "1350" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Expense note"), {
+      target: { value: "New beans" },
+    });
+    fireEvent.submit(within(dialog).getByLabelText("Edit expense form"));
+
+    await vi.waitFor(() => expect(edited).toHaveLength(1));
+    expect(edited[0]).toEqual({
+      url: "/api/expenses/1",
+      body: {
+        date: "2026-10-12",
+        category: "Beans",
+        amount_cents: 135000,
+        note: "New beans",
+      },
+    });
+  });
+
+  it("deletes an expense after confirmation", async () => {
+    stubFetch();
+    renderPage();
+    await screen.findByText("Beans");
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete Beans" }));
+    const dialog = screen.getByRole("dialog", { name: "Delete Beans" });
+    expect(within(dialog).getByText(/₱1200/)).toBeDefined();
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Delete expense" }),
+    );
+    await vi.waitFor(() => expect(deleted).toEqual(["/api/expenses/1"]));
   });
 
   it("uses the shared field style in the add form", async () => {
