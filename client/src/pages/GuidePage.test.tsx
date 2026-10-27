@@ -212,9 +212,12 @@ describe("GuidePage recipe modal", () => {
     await screen.findByRole("button", { name: "Spanish Latte" });
 
     fireEvent.click(screen.getByRole("button", { name: "Dark Mocha" }));
-    await screen.findByRole("dialog");
+    const dialog = await screen.findByRole("dialog");
     await screen.findByText("D. Mocha base — 15 ml");
-    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(
+      within(dialog).getAllByRole("heading", { name: /Dark Mocha/ }),
+    ).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.getByRole("button", { name: "Spanish Latte" })).toBeDefined();
     expect(screen.getByRole("button", { name: "Dark Mocha" })).toBeDefined();

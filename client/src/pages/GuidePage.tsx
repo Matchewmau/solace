@@ -647,14 +647,9 @@ export default function GuidePage() {
                   detailQuery.data?.menu_item_name ?? active?.menu_item_name ?? "…"
                 }`}
               >
-                <div className="flex items-start justify-between gap-4">
-                  <p className="label text-xs text-muted">
-                    Solace &middot; Recipe
-                  </p>
-                  <Button variant="outline" onClick={handleClose}>
-                    Close
-                  </Button>
-                </div>
+                <p className="label text-xs text-muted">
+                  Solace &middot; Recipe
+                </p>
                 {detailQuery.isLoading ? (
                   <p className="mt-4 text-muted" aria-busy="true">
                     Loading recipe…
@@ -675,9 +670,6 @@ export default function GuidePage() {
                   </div>
                 ) : detailQuery.data ? (
                   <div>
-                    <h2 className="mt-2 text-2xl font-semibold">
-                      {detailQuery.data.menu_item_name}
-                    </h2>
                     <h3 className="mt-6 text-sm font-semibold">Steps</h3>
                     <p className="mt-2 whitespace-pre-line text-base">
                       {detailQuery.data.steps}

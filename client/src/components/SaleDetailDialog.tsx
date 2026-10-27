@@ -33,12 +33,6 @@ export default function SaleDetailDialog({
 
   return (
     <Dialog open={saleId !== null} onClose={onClose} title={title}>
-      <div className="flex items-start justify-between gap-4">
-        <p className="label text-xs text-muted">Solace &middot; Sale</p>
-        <Button variant="outline" onClick={onClose}>
-          Close
-        </Button>
-      </div>
       {detailQuery.isLoading ? (
         <p className="mt-4 text-muted" aria-busy="true">
           Loading sale…
@@ -62,7 +56,7 @@ export default function SaleDetailDialog({
       ) : detailQuery.data ? (
         <div className="mt-2">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-2xl font-semibold">{title}</h2>
+            <p className="label text-xs text-muted">Solace &middot; Sale</p>
             <div className="flex items-center gap-2">
               {statusBadge(detailQuery.data)}
               <span className="text-sm font-semibold">

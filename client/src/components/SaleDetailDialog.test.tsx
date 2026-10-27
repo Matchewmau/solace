@@ -61,8 +61,11 @@ describe("SaleDetailDialog", () => {
     const { onClose } = renderDialog();
     const dialog = await screen.findByRole("dialog", { name: "Sale #42" });
 
-    expect(within(dialog).getByText("Solace · Sale")).toBeDefined();
+    expect(await within(dialog).findByText("Solace · Sale")).toBeDefined();
     expect(await within(dialog).findByText("2026-10-12 · 14:35")).toBeDefined();
+    expect(
+      within(dialog).getAllByRole("heading", { name: "Sale #42" }),
+    ).toHaveLength(1);
     expect(within(dialog).getByText("Paid")).toBeDefined();
     expect(within(dialog).getByText("Cash")).toBeDefined();
     expect(within(dialog).getByText("Cortado (Iced) × 2")).toBeDefined();
@@ -74,7 +77,7 @@ describe("SaleDetailDialog", () => {
     expect(within(dialog).getByText("Change")).toBeDefined();
     expect(within(dialog).getByText("₱60")).toBeDefined();
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close dialog" }));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
