@@ -1933,7 +1933,7 @@ export function createApp(dbPath, opts = {}) {
 
   // --- loans (Task 12: money YOU owe; no interest or amortization) ---
   const LOAN_COLS =
-    "id, lender, principal_cents, balance_cents, installment_cents, due_date, due_day, frequency, end_date, alert_days";
+    "id, lender, principal_cents, balance_cents, installment_cents, due_date, due_day, frequency, end_date, alert_days, (SELECT COUNT(*) FROM loan_payments WHERE loan_id = loans.id) AS payment_count";
   const LOAN_PAYMENT_COLS = "id, loan_id, amount_cents, paid_at";
 
   function loanRow(id) {
@@ -2109,16 +2109,19 @@ export function createApp(dbPath, opts = {}) {
     res.json(loanRow(id));
   });
 
-  // DELETE RULE (Task 12, verbatim): a loan may be deleted ONLY when
-  // balance_cents == 0; otherwise 400. Fully-paid loans carry no further
-  // obligation, so the delete also removes their loan_payments history rows
-  // (in the same transaction as the loan row) to leave no orphans.
+  // DELETE RULE: a loan may be deleted ONLY when it is still untouched —
+  // a settled loan (balance_cents == 0) is kept as history, and any loan with
+  // payment rows (payment_count > 0) keeps them. Otherwise the delete removes
+  // the loan row in a transaction.
   app.delete("/api/loans/:id", (req, res) => {
     const id = parseId(req.params.id);
     const current = id ? loanRow(id) : undefined;
     if (!current) return sendError(res, 404, "loan not found");
-    if (current.balance_cents !== 0) {
-      return sendError(res, 400, "loan has an outstanding balance");
+    if (current.balance_cents === 0) {
+      return sendError(res, 400, "settled loan cannot be deleted");
+    }
+    if (current.payment_count > 0) {
+      return sendError(res, 400, "loan has payment history");
     }
     const remove = db.transaction(() => {
       db.prepare("DELETE FROM loan_payments WHERE loan_id = ?").run(id);

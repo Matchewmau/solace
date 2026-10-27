@@ -153,22 +153,30 @@ describe("loans CRUD (Task 12)", () => {
     expect(bad.body.error).toEqual(expect.any(String));
   });
 
-  it("DELETE with balance -> 400 and the loan survives; DELETE at zero -> 204 with payments", async () => {
-    const owing = await createLoan({ lender: "Owing Lender" });
-    const blocked = await api
-      .delete(`/api/loans/${owing.id}`)
-      .expect(400);
-    expect(blocked.body.error).toEqual(expect.any(String));
-    await api.get(`/api/loans/${owing.id}`).expect(200);
+  it("includes payment_count and blocks deletes with payment history", async () => {
+    const fresh = await createLoan({ lender: "Fresh Lender" });
+    expect(fresh.payment_count).toBe(0);
 
-    const clear = await createLoan({ lender: "Clear Lender" });
     await api
-      .post(`/api/loans/${clear.id}/payments`)
-      .send({ amount_cents: 100000 })
+      .post(`/api/loans/${fresh.id}/payments`)
+      .send({ amount_cents: 10000 })
       .expect(201);
-    await api.delete(`/api/loans/${clear.id}`).expect(204);
-    await api.get(`/api/loans/${clear.id}`).expect(404);
-    await api.get(`/api/loans/${clear.id}/payments`).expect(404);
+
+    const row = (await api.get(`/api/loans/${fresh.id}`).expect(200)).body;
+    expect(row.payment_count).toBe(1);
+    const blocked = await api.delete(`/api/loans/${fresh.id}`).expect(400);
+    expect(blocked.body.error).toBe("loan has payment history");
+    await api.get(`/api/loans/${fresh.id}`).expect(200);
+  });
+
+  it("deletes an untouched loan and rejects a settled one", async () => {
+    const untouched = await createLoan({ lender: "Untouched Lender" });
+    await api.delete(`/api/loans/${untouched.id}`).expect(204);
+    await api.get(`/api/loans/${untouched.id}`).expect(404);
+
+    const settled = await createLoan({ lender: "Settled Lender", balance_cents: 0 });
+    const blocked = await api.delete(`/api/loans/${settled.id}`).expect(400);
+    expect(blocked.body.error).toBe("settled loan cannot be deleted");
     await api.delete("/api/loans/999999").expect(404);
   });
 });
