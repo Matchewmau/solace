@@ -4,6 +4,8 @@ import { fetchDashboard, type UpcomingDue } from "../api/dashboard";
 import { fetchExpenses } from "../api/finance";
 import { formatPeso } from "../lib/formatPeso";
 import { Donut } from "../components/charts";
+import { Dialog } from "../components/Dialog";
+import { MiniPager } from "../components/MiniPager";
 import { Badge, Box, Button, PageFrame, StatChip } from "../components/ui";
 import {
   Reveal,
@@ -12,7 +14,7 @@ import {
   StaggerList,
   StaggerSection,
 } from "../components/motion";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 /**
  * Finance money dashboard (/finance). The long per-ledger lists moved to the
@@ -36,6 +38,30 @@ const LEDGER_BY_KIND: Record<UpcomingDue["kind"], string> = {
   payable: "/finance/payables",
   loan: "/finance/loans",
 };
+
+/** Human name of each due kind, shown as a badge in the all-dues modal. */
+const DUE_KIND_LABEL: Record<UpcomingDue["kind"], string> = {
+  bill: "Bill",
+  payable: "Payable",
+  loan: "Loan",
+};
+
+/** Both dashboard lists page three rows at a time. */
+const PAGE_SIZE = 3;
+
+/** Clamp the page into range and slice out its rows. */
+function pageSlice<T>(rows: T[], page: number, size: number) {
+  const pageCount = Math.max(1, Math.ceil(rows.length / size));
+  const current = Math.min(page, pageCount);
+  const start = (current - 1) * size;
+  return {
+    pageCount,
+    current,
+    rows: rows.slice(start, start + size),
+    start,
+    end: Math.min(start + size, rows.length),
+  };
+}
 
 const MONTH_NAMES = [
   "January",
@@ -86,6 +112,37 @@ function DueBadge({ due }: { due: UpcomingDue }) {
   return null;
 }
 
+/**
+ * Shared due row content: kind badge, ledger link, due status/date, amount.
+ * Callers wrap it in the page list item or the all-dues modal item.
+ */
+function DueRow({ due }: { due: UpcomingDue }) {
+  return (
+    <>
+      <div className="min-w-0">
+        <Link
+          to={LEDGER_BY_KIND[due.kind]}
+          className="font-semibold underline-offset-2 hover:text-accent hover:underline"
+        >
+          {due.label}
+        </Link>
+        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted">
+          <Badge>{DUE_KIND_LABEL[due.kind]}</Badge>
+          <DueBadge due={due} />
+          <span>
+            {due.overdue ? "Was due " : "Due "}
+            <span>{due.due}</span>
+          </span>
+          {!due.overdue && due.days_until > 3 ? (
+            <span>Due in {due.days_until} days</span>
+          ) : null}
+        </div>
+      </div>
+      <p className="shrink-0 font-semibold">{formatPeso(due.amount_cents)}</p>
+    </>
+  );
+}
+
 function LoadingSkeleton() {
   return (
     <div
@@ -127,6 +184,10 @@ function DrillBox({
 }
 
 export default function FinancePage() {
+  const [duesPage, setDuesPage] = useState(1);
+  const [expensesPage, setExpensesPage] = useState(1);
+  const [duesModalOpen, setDuesModalOpen] = useState(false);
+
   const dashboardQuery = useQuery({
     queryKey: ["dashboard"],
     queryFn: () => fetchDashboard(),
@@ -151,12 +212,14 @@ export default function FinancePage() {
     (data?.unpaid_bills_cents ?? 0) +
     (data?.unpaid_payables_cents ?? 0) +
     (data?.outstanding_loans_cents ?? 0);
-  const recentExpenses = [...(expensesQuery.data ?? [])]
-    .sort((a, b) => {
-      if (a.date !== b.date) return a.date < b.date ? 1 : -1;
-      return b.id - a.id;
-    })
-    .slice(0, 5);
+  const dues = data?.upcoming_dues ?? [];
+  const duesSlice = pageSlice(dues, duesPage, PAGE_SIZE);
+  const duesTotal = dues.reduce((sum, due) => sum + due.amount_cents, 0);
+  const sortedExpenses = [...(expensesQuery.data ?? [])].sort((a, b) => {
+    if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+    return b.id - a.id;
+  });
+  const expensesSlice = pageSlice(sortedExpenses, expensesPage, PAGE_SIZE);
   const segments = [
     { label: "Bills", value: byKind?.bills_cents ?? 0, color: MONEY_OUT_COLOR.bills },
     {
@@ -289,42 +352,45 @@ export default function FinancePage() {
             </StaggerSection>
             <StaggerSection>
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                <Box title="Upcoming dues">
-                  {data.upcoming_dues.length === 0 ? (
+                <Box
+                  title="Upcoming dues"
+                  action={
+                    dues.length > 0 ? (
+                      <Button
+                        variant="ghost"
+                        onClick={() => setDuesModalOpen(true)}
+                      >
+                        View all
+                      </Button>
+                    ) : undefined
+                  }
+                >
+                  {dues.length === 0 ? (
                     <p className="text-sm text-muted">
                       Nothing due in the next 7 days.
                     </p>
                   ) : (
-                    <StaggerList className="divide-y divide-ink/10">
-                      {data.upcoming_dues.map((due, index) => (
-                        <StaggerItem
-                          key={`${due.kind}-${due.label}-${due.due}-${index}`}
-                          className="flex items-start justify-between gap-4 py-3 first:pt-0 last:pb-0"
-                        >
-                          <div className="min-w-0">
-                            <Link
-                              to={LEDGER_BY_KIND[due.kind]}
-                              className="font-semibold underline-offset-2 hover:text-accent hover:underline"
-                            >
-                              {due.label}
-                            </Link>
-                            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted">
-                              <DueBadge due={due} />
-                              <span>
-                                {due.overdue ? "Was due " : "Due "}
-                                <span>{due.due}</span>
-                              </span>
-                              {!due.overdue && due.days_until > 3 ? (
-                                <span>Due in {due.days_until} days</span>
-                              ) : null}
-                            </div>
-                          </div>
-                          <p className="shrink-0 font-semibold">
-                            {formatPeso(due.amount_cents)}
-                          </p>
-                        </StaggerItem>
-                      ))}
-                    </StaggerList>
+                    <>
+                      <StaggerList className="divide-y divide-ink/10">
+                        {duesSlice.rows.map((due, index) => (
+                          <StaggerItem
+                            key={`${due.kind}-${due.label}-${due.due}-${index}`}
+                            className="flex items-start justify-between gap-4 py-3 first:pt-0 last:pb-0"
+                          >
+                            <DueRow due={due} />
+                          </StaggerItem>
+                        ))}
+                      </StaggerList>
+                      <MiniPager
+                        page={duesSlice.current}
+                        pageCount={duesSlice.pageCount}
+                        summary={`Showing ${duesSlice.start + 1}–${duesSlice.end} of ${dues.length}`}
+                        previousLabel="Previous upcoming dues"
+                        nextLabel="Next upcoming dues"
+                        onPrevious={() => setDuesPage(duesSlice.current - 1)}
+                        onNext={() => setDuesPage(duesSlice.current + 1)}
+                      />
+                    </>
                   )}
                 </Box>
                 <Box
@@ -354,30 +420,45 @@ export default function FinancePage() {
                         Retry
                       </Button>
                     </div>
-                  ) : recentExpenses.length === 0 ? (
+                  ) : sortedExpenses.length === 0 ? (
                     <p className="text-sm text-muted">
                       No expenses logged yet.
                     </p>
                   ) : (
-                    <StaggerList className="divide-y divide-ink/10">
-                      {recentExpenses.map((expense) => (
-                        <StaggerItem
-                          key={expense.id}
-                          className="flex items-start justify-between gap-4 py-3 first:pt-0 last:pb-0"
-                        >
-                          <div className="min-w-0">
-                            <p className="font-semibold">{expense.category}</p>
-                            {expense.note ? (
-                              <p className="text-sm text-muted">{expense.note}</p>
-                            ) : null}
-                            <p className="text-xs text-muted">{expense.date}</p>
-                          </div>
-                          <p className="shrink-0 font-semibold">
-                            {formatPeso(expense.amount_cents)}
-                          </p>
-                        </StaggerItem>
-                      ))}
-                    </StaggerList>
+                    <>
+                      <StaggerList className="divide-y divide-ink/10">
+                        {expensesSlice.rows.map((expense) => (
+                          <StaggerItem
+                            key={expense.id}
+                            className="flex items-start justify-between gap-4 py-3 first:pt-0 last:pb-0"
+                          >
+                            <div className="min-w-0">
+                              <p className="font-semibold">{expense.category}</p>
+                              {expense.note ? (
+                                <p className="text-sm text-muted">{expense.note}</p>
+                              ) : null}
+                              <p className="text-xs text-muted">{expense.date}</p>
+                            </div>
+                            <p className="shrink-0 font-semibold">
+                              {formatPeso(expense.amount_cents)}
+                            </p>
+                          </StaggerItem>
+                        ))}
+                      </StaggerList>
+                      <MiniPager
+                        page={expensesSlice.current}
+                        pageCount={expensesSlice.pageCount}
+                        summary={`Showing ${expensesSlice.start + 1}–${expensesSlice.end} of ${sortedExpenses.length}`}
+                        previousLabel="Previous recent expenses"
+                        nextLabel="Next recent expenses"
+                        onPrevious={() =>
+                          setExpensesPage(expensesSlice.current - 1)
+                        }
+                        onNext={() =>
+                          setExpensesPage(expensesSlice.current + 1)
+                        }
+                      />
+                    </>
                   )}
                 </Box>
               </div>
@@ -426,6 +507,28 @@ export default function FinancePage() {
           </StaggerGroup>
         )}
       </PageFrame>
+      <Dialog
+        open={duesModalOpen}
+        onClose={() => setDuesModalOpen(false)}
+        title="All upcoming dues"
+      >
+        <p className="text-sm text-muted">
+          {`${dues.length} ${dues.length === 1 ? "due" : "dues"} · ${formatPeso(duesTotal)}`}
+        </p>
+        <p className="text-sm text-muted">
+          Overdue and due in the next 7 days
+        </p>
+        <ul className="mt-4 max-h-[60vh] divide-y divide-ink/10 overflow-y-auto">
+          {dues.map((due, index) => (
+            <li
+              key={`${due.kind}-${due.label}-${due.due}-${index}`}
+              className="flex items-start justify-between gap-4 py-3 first:pt-0 last:pb-0"
+            >
+              <DueRow due={due} />
+            </li>
+          ))}
+        </ul>
+      </Dialog>
     </main>
   );
 }

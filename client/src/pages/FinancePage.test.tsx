@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import FinancePage from "./FinancePage";
@@ -74,6 +80,14 @@ const dashboard: Dashboard = {
       due: "2026-10-30",
       overdue: false,
       days_until: 10,
+    },
+    {
+      kind: "bill",
+      label: "Water bill",
+      amount_cents: 5000,
+      due: "2026-11-01",
+      overdue: false,
+      days_until: 3,
     },
   ],
   loans: [],
@@ -398,6 +412,45 @@ describe("FinancePage upcoming dues", () => {
     ).toBe("/finance/loans");
   });
 
+  it("pages upcoming dues three at a time", async () => {
+    stubDashboard();
+    renderFinance();
+    const dues = await screen.findByRole("region", { name: "Upcoming dues" });
+
+    expect(within(dues).getAllByRole("listitem")).toHaveLength(3);
+    expect(within(dues).getByText("Showing 1–3 of 4")).toBeDefined();
+    expect(within(dues).getByText("Page 1 of 2")).toBeDefined();
+    expect(within(dues).queryByText("Water bill")).toBeNull();
+
+    fireEvent.click(
+      within(dues).getByRole("button", { name: "Next upcoming dues" }),
+    );
+    expect(within(dues).getAllByRole("listitem")[0].textContent).toContain("Water bill");
+    expect(within(dues).getByText("Page 2 of 2")).toBeDefined();
+    fireEvent.click(
+      within(dues).getByRole("button", { name: "Previous upcoming dues" }),
+    );
+    expect(within(dues).getByText("Page 1 of 2")).toBeDefined();
+  });
+
+  it("opens every due in a modal from View all", async () => {
+    stubDashboard();
+    renderFinance();
+    const dues = await screen.findByRole("region", { name: "Upcoming dues" });
+
+    fireEvent.click(within(dues).getByRole("button", { name: "View all" }));
+    const dialog = screen.getByRole("dialog", { name: "All upcoming dues" });
+    expect(within(dialog).getByText("4 dues · ₱2420")).toBeDefined();
+    expect(
+      within(dialog).getByText("Overdue and due in the next 7 days"),
+    ).toBeDefined();
+    expect(within(dialog).getAllByRole("listitem")).toHaveLength(4);
+    expect(within(dialog).getByText("Water bill")).toBeDefined();
+    expect(within(dialog).getAllByText("Bill")).toHaveLength(2);
+    expect(within(dialog).getByText("Payable")).toBeDefined();
+    expect(within(dialog).getByText("Loan")).toBeDefined();
+  });
+
   it("shows an empty state when nothing is due", async () => {
     stubDashboard({ ...dashboard, upcoming_dues: [] });
     renderFinance();
@@ -407,10 +460,22 @@ describe("FinancePage upcoming dues", () => {
       within(dues).getByText("Nothing due in the next 7 days."),
     ).toBeDefined();
   });
+
+  it("shows no pager or View all on an empty dues list", async () => {
+    stubDashboard({ ...dashboard, upcoming_dues: [] });
+    renderFinance();
+    const dues = await screen.findByRole("region", { name: "Upcoming dues" });
+    expect(
+      within(dues).queryByRole("button", { name: "Next upcoming dues" }),
+    ).toBeNull();
+    expect(
+      within(dues).queryByRole("button", { name: "View all" }),
+    ).toBeNull();
+  });
 });
 
 describe("FinancePage recent expenses", () => {
-  it("shows the five newest expenses, latest date first then newest id", async () => {
+  it("shows the three newest expenses, latest date first then newest id", async () => {
     stubDashboard();
     renderFinance();
 
@@ -420,18 +485,43 @@ describe("FinancePage recent expenses", () => {
     await within(recent).findByText("Two bags");
 
     const rows = within(recent).getAllByRole("listitem");
-    expect(rows).toHaveLength(5);
+    expect(rows).toHaveLength(3);
     expect(rows[0].textContent).toContain("Ice");
     expect(rows[1].textContent).toContain("Milk");
     expect(rows[2].textContent).toContain("Cups");
-    expect(rows[3].textContent).toContain("Beans");
-    expect(rows[4].textContent).toContain("Rent");
-    // The sixth, oldest expense is outside the five-row window.
-    expect(within(recent).queryByText("Soap")).toBeNull();
+    // The older expenses are outside the first page.
+    expect(within(recent).queryByText("Beans")).toBeNull();
 
     expect(
       within(recent).getByRole("link", { name: "View all" }).getAttribute("href"),
     ).toBe("/finance/expenses");
+  });
+
+  it("pages recent expenses three at a time, newest first", async () => {
+    stubDashboard();
+    renderFinance();
+    const recent = await screen.findByRole("region", { name: "Recent expenses" });
+    await within(recent).findByText("Two bags");
+
+    let rows = within(recent).getAllByRole("listitem");
+    expect(rows).toHaveLength(3);
+    expect(rows.map((row) => row.textContent)).toEqual([
+      expect.stringContaining("Ice"),
+      expect.stringContaining("Milk"),
+      expect.stringContaining("Cups"),
+    ]);
+    expect(within(recent).getByText("Showing 1–3 of 6")).toBeDefined();
+
+    fireEvent.click(
+      within(recent).getByRole("button", { name: "Next recent expenses" }),
+    );
+    rows = within(recent).getAllByRole("listitem");
+    expect(rows.map((row) => row.textContent)).toEqual([
+      expect.stringContaining("Beans"),
+      expect.stringContaining("Rent"),
+      expect.stringContaining("Soap"),
+    ]);
+    expect(within(recent).getByText("Showing 4–6 of 6")).toBeDefined();
   });
 
   it("shows an empty state when no expenses are logged", async () => {
