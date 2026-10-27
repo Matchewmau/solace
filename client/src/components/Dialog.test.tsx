@@ -39,6 +39,13 @@ describe("Dialog", () => {
     expect(panel.contains(document.activeElement)).toBe(true);
   });
 
+  it("renders the title as a visible heading and a close control", () => {
+    const onClose = renderOpen();
+    expect(screen.getByRole("heading", { name: "Add bill" })).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it("calls onClose once on Escape", () => {
     const onClose = renderOpen();
     fireEvent.keyDown(document, { key: "Escape" });
@@ -93,7 +100,7 @@ describe("Dialog", () => {
 
   it("wraps Tab and Shift-Tab within the panel's focusable elements", () => {
     renderOpen();
-    const first = screen.getByRole("button", { name: "First" });
+    const first = screen.getByRole("button", { name: "Close dialog" });
     const last = screen.getByRole("button", { name: "Last" });
 
     last.focus();

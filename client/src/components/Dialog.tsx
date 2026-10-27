@@ -126,6 +126,17 @@ export function Dialog({
         onClick={(event) => event.stopPropagation()}
         className={`sheet-up max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto overscroll-contain rounded-box bg-paper px-6 pt-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] text-ink shadow-sheet ${className}`.trim()}
       >
+        <header className="mb-4 flex items-start justify-between gap-3">
+          <h2 className="text-2xl font-semibold">{title}</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close dialog"
+            className="press -mr-3 -mt-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-box text-2xl text-muted hover:bg-ink/[0.04] focus-visible:bg-ink/[0.04]"
+          >
+            <span aria-hidden="true">&times;</span>
+          </button>
+        </header>
         {children}
       </div>
     </div>
