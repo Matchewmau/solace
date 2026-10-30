@@ -19,7 +19,7 @@ export type MovementReason = "delivery" | "used" | "adjustment" | "waste";
 
 /** Human labels shared by the inventory list and its history route. */
 export const MOVEMENT_LABELS: Record<MovementReason, string> = {
-  delivery: "Delivery",
+  delivery: "Added",
   used: "Used",
   waste: "Waste",
   adjustment: "Count correction",

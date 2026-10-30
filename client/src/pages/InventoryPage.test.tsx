@@ -88,7 +88,7 @@ function row(name: string): HTMLElement {
 /** Clicks one explicit row movement action and returns the opened dialog. */
 function openMovementDialog(
   name: string,
-  action: "Delivery" | "Use" | "Count" = "Delivery",
+  action: "Add" | "Use" | "Count" = "Add",
 ): Promise<HTMLElement> {
   fireEvent.click(screen.getByRole("button", { name: `${action} ${name}` }));
   return screen.findByRole("dialog", { name: `Record movement — ${name}` });
@@ -273,6 +273,57 @@ describe("InventoryPage with mocked data", () => {
     expect(link.className).toContain("action-link");
     expect(link.className).toContain("gap-2");
   });
+
+  it("labels the stock action Add and the movement option Add stock", async () => {
+    stubFetch();
+    renderInventory();
+    await screen.findByText("Milk");
+
+    expect(screen.getByRole("button", { name: "Add Milk" })).toBeDefined();
+    const dialog = await openMovementDialog("Milk");
+    expect(
+      (within(dialog).getByLabelText("Movement type") as HTMLSelectElement).selectedOptions[0].textContent,
+    ).toBe("Add stock");
+  });
+
+  it("previews the resulting stock and refuses to go negative", async () => {
+    stubFetch();
+    renderInventory();
+    await screen.findByText("Milk");
+
+    const dialog = await openMovementDialog("Milk");
+    fireEvent.change(within(dialog).getByLabelText("Quantity"), { target: { value: "2" } });
+    expect(within(dialog).getByText("After saving: 47 ml")).toBeDefined();
+
+    fireEvent.change(within(dialog).getByLabelText("Movement type"), { target: { value: "used" } });
+    fireEvent.change(within(dialog).getByLabelText("Quantity"), { target: { value: "50" } });
+    expect(within(dialog).getByText("Only 45 ml in stock.")).toBeDefined();
+    submitMovement(dialog, "Milk");
+    expect(posted).toHaveLength(0);
+  });
+
+  it("shows Unit price and Value columns matching the Total value chip", async () => {
+    stubFetch();
+    renderInventory();
+    await screen.findByText("Milk");
+
+    expect(screen.getByRole("columnheader", { name: "Unit price" })).toBeDefined();
+    expect(screen.getByRole("columnheader", { name: "Value" })).toBeDefined();
+    const milk = row("Milk");
+    expect(within(milk).getByText("₱2.50")).toBeDefined();
+    expect(within(milk).getByText("₱112.50")).toBeDefined();
+  });
+
+  it("shows the current quantity read-only in the edit dialog", async () => {
+    stubFetch();
+    renderInventory();
+    await screen.findByText("Milk");
+
+    fireEvent.click(screen.getByLabelText("Edit Milk"));
+    const dialog = await screen.findByRole("dialog", { name: "Edit Milk" });
+    expect(within(dialog).getByText("Current quantity: 45 ml")).toBeDefined();
+    expect(dialog.querySelector('input[name="qty"]')).toBeNull();
+  });
 });
 
 describe("InventoryPage add-item dialog (review fix wave)", () => {
@@ -314,6 +365,10 @@ describe("InventoryPage add-item dialog (review fix wave)", () => {
       target: { value: "500" },
     });
     fireEvent.change(
+      form.querySelector('input[name="price"]') as HTMLInputElement,
+      { target: { value: "15" } },
+    );
+    fireEvent.change(
       form.querySelector('input[name="threshold"]') as HTMLInputElement,
       { target: { value: "50" } },
     );
@@ -328,6 +383,7 @@ describe("InventoryPage add-item dialog (review fix wave)", () => {
       unit: "g",
       qty: 500,
       low_threshold: 50,
+      price_cents: 1500,
     });
     expect(new Headers(created[0].headers as HeadersInit).get("x-solace-auth")).toBe(
       "solace123",
@@ -393,6 +449,7 @@ describe("InventoryPage add-item dialog (review fix wave)", () => {
       unit: "",
       qty: 0,
       low_threshold: 0,
+      price_cents: 0,
     });
   });
 });
@@ -485,13 +542,13 @@ describe("InventoryPage price, edit, delete, restock (Task 8)", () => {
     fireEvent.change(within(dialog).getByLabelText("Item name"), {
       target: { value: "Oat Milk" },
     });
-    fireEvent.change(within(dialog).getByLabelText("Price in pesos"), {
+    fireEvent.change(within(dialog).getByLabelText("Price per unit in pesos"), {
       target: { value: "3.75" },
     });
     fireEvent.change(within(dialog).getByLabelText("Unit"), {
       target: { value: "L" },
     });
-    fireEvent.change(within(dialog).getByLabelText("Low threshold"), {
+    fireEvent.change(within(dialog).getByLabelText("Low-stock threshold"), {
       target: { value: "5" },
     });
     fireEvent.submit(within(dialog).getByLabelText("Edit Milk form").closest("form") as HTMLFormElement);
@@ -578,7 +635,7 @@ describe("InventoryPage price, edit, delete, restock (Task 8)", () => {
 
     fireEvent.click(screen.getByLabelText("Edit Milk"));
     const dialog = await screen.findByRole("dialog", { name: "Edit Milk" });
-    fireEvent.change(within(dialog).getByLabelText("Low threshold"), {
+    fireEvent.change(within(dialog).getByLabelText("Low-stock threshold"), {
       target: { value: "5.5" },
     });
     fireEvent.submit(within(dialog).getByLabelText("Edit Milk form").closest("form") as HTMLFormElement);
@@ -599,7 +656,7 @@ describe("InventoryPage standard unit pickers", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "+ Add item" }));
     const dialog = await screen.findByRole("dialog", { name: "Add stock item" });
-    const unit = within(dialog).getByLabelText("Stock item unit") as HTMLSelectElement;
+    const unit = within(dialog).getByLabelText("Unit") as HTMLSelectElement;
     expect(unit.tagName).toBe("SELECT");
     const labels = Array.from(unit.querySelectorAll("option")).map((option) =>
       option.textContent?.trim(),
@@ -665,13 +722,13 @@ describe("InventoryPage standard unit pickers", () => {
 });
 
 describe("InventoryPage kitchen stock actions (Task 5)", () => {
-  it("offers explicit Delivery, Use, and Count actions without recipe links", async () => {
+  it("offers explicit Add, Use, and Count actions without recipe links", async () => {
     stubFetch();
     renderInventory();
     await screen.findByText("Milk");
 
     expect(
-      screen.getByRole("button", { name: "Delivery Milk" }),
+      screen.getByRole("button", { name: "Add Milk" }),
     ).toBeDefined();
     expect(screen.getByRole("button", { name: "Use Milk" })).toBeDefined();
     expect(screen.getByRole("button", { name: "Count Milk" })).toBeDefined();

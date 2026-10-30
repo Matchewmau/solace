@@ -104,7 +104,7 @@ describe("InventoryHistoryPage (own route)", () => {
 
     const table = await screen.findByRole("table", { name: "Movement history" });
     expect(table.textContent).toContain("Waste");
-    expect(table.textContent).toContain("Delivery");
+    expect(table.textContent).toContain("Added");
     expect(table.textContent).toContain("Used");
     expect(table.textContent).toContain("Count correction");
     expect(table.textContent).toContain("Milk · ml");

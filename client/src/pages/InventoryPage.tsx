@@ -16,6 +16,7 @@ import { formatPeso } from "../lib/formatPeso";
 import { canonicalUnit } from "../lib/units";
 import DataTable, { type Column } from "../components/DataTable";
 import { Dialog } from "../components/Dialog";
+import { Field } from "../components/Field";
 import { UnitSelect } from "../components/UnitSelect";
 import { Badge, Box, Button, PageFrame, StatChip } from "../components/ui";
 
@@ -31,7 +32,7 @@ function LoadingSkeleton() {
 
 /** The four movement kinds, in the order the dialog offers them. */
 const MOVEMENT_OPTIONS: { value: MovementReason; label: string }[] = [
-  { value: "delivery", label: "Delivery" },
+  { value: "delivery", label: "Add stock" },
   { value: "used", label: "Used" },
   { value: "waste", label: "Waste" },
   { value: "adjustment", label: "Count correction" },
@@ -52,9 +53,11 @@ interface MovementDialogProps {
 }
 
 /**
- * Record a stock movement: Delivery adds, Used/Waste subtract, Count
+ * Record a stock movement: Add (delivery) adds, Used/Waste subtract, Count
  * correction records the difference to a new counted total. qty is never
  * written directly — every change travels through the movements ledger.
+ * A live preview shows the resulting count and outbound movements that
+ * would take stock below zero are blocked locally.
  */
 function MovementDialog({
   item,
@@ -65,12 +68,23 @@ function MovementDialog({
   onRecord,
 }: MovementDialogProps) {
   const [reason, setReason] = useState<MovementReason>(initialReason);
+  const [qtyText, setQtyText] = useState("");
   const isSetCount = reason === "adjustment";
   const noteLabel = reason === "used" ? "Used for" : "Note";
   const notePlaceholder =
     reason === "used"
       ? "Cafe/Food note (e.g. 2 lattes)"
       : "Optional note";
+  const entered = Number(qtyText);
+  const qtyEntered =
+    qtyText.trim() !== "" && Number.isFinite(entered) && entered >= 0;
+  const result = isSetCount
+    ? entered
+    : reason === "delivery"
+      ? item.qty + entered
+      : item.qty - entered;
+  const outboundOverStock =
+    (reason === "used" || reason === "waste") && entered > item.qty;
 
   return (
     <Dialog open onClose={onClose} title={`Record movement — ${item.name}`}>
@@ -92,11 +106,11 @@ function MovementDialog({
           }
           if (qty <= 0) return;
           const outbound = selected === "waste" || selected === "used";
+          if (outbound && qty > item.qty) return;
           onRecord(item, outbound ? -qty : qty, selected, note);
         }}
       >
-        <label className="flex flex-col gap-1 text-sm">
-          <span>Type</span>
+        <Field label="Type">
           <select
             name="reason"
             value={reason}
@@ -110,22 +124,22 @@ function MovementDialog({
               </option>
             ))}
           </select>
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          <span>Quantity</span>
+        </Field>
+        <Field label="Quantity">
           <input
             name="qty"
             type="number"
             min="0"
             step="any"
             required
+            value={qtyText}
+            onChange={(event) => setQtyText(event.target.value)}
             placeholder={isSetCount ? "New count" : "Qty"}
             aria-label="Quantity"
             className="field"
           />
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          <span>{noteLabel}</span>
+        </Field>
+        <Field label={noteLabel}>
           <input
             name="note"
             type="text"
@@ -134,15 +148,13 @@ function MovementDialog({
             aria-label={noteLabel}
             className="field"
           />
-        </label>
+        </Field>
         <p className="text-sm text-muted">
-          {isSetCount
-            ? `Records the difference from ${item.qty} to the new count.`
-            : reason === "used"
-              ? "How much went into drinks or food."
-              : reason === "waste"
-                ? "How much spoiled or was thrown away."
-                : "How many units arrived."}
+          {!qtyEntered
+            ? `Current stock: ${item.qty} ${item.unit}`
+            : outboundOverStock
+              ? `Only ${item.qty} ${item.unit} in stock.`
+              : `After saving: ${result} ${item.unit}`}
         </p>
         <div className="flex gap-2">
           <Button type="submit" variant="primary" disabled={pending}>
@@ -178,8 +190,9 @@ interface EditDialogProps {
 }
 
 /**
- * Catalog edit dialog: name, price, unit, threshold only. qty is NEVER
- * shown or sent here — counts only change through the movements ledger.
+ * Catalog edit dialog: name, price, unit, threshold only. qty is never
+ * editable — counts only change through the movements ledger, so the
+ * current quantity is shown read-only and qty is never sent.
  */
 function EditDialog({ item, pending, error, onClose, onSave }: EditDialogProps) {
   const pricePesos =
@@ -196,7 +209,7 @@ function EditDialog({ item, pending, error, onClose, onSave }: EditDialogProps) 
           event.preventDefault();
           const data = new FormData(event.currentTarget);
           const name = String(data.get("name") ?? "").trim();
-          const unit = String(data.get("unit") ?? "");
+          const unitValue = String(data.get("unit") ?? "");
           const priceValue = Number(String(data.get("price") ?? ""));
           const thresholdRaw = String(data.get("threshold") ?? "");
           const low_threshold = thresholdRaw === "" ? 0 : Number(thresholdRaw);
@@ -205,48 +218,56 @@ function EditDialog({ item, pending, error, onClose, onSave }: EditDialogProps) 
           if (!Number.isFinite(low_threshold) || !Number.isInteger(low_threshold) || low_threshold < 0) return;
           onSave(item.id, {
             name,
-            unit,
+            unit: unitValue,
             low_threshold,
             price_cents: Math.round(priceValue * 100),
           });
         }}
       >
-        <input
-          name="name"
-          type="text"
-          required
-          defaultValue={item.name}
-          placeholder="Item name"
-          aria-label="Item name"
-          className="field"
-        />
-        <input
-          name="price"
-          type="number"
-          min="0"
-          step="any"
-          required
-          defaultValue={pricePesos}
-          placeholder="Price (₱)"
-          aria-label="Price in pesos"
-          className="field"
-        />
-        <UnitSelect
-          name="unit"
-          value={unit}
-          onChange={setUnit}
-          ariaLabel="Unit"
-        />
-        <input
-          name="threshold"
-          type="number"
-          min="0"
-          step="1"
-          defaultValue={item.low_threshold}
-          placeholder="Threshold"
-          aria-label="Low threshold"
-          className="field"
-        />
+        <p className="text-sm text-muted">
+          Current quantity: {item.qty} {canonicalUnit(item.unit)}
+        </p>
+        <Field label="Item name">
+          <input
+            name="name"
+            type="text"
+            required
+            defaultValue={item.name}
+            aria-label="Item name"
+            className="field"
+          />
+        </Field>
+        <Field label="Unit">
+          <UnitSelect
+            name="unit"
+            value={unit}
+            onChange={setUnit}
+            ariaLabel="Unit"
+          />
+        </Field>
+        <Field label="Price per unit (₱)">
+          <input
+            name="price"
+            type="number"
+            min="0"
+            step="any"
+            required
+            defaultValue={pricePesos}
+            aria-label="Price per unit in pesos"
+            className="field"
+          />
+        </Field>
+        <Field label="Low-stock threshold">
+          <input
+            name="threshold"
+            type="number"
+            min="0"
+            step="1"
+            defaultValue={item.low_threshold}
+            aria-label="Low-stock threshold"
+            className="field"
+          />
+        </Field>
         <div className="flex gap-2">
           <Button type="submit" variant="primary" disabled={pending}>
             Save
@@ -274,6 +295,7 @@ interface AddItemDialogProps {
     unit: string;
     qty: number;
     low_threshold: number;
+    price_cents: number;
   }) => void;
 }
 
@@ -289,49 +311,75 @@ function AddItemDialog({ pending, error, onClose, onAdd }: AddItemDialogProps) {
           event.preventDefault();
           const data = new FormData(event.currentTarget);
           const name = String(data.get("name") ?? "").trim();
-          const unit = String(data.get("unit") ?? "");
+          const unitValue = String(data.get("unit") ?? "");
           const qtyRaw = String(data.get("qty") ?? "");
+          const priceRaw = String(data.get("price") ?? "");
           const thresholdRaw = String(data.get("threshold") ?? "");
           const qty = qtyRaw === "" ? 0 : Number(qtyRaw);
+          const price = priceRaw === "" ? 0 : Number(priceRaw);
           const low_threshold = thresholdRaw === "" ? 0 : Number(thresholdRaw);
           if (name === "") return;
           if (!Number.isFinite(qty) || qty < 0) return;
+          if (!Number.isFinite(price) || price < 0) return;
           if (!Number.isFinite(low_threshold) || low_threshold < 0) return;
-          onAdd({ name, unit, qty, low_threshold });
+          onAdd({
+            name,
+            unit: unitValue,
+            qty,
+            low_threshold,
+            price_cents: Math.round(price * 100),
+          });
         }}
       >
-        <input
-          name="name"
-          type="text"
-          required
-          placeholder="Item name"
-          aria-label="Stock item name"
-          className="field"
-        />
-        <UnitSelect
-          name="unit"
-          value={unit}
-          onChange={setUnit}
-          ariaLabel="Stock item unit"
-        />
-        <input
-          name="qty"
-          type="number"
-          min="0"
-          step="any"
-          placeholder="Qty (0)"
-          aria-label="Stock item quantity"
-          className="field"
-        />
-        <input
-          name="threshold"
-          type="number"
-          min="0"
-          step="any"
-          placeholder="Threshold (0)"
-          aria-label="Stock item threshold"
-          className="field"
-        />
+        <Field label="Item name">
+          <input
+            name="name"
+            type="text"
+            required
+            aria-label="Item name"
+            className="field"
+          />
+        </Field>
+        <Field label="Unit">
+          <UnitSelect
+            name="unit"
+            value={unit}
+            onChange={setUnit}
+            ariaLabel="Unit"
+          />
+        </Field>
+        <Field label="Starting quantity">
+          <input
+            name="qty"
+            type="number"
+            min="0"
+            step="any"
+            placeholder="0"
+            aria-label="Starting quantity"
+            className="field"
+          />
+        </Field>
+        <Field label="Price per unit (₱)">
+          <input
+            name="price"
+            type="number"
+            min="0"
+            step="any"
+            aria-label="Price per unit in pesos"
+            className="field"
+          />
+        </Field>
+        <Field label="Low-stock threshold">
+          <input
+            name="threshold"
+            type="number"
+            min="0"
+            step="any"
+            placeholder="0"
+            aria-label="Low-stock threshold"
+            className="field"
+          />
+        </Field>
         <div className="flex gap-2">
           <Button type="submit" variant="primary" disabled={pending}>
             Add item
@@ -402,6 +450,7 @@ export default function InventoryPage() {
       unit: string;
       qty: number;
       low_threshold: number;
+      price_cents: number;
     }) => postStockItem(input),
     onSuccess: () => {
       setAddError(null);
@@ -443,7 +492,7 @@ export default function InventoryPage() {
   const items = itemsQuery.data ?? [];
   const lowCount = items.filter(isLowStock).length;
   const totalValueCents = items.reduce(
-    (sum, item) => sum + item.qty * item.price_cents,
+    (sum, item) => sum + Math.round(item.qty * item.price_cents),
     0,
   );
   const needle = query.trim().toLowerCase();
@@ -465,6 +514,18 @@ export default function InventoryPage() {
       label: "Threshold",
       align: "right",
       render: (item) => item.low_threshold,
+    },
+    {
+      key: "unit_price",
+      label: "Unit price",
+      align: "right",
+      render: (item) => formatPeso(item.price_cents),
+    },
+    {
+      key: "value",
+      label: "Value",
+      align: "right",
+      render: (item) => formatPeso(Math.round(item.qty * item.price_cents)),
     },
     {
       key: "status",
@@ -549,14 +610,14 @@ export default function InventoryPage() {
                 <>
                   <Button
                     variant="outline"
-                    ariaLabel={`Delivery ${item.name}`}
+                    ariaLabel={`Add ${item.name}`}
                     onClick={() => {
                       setMoveError(null);
                       setMovementReason("delivery");
                       setMovementItem(item);
                     }}
                   >
-                    Delivery
+                    Add
                   </Button>
                   <Button
                     variant="outline"
