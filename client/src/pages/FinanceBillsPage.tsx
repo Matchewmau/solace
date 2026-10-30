@@ -135,7 +135,7 @@ function BillDialog({
             className="field"
           />
         </Field>
-        <Field label="Repeats">
+        <Field label="Repeats" hint="How often this bill repeats.">
           <select
             name="frequency"
             value={frequency}
@@ -148,7 +148,10 @@ function BillDialog({
             <option value="weekly">Weekly</option>
           </select>
         </Field>
-        <Field label="Ends on (optional)">
+        <Field
+          label="Ends on (optional)"
+          hint="Stop generating occurrences after this date."
+        >
           <input
             name="end_date"
             type="date"
@@ -157,7 +160,7 @@ function BillDialog({
             className="field"
           />
         </Field>
-        <Field label="Alert days">
+        <Field label="Alert days" hint="Days before the due date to alert.">
           <input
             name="alert_days"
             type="number"
@@ -451,7 +454,7 @@ export default function FinanceBillsPage() {
         <ConfirmDialog
           open
           title={`Delete ${deletingBill.name}`}
-          message="This unpaid occurrence will be removed. A recurring bill will not create its next occurrence."
+          message={`This ${formatPeso(deletingBill.amount_cents)} unpaid occurrence will be removed. A recurring bill will not create its next occurrence.`}
           confirmLabel="Delete bill"
           pending={deleteMutation.isPending}
           error={deleteError}

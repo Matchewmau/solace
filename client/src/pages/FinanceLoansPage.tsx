@@ -160,7 +160,10 @@ function LoanDialog({
             className="field"
           />
         </Field>
-        <Field label="Current balance (₱)">
+        <Field
+          label="Current balance (₱)"
+          hint="What you still owe today; defaults to the principal."
+        >
           <input
             name="balance"
             type="number"

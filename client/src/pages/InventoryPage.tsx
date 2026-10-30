@@ -85,6 +85,17 @@ function MovementDialog({
       : item.qty - entered;
   const outboundOverStock =
     (reason === "used" || reason === "waste") && entered > item.qty;
+  // Unit-aware, reason-aware quantity hint; no dangling unit clause when the
+  // item carries no unit ("Amount added" rather than "Amount added, in ").
+  const unitClause = item.unit === "" ? "" : `, in ${item.unit}`;
+  const qtyHint =
+    reason === "adjustment"
+      ? `New counted total${unitClause}`
+      : reason === "used"
+        ? `Amount used${unitClause}`
+        : reason === "waste"
+          ? `Amount wasted${unitClause}`
+          : `Amount added${unitClause}`;
 
   return (
     <Dialog open onClose={onClose} title={`Record movement — ${item.name}`}>
@@ -110,7 +121,10 @@ function MovementDialog({
           onRecord(item, outbound ? -qty : qty, selected, note);
         }}
       >
-        <Field label="Type">
+        <Field
+          label="Type"
+          hint="Add stock, use, waste, or correct the count."
+        >
           <select
             name="reason"
             value={reason}
@@ -125,7 +139,7 @@ function MovementDialog({
             ))}
           </select>
         </Field>
-        <Field label="Quantity">
+        <Field label="Quantity" hint={qtyHint}>
           <input
             name="qty"
             type="number"
@@ -139,7 +153,10 @@ function MovementDialog({
             className="field"
           />
         </Field>
-        <Field label={noteLabel}>
+        <Field
+          label={noteLabel}
+          hint="Optional detail for the history entry."
+        >
           <input
             name="note"
             type="text"
@@ -225,7 +242,8 @@ function EditDialog({ item, pending, error, onClose, onSave }: EditDialogProps) 
         }}
       >
         <p className="text-sm text-muted">
-          Current quantity: {item.qty} {canonicalUnit(item.unit)}
+          Current quantity: {item.qty} {canonicalUnit(item.unit)}. Quantity
+          changes through Add, Use, or Count.
         </p>
         <Field label="Item name">
           <input

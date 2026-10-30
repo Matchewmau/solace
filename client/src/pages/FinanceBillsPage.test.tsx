@@ -194,7 +194,7 @@ describe("FinanceBillsPage", () => {
     fireEvent.change(within(dialog).getByLabelText("Bill amount in pesos"), {
       target: { value: "275" },
     });
-    fireEvent.change(within(dialog).getByLabelText("Ends on (optional)"), {
+    fireEvent.change(within(dialog).getByLabelText(/^Ends on/), {
       target: { value: "" },
     });
     fireEvent.submit(within(dialog).getByLabelText("Edit bill form"));
@@ -220,8 +220,11 @@ describe("FinanceBillsPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Delete Meralco" }));
     const dialog = screen.getByRole("dialog", { name: "Delete Meralco" });
+    // The record is named in the title and its amount appears in the message.
     expect(
-      within(dialog).getByText(/will not create its next occurrence/),
+      within(dialog).getByText(
+        "This ₱2500 unpaid occurrence will be removed. A recurring bill will not create its next occurrence.",
+      ),
     ).toBeDefined();
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete bill" }));
     await vi.waitFor(() => expect(deleted).toEqual(["/api/bills/1"]));
@@ -261,6 +264,14 @@ describe("FinanceBillsPage", () => {
     ]) {
       expect(within(form).getByText(label)).toBeDefined();
     }
+    // Recurring fields carry their binding-spec hints.
+    expect(within(form).getByText("How often this bill repeats.")).toBeDefined();
+    expect(
+      within(form).getByText("Stop generating occurrences after this date."),
+    ).toBeDefined();
+    expect(
+      within(form).getByText("Days before the due date to alert."),
+    ).toBeDefined();
 
     fireEvent.change(form.querySelector('input[name="name"]') as HTMLInputElement, {
       target: { value: "Water" },
@@ -272,18 +283,19 @@ describe("FinanceBillsPage", () => {
     fireEvent.change(within(form).getByLabelText("Due date"), {
       target: { value: "2026-11-20" },
     });
-    fireEvent.change(within(form).getByLabelText("Repeats"), {
+    // Hints join the accessible names, so queries match the label prefixes.
+    fireEvent.change(within(form).getByLabelText(/^Repeats/), {
       target: { value: "weekly" },
     });
-    fireEvent.change(within(form).getByLabelText("Ends on (optional)"), {
+    fireEvent.change(within(form).getByLabelText(/^Ends on/), {
       target: { value: "2026-12-31" },
     });
-    fireEvent.change(within(form).getByLabelText("Alert days"), {
+    fireEvent.change(within(form).getByLabelText(/^Alert days/), {
       target: { value: "6" },
     });
     fireEvent.click(within(form).getByRole("button", { name: "5 days" }));
     expect(
-      (within(form).getByLabelText("Alert days") as HTMLInputElement).value,
+      (within(form).getByLabelText(/^Alert days/) as HTMLInputElement).value,
     ).toBe("5");
     fireEvent.submit(form);
 
@@ -322,7 +334,7 @@ describe("FinanceBillsPage", () => {
     fireEvent.change(within(form).getByLabelText("Due date"), {
       target: { value: "2026-12-01" },
     });
-    fireEvent.change(within(form).getByLabelText("Ends on (optional)"), {
+    fireEvent.change(within(form).getByLabelText(/^Ends on/), {
       target: { value: "2026-11-30" },
     });
     fireEvent.submit(form);

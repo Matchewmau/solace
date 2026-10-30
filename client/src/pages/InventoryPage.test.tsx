@@ -179,7 +179,15 @@ describe("InventoryPage with mocked data", () => {
     renderInventory();
     await screen.findByText("Milk");
 
-    const dialog = await openMovementDialog("Milk");
+    const dialog = await openMovementDialog("Milk", "Add");
+    // Movement fields expose unit-aware, reason-aware hints.
+    expect(
+      within(dialog).getByText("Add stock, use, waste, or correct the count."),
+    ).toBeDefined();
+    expect(within(dialog).getByText("Amount added, in ml")).toBeDefined();
+    expect(
+      within(dialog).getByText("Optional detail for the history entry."),
+    ).toBeDefined();
     // Delivery is the default movement type.
     fireEvent.change(within(dialog).getByLabelText("Quantity"), {
       target: { value: "2" },
@@ -196,6 +204,16 @@ describe("InventoryPage with mocked data", () => {
     });
   });
 
+  it("shows unit-aware quantity hints without a dangling unit clause when the item has no unit", async () => {
+    stubFetch();
+    renderInventory();
+    await screen.findByText("Ice");
+
+    const dialog = await openMovementDialog("Ice", "Add");
+    expect(within(dialog).getByText("Amount added")).toBeDefined();
+    expect(within(dialog).queryByText(/, in /)).toBeNull();
+  });
+
   it("records a Waste through the movement dialog as −qty", async () => {
     stubFetch();
     renderInventory();
@@ -205,6 +223,7 @@ describe("InventoryPage with mocked data", () => {
     fireEvent.change(within(dialog).getByLabelText("Movement type"), {
       target: { value: "waste" },
     });
+    expect(within(dialog).getByText("Amount wasted, in ml")).toBeDefined();
     fireEvent.change(within(dialog).getByLabelText("Quantity"), {
       target: { value: "3" },
     });
@@ -229,6 +248,7 @@ describe("InventoryPage with mocked data", () => {
     fireEvent.change(within(dialog).getByLabelText("Movement type"), {
       target: { value: "adjustment" },
     });
+    expect(within(dialog).getByText("New counted total, in ml")).toBeDefined();
     fireEvent.change(within(dialog).getByLabelText("Quantity"), {
       target: { value: "100" },
     });
@@ -321,7 +341,16 @@ describe("InventoryPage with mocked data", () => {
 
     fireEvent.click(screen.getByLabelText("Edit Milk"));
     const dialog = await screen.findByRole("dialog", { name: "Edit Milk" });
-    expect(within(dialog).getByText("Current quantity: 45 ml")).toBeDefined();
+    // Prefix query keeps the qty/unit read-out; the appended sentence
+    // explains that quantity changes only through Add, Use, or Count.
+    expect(
+      within(dialog).getByText(/^Current quantity: 45 ml\. Quantity changes/),
+    ).toBeDefined();
+    expect(
+      within(dialog).getByText(
+        "Current quantity: 45 ml. Quantity changes through Add, Use, or Count.",
+      ),
+    ).toBeDefined();
     expect(dialog.querySelector('input[name="qty"]')).toBeNull();
   });
 });

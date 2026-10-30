@@ -449,6 +449,12 @@ describe("FinanceLoansPage", () => {
     const form = within(dialog).getByLabelText(
       "Add loan form",
     ) as HTMLFormElement;
+    // The balance hint is the binding-spec copy: defaults to the principal.
+    expect(
+      within(form).getByText(
+        "What you still owe today; defaults to the principal.",
+      ),
+    ).toBeDefined();
     fireEvent.change(
       form.querySelector('input[name="lender"]') as HTMLInputElement,
       { target: { value: "BPI" } },
