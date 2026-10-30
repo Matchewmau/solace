@@ -353,25 +353,22 @@ describe("InventoryPage add-item dialog (review fix wave)", () => {
     const form = within(dialog)
       .getByLabelText("Add stock item form")
       .closest("form") as HTMLFormElement;
-    fireEvent.change(
-      form.querySelector('input[name="name"]') as HTMLInputElement,
-      { target: { value: "Sugar" } },
-    );
+    fireEvent.change(within(dialog).getByLabelText("Item name"), {
+      target: { value: "Sugar" },
+    });
     fireEvent.change(
       form.querySelector('select[name="unit"]') as HTMLSelectElement,
       { target: { value: "g" } },
     );
-    fireEvent.change(form.querySelector('input[name="qty"]') as HTMLInputElement, {
+    fireEvent.change(within(dialog).getByLabelText("Starting quantity"), {
       target: { value: "500" },
     });
-    fireEvent.change(
-      form.querySelector('input[name="price"]') as HTMLInputElement,
-      { target: { value: "15" } },
-    );
-    fireEvent.change(
-      form.querySelector('input[name="threshold"]') as HTMLInputElement,
-      { target: { value: "50" } },
-    );
+    fireEvent.change(within(dialog).getByLabelText("Price per unit in pesos"), {
+      target: { value: "15" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Low-stock threshold"), {
+      target: { value: "50" },
+    });
     fireEvent.submit(form);
 
     await vi.waitFor(() => {
@@ -435,10 +432,9 @@ describe("InventoryPage add-item dialog (review fix wave)", () => {
     expect(
       (form.querySelector('select[name="unit"]') as HTMLSelectElement).required,
     ).toBe(false);
-    fireEvent.change(
-      form.querySelector('input[name="name"]') as HTMLInputElement,
-      { target: { value: "Beans" } },
-    );
+    fireEvent.change(within(dialog).getByLabelText("Item name"), {
+      target: { value: "Beans" },
+    });
     fireEvent.submit(form);
 
     await vi.waitFor(() => {
