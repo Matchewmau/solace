@@ -258,14 +258,17 @@ describe("HistoryPage ordering and payment method", () => {
   });
 
   it("sorts the whole filtered ledger before slicing", async () => {
+    // The ₱999999 outlier sits on Sale #21 — page 2 under the old
+    // id-ascending order — so only sorting the whole ledger can lead page 1;
+    // sorting just the visible page (or not at all) shows Sale #1/#20/#25.
     const rows = Array.from({ length: 25 }, (_, i) => ({
       ...datedRow(i + 1, `2026-10-${String(i + 1).padStart(2, "0")}`),
-      total_cents: i === 0 ? 999999 : 100,
+      total_cents: i === 20 ? 999999 : 100,
     }));
     renderHistory(rows);
     await screen.findByRole("table");
     fireEvent.click(screen.getByRole("button", { name: "Total" }));
-    expect(firstRow()).toContain("Sale #1");
+    expect(firstRow()).toContain("Sale #21");
     expect(screen.getByText("Showing 1–20 of 25")).toBeDefined();
   });
 
@@ -283,9 +286,19 @@ describe("HistoryPage ordering and payment method", () => {
     expect(screen.getByRole("button", { name: /^Cash/ }).getAttribute("aria-pressed")).toBe("true");
     expect(bodyRowCount()).toBe(2);
     expect(screen.getByText("1 sale")).toBeDefined();
-    // The live share (₱50) also appears as an Average chip and in the table,
-    // so assert on the collection rather than a unique node (Ruling R3).
-    expect(screen.getAllByText("₱50").length).toBeGreaterThan(0);
+    // Totals exclude the voided ₱90 row: Revenue stays ₱50 (₱140 would mean
+    // the voided row was counted). Scope to the Revenue chip, since the table
+    // shows the ₱50 cash row too (Ruling R3).
+    expect(
+      within(screen.getByText("Revenue").closest("div")!).getByText("₱50"),
+    ).toBeDefined();
+    expect(screen.queryByText("₱140")).toBeNull();
+    expect(screen.getByRole("button", { name: /^Cash/ }).textContent).toContain(
+      "₱50",
+    );
+    expect(screen.getByRole("button", { name: /^All/ }).textContent).toContain(
+      "₱120",
+    );
     expect(screen.getByText("Voided")).toBeDefined();
 
     fireEvent.click(screen.getByRole("button", { name: /^GCash/ }));
