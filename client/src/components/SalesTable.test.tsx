@@ -138,6 +138,29 @@ describe("SalesTable", () => {
     expect(firstRowText()).toContain("Sale #31");
   });
 
+  it("supports controlled sorting and reports header clicks", () => {
+    const onSort = vi.fn();
+    render(
+      <SalesTable
+        label="Sales"
+        rows={[row({ id: 1, total_cents: 9000 }), row({ id: 2, total_cents: 5000 })]}
+        sortKey="total"
+        sortDir={1}
+        onSort={onSort}
+      />,
+    );
+    expect(
+      screen.getByRole("columnheader", { name: "Total" }).getAttribute("aria-sort"),
+    ).toBe("ascending");
+    fireEvent.click(screen.getByRole("button", { name: "Date" }));
+    expect(onSort).toHaveBeenCalledWith("date");
+  });
+
+  it("renders the empty message inside the table", () => {
+    render(<SalesTable label="Past sales" rows={[]} emptyMessage="No cash sales in this date range." />);
+    expect(screen.getByText("No cash sales in this date range.")).toBeDefined();
+  });
+
   it("opens details from a row click and from the keyboard-focusable Sale # button", () => {
     const onRowClick = vi.fn();
     const target = row({ id: 7 });

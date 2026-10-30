@@ -206,7 +206,8 @@ describe("HistoryPage filters and pagination", () => {
     });
     expect(bodyRowCount()).toBe(5);
     expect(screen.getByText("Showing 1–5 of 5")).toBeDefined();
-    expect(firstRow()).toContain("Sale #21");
+    // Newest first: the latest matching sale (Oct 25) leads.
+    expect(firstRow()).toContain("Sale #25");
   });
 
   it("resets to page 1 when the filter changes", async () => {
@@ -243,5 +244,66 @@ describe("HistoryPage filters and pagination", () => {
       "",
     );
     expect((screen.getByLabelText("To date") as HTMLInputElement).value).toBe("");
+  });
+});
+
+describe("HistoryPage ordering and payment method", () => {
+  it("defaults to newest first and pages the newest sales", async () => {
+    renderHistory(datedFixture());
+    await screen.findByRole("table");
+    expect(firstRow()).toContain("Sale #25");
+    expect(screen.getByText("Showing 1–20 of 25")).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(firstRow()).toContain("Sale #5");
+  });
+
+  it("sorts the whole filtered ledger before slicing", async () => {
+    const rows = Array.from({ length: 25 }, (_, i) => ({
+      ...datedRow(i + 1, `2026-10-${String(i + 1).padStart(2, "0")}`),
+      total_cents: i === 0 ? 999999 : 100,
+    }));
+    renderHistory(rows);
+    await screen.findByRole("table");
+    fireEvent.click(screen.getByRole("button", { name: "Total" }));
+    expect(firstRow()).toContain("Sale #1");
+    expect(screen.getByText("Showing 1–20 of 25")).toBeDefined();
+  });
+
+  it("switches payment methods and excludes voided rows from counts and totals", async () => {
+    const rows = [
+      row(1, 5000),
+      { ...row(2, 7000), payment: "gcash" as const },
+      { ...row(3, 9000), voided: 1 },
+    ];
+    renderHistory(rows);
+    await screen.findByRole("table");
+
+    expect(screen.getByRole("button", { name: /^All/ }).textContent).toContain("2 sales");
+    fireEvent.click(screen.getByRole("button", { name: /^Cash/ }));
+    expect(screen.getByRole("button", { name: /^Cash/ }).getAttribute("aria-pressed")).toBe("true");
+    expect(bodyRowCount()).toBe(2);
+    expect(screen.getByText("1 sale")).toBeDefined();
+    // The live share (₱50) also appears as an Average chip and in the table,
+    // so assert on the collection rather than a unique node (Ruling R3).
+    expect(screen.getAllByText("₱50").length).toBeGreaterThan(0);
+    expect(screen.getByText("Voided")).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: /^GCash/ }));
+    expect(bodyRowCount()).toBe(1);
+    expect(firstRow()).toContain("Sale #2");
+  });
+
+  it("shows an in-table empty message when the selected method has no rows", async () => {
+    renderHistory([row(1, 5000)]);
+    await screen.findByRole("table");
+    fireEvent.click(screen.getByRole("button", { name: /^GCash/ }));
+    expect(screen.getByText("No gcash sales in this date range.")).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Next" })).toBeNull();
+  });
+
+  it("does not make Status sortable", async () => {
+    renderHistory([row(1, 5000)]);
+    await screen.findByRole("table");
+    expect(screen.queryByRole("button", { name: "Status" })).toBeNull();
   });
 });

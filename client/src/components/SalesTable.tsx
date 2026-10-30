@@ -25,6 +25,29 @@ function compareRows(key: SalesSortKey, a: SaleRow, b: SaleRow): number {
   }
 }
 
+/**
+ * Compare two sales for a sort column/direction. Equal primaries fall back to
+ * the newest id first so a stable, newest-first order always wins ties.
+ */
+export function compareSaleRows(
+  key: SalesSortKey,
+  dir: 1 | -1,
+  a: SaleRow,
+  b: SaleRow,
+): number {
+  const primary = dir * compareRows(key, a, b);
+  return primary !== 0 ? primary : b.id - a.id;
+}
+
+/** Non-mutating sort over a copy of the rows. */
+export function sortSaleRows(
+  rows: SaleRow[],
+  key: SalesSortKey,
+  dir: 1 | -1,
+): SaleRow[] {
+  return [...rows].sort((a, b) => compareSaleRows(key, dir, a, b));
+}
+
 /** Voided wins over paid; a settled row is green, an open row is red. */
 function statusBadge(row: SaleRow) {
   if (row.voided === 1) return <Badge tone="neutral">Voided</Badge>;
@@ -46,6 +69,10 @@ export default function SalesTable({
   rowNote,
   onRowClick,
   label = "Sales",
+  sortKey: sortKeyProp,
+  sortDir: sortDirProp,
+  onSort,
+  emptyMessage = "No sales.",
 }: {
   rows: SaleRow[];
   renderActions?: (row: SaleRow) => ReactNode;
@@ -54,27 +81,43 @@ export default function SalesTable({
   /** Opens the row's receipt. The Sale # cell also becomes a real button. */
   onRowClick?: (row: SaleRow) => void;
   label?: string;
+  /**
+   * Controlled sort state. When `onSort` is supplied the parent owns the
+   * ordering (History); otherwise the table keeps today's internal default.
+   */
+  sortKey?: SalesSortKey | null;
+  sortDir?: 1 | -1;
+  onSort?: (key: SalesSortKey) => void;
+  /** Shown in an empty body row instead of nothing (e.g. per-method note). */
+  emptyMessage?: string;
 }) {
-  const [sortKey, setSortKey] = useState<SalesSortKey | null>(null);
-  const [sortDir, setSortDir] = useState<1 | -1>(1);
+  const [internalKey, setInternalKey] = useState<SalesSortKey | null>(null);
+  const [internalDir, setInternalDir] = useState<1 | -1>(1);
+  const controlled = onSort !== undefined;
+  const activeKey = controlled ? sortKeyProp ?? null : internalKey;
+  const activeDir = controlled ? sortDirProp ?? 1 : internalDir;
 
   function toggle(key: SalesSortKey) {
-    if (sortKey !== key) {
-      setSortKey(key);
-      setSortDir(-1);
+    if (controlled) {
+      onSort(key);
+      return;
+    }
+    if (internalKey !== key) {
+      setInternalKey(key);
+      setInternalDir(-1);
     } else {
-      setSortDir((dir) => (dir === -1 ? 1 : -1));
+      setInternalDir((dir) => (dir === -1 ? 1 : -1));
     }
   }
 
   const sorted = useMemo(() => {
-    if (sortKey === null) return rows;
-    return [...rows].sort((a, b) => sortDir * compareRows(sortKey, a, b));
-  }, [rows, sortKey, sortDir]);
+    if (activeKey === null) return rows;
+    return sortSaleRows(rows, activeKey, activeDir);
+  }, [rows, activeKey, activeDir]);
 
   function ariaSort(key: SalesSortKey): "ascending" | "descending" | "none" {
-    if (sortKey !== key) return "none";
-    return sortDir === 1 ? "ascending" : "descending";
+    if (activeKey !== key) return "none";
+    return activeDir === 1 ? "ascending" : "descending";
   }
 
   return (
@@ -134,65 +177,76 @@ export default function SalesTable({
         </tr>
       </thead>
       <tbody>
-        {sorted.map((row) => (
-          <tr
-            key={row.id}
-            onClick={onRowClick ? () => onRowClick(row) : undefined}
-            className={`border-b border-ink/10 ${ROW_CARD} ${
-              onRowClick ? ROW_HOVER_STRONG : ROW_HOVER
-            }${row.voided === 1 ? " text-muted" : ""}${
-              onRowClick ? " cursor-pointer" : ""
-            }`}
-          >
-            <td data-label="Sale #" className={`py-2 pr-4 font-semibold ${CELL_CARD}`}>
-              {onRowClick ? (
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    // The row itself is clickable; keep this click to one open.
-                    event.stopPropagation();
-                    onRowClick(row);
-                  }}
-                  className="text-left font-semibold underline decoration-dotted underline-offset-4 hover:text-accent"
-                >
-                  Sale #{row.id}
-                  {rowNote?.(row) ? ` (${rowNote(row)})` : ""}
-                </button>
-              ) : (
-                <>
-                  Sale #{row.id}
-                  {rowNote?.(row) ? ` (${rowNote(row)})` : ""}
-                </>
-              )}
+        {rows.length === 0 ? (
+          <tr>
+            <td
+              colSpan={renderActions ? 7 : 6}
+              className="py-6 text-center text-muted"
+            >
+              {emptyMessage}
             </td>
-            <td data-label="Date" className={`py-2 pr-4 text-muted ${CELL_CARD}`}>
-              {row.created_at.slice(0, 10)}
-            </td>
-            <td data-label="Time" className={`py-2 pr-4 text-muted ${CELL_CARD}`}>
-              {row.created_at.slice(11, 16)}
-            </td>
-            <td data-label="Payment" className={`py-2 pr-4 ${CELL_CARD}`}>
-              {row.payment === "cash" ? "Cash" : "GCash"}
-            </td>
-            <td data-label="Total" className={`py-2 pr-4 text-accent ${CELL_CARD}`}>
-              {formatPeso(row.total_cents)}
-            </td>
-            <td data-label="Status" className={`py-2 pr-4 ${CELL_CARD}`}>
-              {statusBadge(row)}
-            </td>
-            {renderActions ? (
-              <td
-                data-label="Actions"
-                className={`py-2 ${CELL_CARD}`}
-                onClick={(event) => event.stopPropagation()}
-              >
-                <span className="flex flex-wrap gap-2">
-                  {renderActions(row)}
-                </span>
-              </td>
-            ) : null}
           </tr>
-        ))}
+        ) : (
+          sorted.map((row) => (
+            <tr
+              key={row.id}
+              onClick={onRowClick ? () => onRowClick(row) : undefined}
+              className={`border-b border-ink/10 ${ROW_CARD} ${
+                onRowClick ? ROW_HOVER_STRONG : ROW_HOVER
+              }${row.voided === 1 ? " text-muted" : ""}${
+                onRowClick ? " cursor-pointer" : ""
+              }`}
+            >
+              <td data-label="Sale #" className={`py-2 pr-4 font-semibold ${CELL_CARD}`}>
+                {onRowClick ? (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      // The row itself is clickable; keep this click to one open.
+                      event.stopPropagation();
+                      onRowClick(row);
+                    }}
+                    className="text-left font-semibold underline decoration-dotted underline-offset-4 hover:text-accent"
+                  >
+                    Sale #{row.id}
+                    {rowNote?.(row) ? ` (${rowNote(row)})` : ""}
+                  </button>
+                ) : (
+                  <>
+                    Sale #{row.id}
+                    {rowNote?.(row) ? ` (${rowNote(row)})` : ""}
+                  </>
+                )}
+              </td>
+              <td data-label="Date" className={`py-2 pr-4 text-muted ${CELL_CARD}`}>
+                {row.created_at.slice(0, 10)}
+              </td>
+              <td data-label="Time" className={`py-2 pr-4 text-muted ${CELL_CARD}`}>
+                {row.created_at.slice(11, 16)}
+              </td>
+              <td data-label="Payment" className={`py-2 pr-4 ${CELL_CARD}`}>
+                {row.payment === "cash" ? "Cash" : "GCash"}
+              </td>
+              <td data-label="Total" className={`py-2 pr-4 text-accent ${CELL_CARD}`}>
+                {formatPeso(row.total_cents)}
+              </td>
+              <td data-label="Status" className={`py-2 pr-4 ${CELL_CARD}`}>
+                {statusBadge(row)}
+              </td>
+              {renderActions ? (
+                <td
+                  data-label="Actions"
+                  className={`py-2 ${CELL_CARD}`}
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <span className="flex flex-wrap gap-2">
+                    {renderActions(row)}
+                  </span>
+                </td>
+              ) : null}
+            </tr>
+          ))
+        )}
       </tbody>
     </table>
   );
