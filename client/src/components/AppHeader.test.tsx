@@ -107,16 +107,25 @@ describe("SideNav shell", () => {
     expect(screen.queryByText("Solace · Staff")).toBeNull();
   });
 
-  it("keeps the rail pinned with an icon on every item", () => {
+  it("keeps the rail pinned to the viewport with an icon on every item", () => {
     renderAt("/pos");
     const pages = screen.getByRole("navigation", { name: "Pages" });
-    expect(pages.className).toContain("sticky");
+    // The rail is fixed, not sticky: it must never scroll with the page
+    // content at tablet or desktop widths.
+    expect(pages.className).toContain("fixed");
+    expect(pages.className).not.toContain("sticky");
     expect(pages.className).toContain("top-0");
+    expect(pages.className).toContain("left-0");
     expect(pages.className).toContain("h-screen");
     // Wide enough for icon+word rows, and nothing scrolls inside: every
     // tab shows at once for quick navigation.
     expect(pages.className).toContain("w-52");
     expect(pages.className).toContain("lg:w-56");
+    // Fixed removes the rail from flow, so the page column must reserve
+    // the same width beside it.
+    const content = pages.nextElementSibling as HTMLElement;
+    expect(content.className).toContain("md:pl-52");
+    expect(content.className).toContain("lg:pl-56");
     const dashboard = rail().getByRole("link", { name: "Dashboard" });
     expect(dashboard.className).toContain("min-h-11");
     expect(dashboard.className).toContain("text-[15px]");

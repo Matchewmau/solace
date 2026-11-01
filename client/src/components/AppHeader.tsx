@@ -59,10 +59,13 @@ function isTabActive(pathname: string, to: string): boolean {
 }
 
 /**
- * Global side rail (md and up) on every authed page: a pinned, full-height
- * frame with the logo in a white tile up top, every tab as an icon-first
- * row (nothing scrolls inside) between it and a pinned Log out. The current
- * page carries a soft accent pill. Logout really logs out. Motion/three-free.
+ * Global side rail (md and up) on every authed page: a viewport-fixed,
+ * full-height frame with the logo in a white tile up top, every tab as an
+ * icon-first row (nothing scrolls inside) between it and a pinned Log out.
+ * Fixed (not sticky) so it can never scroll away with the page content at
+ * tablet or desktop widths; the content column reserves its width. The
+ * current page carries a soft accent pill. Logout really logs out.
+ * Motion/three-free.
  */
 export function SideNav() {
   const { logout } = useAuth();
@@ -77,7 +80,7 @@ export function SideNav() {
   return (
     <nav
       aria-label="Pages"
-      className="sticky top-0 hidden h-screen w-52 shrink-0 flex-col items-center gap-4 overflow-hidden bg-ink px-3 py-6 text-paper md:flex lg:w-56"
+      className="fixed top-0 left-0 hidden h-screen w-52 shrink-0 flex-col items-center gap-4 overflow-hidden bg-ink px-3 py-6 text-paper md:flex lg:w-56"
     >
       <img
         src="/solace-logo.png"
@@ -220,7 +223,7 @@ export function AuthedLayout() {
   return (
     <div className="flex min-h-screen bg-paper text-ink">
       <SideNav />
-      <div className="min-w-0 flex-1 pb-[var(--bottom-nav-height)] md:pb-0">
+      <div className="min-w-0 flex-1 pb-[var(--bottom-nav-height)] md:pb-0 md:pl-52 lg:pl-56">
         <Outlet />
       </div>
       <DueAlerts />
